@@ -1,0 +1,15 @@
+{
+  "name": "boni-m",
+  "version": "1.0.0",
+  "description": "Бони М — самоучитель азбуки Морзе (PWA). Только для тестов логики в Node; само приложение — статика в app/.",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "test": "node --test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.60.0",
+    "jsdom": "^29.1.1",
+    "playwright": "^1.60.0"
+  }
+}
