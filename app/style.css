@@ -133,6 +133,9 @@ nav#tabs button.active .ic{transform:translateY(-1px);}
 .keypad.down{background:var(--accent); color:#fff;}
 .keyout{font-size:40px; letter-spacing:8px; color:var(--accent-dark); min-height:48px; text-align:center;}
 .keychar{font-size:30px; text-align:center; min-height:40px; font-weight:700;}
+/* Свободный набор: набранная строка (слова/предложения) */
+.keytext{font-size:30px; font-weight:700; letter-spacing:2px; line-height:1.35; text-align:center;
+  word-break:break-word; min-height:48px; padding:6px 4px; color:var(--text);}
 
 /* Поля ввода */
 input[type=text]{

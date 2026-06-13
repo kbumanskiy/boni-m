@@ -16,6 +16,7 @@ export function defaultState() {
     settings: {
       alphabet: 'ru', charWpm: 18, effWpm: 9, keyWpm: 12,
       toneHz: 600, volume: 0.5, showChants: true, vibration: true,
+      keyMode: 'train', // режим «Ключа»: 'train' (с подсказкой) | 'free' (свободный набор)
     },
     streak: { current: 0, longest: 0, lastActiveDate: null },
     totalSeconds: 0,
@@ -68,6 +69,7 @@ export function migrate(raw) {
     s.settings.volume = clampNum(r.volume, 0, 1, 0.5);
     s.settings.showChants = r.showChants !== false;
     s.settings.vibration = r.vibration !== false;
+    s.settings.keyMode = r.keyMode === 'free' ? 'free' : 'train';
   }
   // Серия дней
   if (isObj(raw.streak)) {

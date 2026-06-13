@@ -5,6 +5,7 @@ import { clampEff, charTiming, classifyHold, keyThresholds } from './js/timing.j
 import * as P from './js/progress.js';
 import * as G from './js/gamify.js';
 import * as A from './js/audio.js';
+import * as KT from './js/keytext.js';
 
 let state = load();
 const persist = () => save(state);
@@ -39,6 +40,7 @@ function go(tab) {
   // Уход из «Учиться» любым путём (нижнее меню, кнопка) фиксирует сессию — иначе серия
   // дней и журнал не запишутся, когда папа просто тапнет «Главная».
   if (currentTab === 'learn' && tab !== 'learn') finalizeLearnSession();
+  if (currentTab === 'key' && tab !== 'key') clearKeyTimers();
   if (tab !== 'learn' && tab !== 'key') stopActiveClock();
   currentTab = tab;
   A.stopAll();
@@ -158,15 +160,22 @@ function renderLearn() {
     <div class="flash" id="flash" aria-hidden="true">•</div>
     <div class="feedback center" id="fb">Слушайте знак…</div>
     <div class="options" id="opts"></div>
-    <div class="btn-row" style="margin-top:14px">
-      <button class="btn secondary" id="again">🔁 Повторить</button>
-      <button class="btn secondary" id="slow">🐢 Медленнее</button>
-    </div>
-    <button class="btn ghost" id="help">Подсказка: коды набора</button>
+    <button class="btn secondary" id="again" style="margin-top:14px">🔁 Повторить</button>
+    <label class="muted" style="margin-top:8px">🐢 Скорость морзянки 🐇 (${state.settings.effWpm})</label>
+    <input type="range" id="lspeed" min="5" max="15" value="${Math.min(15, state.settings.effWpm)}">
+    <button class="btn ghost" id="help" style="margin-top:6px">Подсказка: коды набора</button>
     <div id="help-box"></div>`;
   $('#exit').addEventListener('click', exitLearn);
   $('#again').addEventListener('click', () => playTarget());
-  $('#slow').addEventListener('click', () => { L.slow = true; playTarget(); });
+  // Живой регулятор скорости: меняем при перетаскивании, переигрываем на отпускании (без «спама» звуком).
+  const lspeed = $('#lspeed');
+  lspeed.addEventListener('input', (e) => {
+    state.settings.effWpm = clampEff(+e.target.value, state.settings.charWpm);
+    persist();
+    const lbl = lspeed.previousElementSibling;
+    if (lbl) lbl.textContent = `🐢 Скорость морзянки 🐇 (${state.settings.effWpm})`;
+  });
+  lspeed.addEventListener('change', () => { if (!L.locked && !L.awaiting) playTarget(); });
   $('#help').addEventListener('click', toggleHelp);
   startActiveClock();
   nextRound();
@@ -361,20 +370,60 @@ function callsignDrill() {
 
 // ——————————————————————————— Ключ (§7.3) ———————————————————————————
 let K = null;
+function clearKeyTimers() { if (K) { clearTimeout(K.gapTimer); clearTimeout(K.spaceTimer); K.gapTimer = K.spaceTimer = null; } }
+
 function renderKey() {
-  K = { elements: [], lastUp: null, holdStart: null, gapTimer: null, target: null };
-  const order = P.activeSet(track(), state.settings.alphabet);
-  K.target = order[Math.floor(Math.random() * order.length)];
-  screenEl.innerHTML = `
-    <h2>Ключ</h2>
-    <p class="muted center">Отстучите: <b style="font-size:28px;color:var(--accent-dark)">${esc(K.target)}</b>
-      <button class="btn ghost switch" id="sample" style="display:inline-flex;width:auto;margin-left:8px">🔊 образец</button></p>
-    <div class="keyout" id="keyout">·</div>
-    <div class="keychar" id="keychar">&nbsp;</div>
-    <div class="keypad" id="pad">Нажимайте и держите</div>
-    <button class="btn ghost" id="newtarget">Другой знак</button>`;
-  $('#sample').addEventListener('click', () => A.playCode(codeOf(K.target), { ...state.settings, charWpm: state.settings.keyWpm, effWpm: state.settings.keyWpm }, {}));
-  $('#newtarget').addEventListener('click', renderKey);
+  clearKeyTimers();
+  const mode = state.settings.keyMode === 'free' ? 'free' : 'train';
+  K = { mode, elements: [], holdStart: null, gapTimer: null, spaceTimer: null, target: null, line: KT.emptyLine() };
+  const toggle = `<div class="seg">
+      <button data-m="train" class="${mode === 'train' ? 'active' : ''}">Тренировка</button>
+      <button data-m="free" class="${mode === 'free' ? 'active' : ''}">Свободно</button>
+    </div>`;
+  const speedCtl = `
+    <label class="muted" style="margin-top:10px">🐢 Скорость ключа 🐇 (${state.settings.keyWpm})</label>
+    <input type="range" id="kspeed" min="8" max="18" value="${state.settings.keyWpm}">`;
+
+  if (mode === 'train') {
+    const order = P.activeSet(track(), state.settings.alphabet);
+    K.target = order[Math.floor(Math.random() * order.length)];
+    screenEl.innerHTML = `
+      <h2>Ключ</h2>${toggle}
+      <p class="muted center">Отстучите: <b style="font-size:28px;color:var(--accent-dark)">${esc(K.target)}</b>
+        <button class="btn ghost switch" id="sample" style="display:inline-flex;width:auto;margin-left:8px">🔊 образец</button></p>
+      <div class="keyout" id="keyout">·</div>
+      <div class="keychar" id="keychar">&nbsp;</div>
+      <div class="keypad" id="pad">Нажимайте и держите</div>
+      <button class="btn ghost" id="newtarget">Другой знак</button>${speedCtl}`;
+    $('#sample').addEventListener('click', () => A.playCode(codeOf(K.target), { ...state.settings, charWpm: state.settings.keyWpm, effWpm: state.settings.keyWpm }, {}));
+    $('#newtarget').addEventListener('click', renderKey);
+  } else {
+    screenEl.innerHTML = `
+      <h2>Ключ</h2>${toggle}
+      <p class="muted center">Отстукивайте — буквы складываются в строку. Пауза подольше = пробел.</p>
+      <div class="keytext" id="text"></div>
+      <div class="keyout" id="keyout">·</div>
+      <div class="keypad" id="pad">Нажимайте и держите</div>
+      <div class="btn-row">
+        <button class="btn secondary" id="erase">⌫ Стереть</button>
+        <button class="btn secondary" id="clear">Очистить</button>
+      </div>${speedCtl}`;
+    renderKeyLine();
+    $('#erase').addEventListener('click', () => { clearKeyTimers(); K.elements = []; setKeyout('·'); K.line = KT.eraseLast(K.line); renderKeyLine(); vibrate(10); });
+    $('#clear').addEventListener('click', () => { clearKeyTimers(); K.elements = []; setKeyout('·'); K.line = KT.clearLine(); renderKeyLine(); vibrate(10); });
+  }
+
+  screenEl.querySelectorAll('.seg [data-m]').forEach((b) =>
+    b.addEventListener('click', () => { state.settings.keyMode = b.dataset.m; persist(); renderKey(); }));
+
+  const kspeed = $('#kspeed');
+  if (kspeed) kspeed.addEventListener('input', (e) => {
+    state.settings.keyWpm = Math.min(18, Math.max(8, Math.round(+e.target.value)));
+    persist();
+    const lbl = kspeed.previousElementSibling;
+    if (lbl) lbl.textContent = `🐢 Скорость ключа 🐇 (${state.settings.keyWpm})`;
+  });
+
   const pad = $('#pad');
   const down = (e) => { e.preventDefault(); keyPadDown(); };
   const up = (e) => { e.preventDefault(); keyPadUp(); };
@@ -385,9 +434,17 @@ function renderKey() {
   startActiveClock();
 }
 
+const setKeyout = (s) => { const el = $('#keyout'); if (el) el.textContent = s; };
+function renderKeyLine() {
+  const el = $('#text'); if (!el) return;
+  el.innerHTML = K.line.text
+    ? `${esc(K.line.text)}<span style="color:var(--accent)">▌</span>`
+    : '<span class="muted">отстукивайте слово…</span>';
+}
+
 function keyPadDown() {
   if (K.holdStart !== null) return;
-  if (K.gapTimer) { clearTimeout(K.gapTimer); K.gapTimer = null; }
+  clearKeyTimers(); // новое нажатие отменяет ожидание конца знака/пробела
   K.holdStart = Date.now();
   $('#pad').classList.add('down');
   A.keyDown(state.settings.toneHz, state.settings.volume);
@@ -403,21 +460,41 @@ function keyPadUp() {
   if (hold < th.debounceMin) return; // фильтр дребезга (§13.7)
   const el = classifyHold(hold, state.settings.keyWpm);
   K.elements.push(el);
-  $('#keyout').textContent = K.elements.join(' ').replace(/\./g, '•').replace(/-/g, '—');
+  setKeyout(K.elements.join(' ').replace(/\./g, '•').replace(/-/g, '—'));
   // ждём паузу конца знака (3·keyDit) → декодируем
   K.gapTimer = setTimeout(() => decodeKey(), th.charGapMin * 1000);
 }
 function decodeKey() {
+  K.gapTimer = null;
   const code = K.elements.join('');
+  K.elements = [];
+  setKeyout('·');
   const map = DATA.CODE_BY_CHAR[state.settings.alphabet];
   let found = '?';
   for (const [ch, c] of map.entries()) if (c === code) { found = ch; break; }
-  const ok = found === K.target;
-  $('#keychar').innerHTML = found === '?' ? '<span class="muted">не распознано</span>'
-    : `<span style="color:${ok ? 'var(--success)' : 'var(--text)'}">${esc(found)}</span>${ok ? ' ✓' : ''}`;
-  if (ok) { A.cue('success'); vibrate(40); }
-  K.elements = [];
-  $('#keyout').textContent = '·';
+
+  if (K.mode === 'train') {
+    const ok = found === K.target;
+    const el = $('#keychar');
+    if (el) el.innerHTML = found === '?' ? '<span class="muted">не распознано</span>'
+      : `<span style="color:${ok ? 'var(--success)' : 'var(--text)'}">${esc(found)}</span>${ok ? ' ✓' : ''}`;
+    if (ok) { A.cue('success'); vibrate(40); }
+    return;
+  }
+
+  // Свободный режим.
+  if (found === '?') { setKeyout('?'); setTimeout(() => setKeyout('·'), 600); return; }
+  K.line = KT.addChar(K.line, found);
+  renderKeyLine();
+  A.cue('success'); vibrate(20);
+  // Авто-пробел: если пауза продлится — поставить ОДИН пробел (щедрый порог против случайной задумчивости).
+  const th = keyThresholds(state.settings.keyWpm);
+  const autoSpaceMs = Math.max(900, (th.wordGapMin - th.charGapMin) * 1000);
+  K.spaceTimer = setTimeout(() => {
+    K.spaceTimer = null;
+    const next = KT.addSpace(K.line);
+    if (next !== K.line) { K.line = next; renderKeyLine(); } // больше пробел не ждём — один максимум
+  }, autoSpaceMs);
 }
 
 // ——————————————————————————— Справочник (§7.4) ———————————————————————————
@@ -554,7 +631,7 @@ function doRestore(e) {
 
 // ——————————————————————————— Системное ———————————————————————————
 document.addEventListener('visibilitychange', () => {
-  if (document.hidden) { A.stopAll(); stopActiveClock(); }
+  if (document.hidden) { A.stopAll(); stopActiveClock(); if (currentTab === 'key') { clearKeyTimers(); if (K) { K.holdStart = null; K.elements = []; } } }
   else if (currentTab === 'learn' || currentTab === 'key') {
     startActiveClock();
     // Сворачивание во время проигрывания обрывает звук и оставляет кнопки заблокированными —
