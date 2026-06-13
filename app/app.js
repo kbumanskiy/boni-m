@@ -66,9 +66,9 @@ function showHero(img, title, sub, ms = 1200) {
   });
 }
 function milestoneBanner(ids) {
-  if (!ids.length) return;
+  if (!ids.length) return Promise.resolve();
   const titles = ids.map((id) => G.MILESTONES[id]?.title).filter(Boolean).join(' · ');
-  showHero('hero-radost.webp', 'Новая веха!', titles, 2200);
+  return showHero('hero-radost.webp', 'Новая веха!', titles, 2200);
 }
 
 // ——————————————————————————— Онбординг (§7.1) ———————————————————————————
@@ -207,7 +207,9 @@ function playTarget() {
 
 function renderOptions(disabled) {
   const box = $('#opts');
-  box.className = 'options' + (L.options.length === 6 || L.options.length === 9 ? ' cols3' : '');
+  const cols3 = L.options.length === 6 || L.options.length === 9;
+  // disabled здесь = идёт проигрывание знака → мягко гасим кнопки (класс playing).
+  box.className = 'options' + (cols3 ? ' cols3' : '') + (disabled ? ' playing' : '');
   box.innerHTML = L.options.map((c) => `<button class="opt" data-c="${esc(c)}" ${disabled ? 'disabled' : ''}>${esc(c)}</button>`).join('');
   [...box.children].forEach((b) => b.addEventListener('click', () => answer(b.dataset.c)));
 }
@@ -224,12 +226,21 @@ function answer(ch) {
   const right = [...box.children].find((b) => b.dataset.c === L.target);
 
   if (correct) {
+    // Лёгкое подтверждение прямо на месте (кнопка зеленеет + надпись), без полноэкранного
+    // оверлея на каждый ответ — за занятие их 15+, иначе папа ждёт впустую. Полноэкранный
+    // герой остаётся для событий: новый знак, веха, позывной.
     G.awardCorrect(state);
     chosen.classList.add('correct');
     A.cue('success'); vibrate(30);
+    $('#fb').className = 'feedback center ok';
+    $('#fb').textContent = 'Верно!';
     persist();
-    afterAnswerProgress();
-    showHero('hero-radost.webp', 'Верно!', '', 1100).then(() => { if (currentTab === 'learn') nextRound(); });
+    L.awaiting = true;
+    setTimeout(() => {
+      if (currentTab !== 'learn') return;
+      L.awaiting = false;
+      if (!afterAnswerProgress()) nextRound();
+    }, 600);
   } else {
     L.awaiting = true;
     if (chosen) chosen.classList.add('wrong');
@@ -242,27 +253,42 @@ function answer(ch) {
       <button class="btn secondary" id="relisten" style="max-width:220px;margin:10px auto">Переслушать</button>
       <button class="btn" id="nextbtn" style="max-width:220px;margin:6px auto">Дальше</button>`;
     $('#relisten').addEventListener('click', () => A.playCode(codeOf(L.target), settingsForPlay(), {}));
-    $('#nextbtn').addEventListener('click', () => { afterAnswerProgress(); nextRound(); });
+    $('#nextbtn').addEventListener('click', () => { if (!afterAnswerProgress()) nextRound(); });
     persist();
   }
 }
 
 // Продвижение, вехи, предложение отложить — после ответа (не в режиме повторения).
+// Возвращает true, если функция сама берёт на себя переход к следующему знаку
+// (показывает событие-оверлей или диалог «отложить») — тогда вызывающий не делает nextRound.
 function afterAnswerProgress() {
-  if (L.repetition) return;
+  if (L.repetition) return false;
   const t = track(), alpha = state.settings.alphabet;
+
+  // 1) Открылся новый знак — это событие: показываем героя и ТОЛЬКО ПОТОМ следующий раунд.
   if (P.shouldOpenNext(t, alpha)) {
     const opened = P.openNext(t, alpha);
     const info = DATA.charInfo(opened);
-    const chant = state.settings.showChants && state.settings.alphabet === 'ru' && info?.chant ? `, напев «${info.chant}»` : '';
+    const chant = state.settings.showChants && alpha === 'ru' && info?.chant ? `, напев «${info.chant}»` : '';
+    const newly = G.checkMilestones(state);
     persist();
-    setTimeout(() => showHero('hero-radost.webp', `Открыт новый знак: ${opened}`, `${visualCode(codeOf(opened))}${chant}`, 2400), 1150);
-  } else if (P.shouldOfferPark(t, alpha)) {
-    offerPark();
+    showHero('hero-radost.webp', `Открыт новый знак: ${opened}`, `${visualCode(codeOf(opened))}${chant}`, 2400)
+      .then(() => (newly.length ? milestoneBanner(newly) : null))
+      .then(() => { if (currentTab === 'learn') nextRound(); });
+    return true;
   }
+
+  // 2) Знак даётся трудно — предложить отложить (свой поток перехода в offerPark).
+  if (P.shouldOfferPark(t, alpha)) { offerPark(); return true; }
+
+  // 3) Веха без нового знака — короткий баннер, затем следующий раунд.
   const newly = G.checkMilestones(state);
   persist();
-  if (newly.length) setTimeout(() => milestoneBanner(newly), 1200);
+  if (newly.length) {
+    milestoneBanner(newly).then(() => { if (currentTab === 'learn') nextRound(); });
+    return true;
+  }
+  return false;
 }
 
 function offerPark() {
@@ -276,7 +302,7 @@ function offerPark() {
     P.parkNewest(track(), state.settings.alphabet); persist();
     overlayRoot.innerHTML = ''; L.awaiting = false; nextRound();
   });
-  $('#keep').addEventListener('click', () => { overlayRoot.innerHTML = ''; L.awaiting = false; });
+  $('#keep').addEventListener('click', () => { overlayRoot.innerHTML = ''; L.awaiting = false; nextRound(); });
 }
 
 function toggleHelp() {
@@ -448,15 +474,16 @@ function renderCabinet() {
     <div class="card center">
       <img class="avatar" src="assets/hero-portret.webp" alt="" style="width:80px;height:80px">
       <div class="odometer">${state.profile.points}</div><div class="muted">очков опыта</div>
+      <div style="font-weight:700;margin-top:4px">${esc(rank)}</div>
+      <label style="text-align:left">Имя</label><input type="text" id="name" value="${esc(state.profile.name)}">
+      <label style="text-align:left">Позывной</label><input type="text" id="callsign" value="${esc(state.profile.callsign)}">
     </div>
     <div class="card">
-      <label>Имя</label><input type="text" id="name" value="${esc(state.profile.name)}">
-      <label>Позывной</label><input type="text" id="callsign" value="${esc(state.profile.callsign)}">
-    </div>
-    <div class="card">
-      <div class="rowflex"><b>${esc(rank)}</b><span>Освоено: ${t.learnedCount}/32</span></div>
-      <div class="rowflex muted"><span>Цифры: ${t.digitsLearned}/10</span><span>Серия: ${state.streak.current} (лучшая ${state.streak.longest})</span></div>
-      <div class="muted">В эфире: ${Math.round(state.totalSeconds / 60)} мин</div>
+      <b>Мои успехи</b>
+      <div class="rowflex"><span>Освоено знаков</span><span>${t.learnedCount} / 32</span></div>
+      <div class="rowflex"><span>Цифры</span><span>${t.digitsLearned} / 10</span></div>
+      <div class="rowflex"><span>Дни в эфире</span><span>${state.streak.current} (лучшая ${state.streak.longest})</span></div>
+      <div class="rowflex"><span>Всего в эфире</span><span>${Math.round(state.totalSeconds / 60)} мин</span></div>
     </div>
     <div class="card"><b>Журнал занятий</b><ul class="list">${hist}</ul></div>
     <div class="card"><b>Вехи</b><ul class="list">${ms}</ul></div>
@@ -480,7 +507,7 @@ function renderCabinet() {
       <button class="btn secondary" id="restore">📂 Восстановить из копии</button>
       <input type="file" id="file" accept="application/json" class="hidden">
     </div>
-    <button class="btn ghost" id="reset" style="color:var(--error)">Сбросить прогресс</button>`;
+    <button class="btn ghost" id="reset" style="color:var(--error);margin-top:22px">Сбросить прогресс</button>`;
   $('#back').addEventListener('click', () => go('home'));
   const saveProfile = () => { state.profile.name = $('#name').value.trim() || state.profile.name; state.profile.callsign = $('#callsign').value.trim() || 'Boney M'; persist(); };
   $('#name').addEventListener('change', saveProfile);

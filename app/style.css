@@ -1,7 +1,7 @@
 /* Бони М — тёплая светлая тема (ТЗ §12) и доступность под 73 года (§11). */
 :root{
   --bg:#FBF3E6; --card:#FFFFFF; --accent:#C8861E; --accent-dark:#A86E12;
-  --text:#2B2620; --text-2:#6B6157; --success:#3E8E5A; --error:#C0563B;
+  --text:#2B2620; --text-2:#564C41; --success:#3E8E5A; --error:#C0563B;
   --radius:18px; --shadow:0 4px 16px rgba(80,60,30,.12);
   --tap:64px;
 }
@@ -51,7 +51,7 @@ img{max-width:100%; height:auto;}
 .topbar{display:flex; align-items:center; gap:12px; padding:8px 4px;}
 .avatar{width:56px; height:56px; border-radius:50%; object-fit:cover; background:#fff; box-shadow:var(--shadow);}
 .chip{background:#fff; border:2px solid var(--accent); color:var(--accent-dark);
-  border-radius:999px; padding:6px 14px; font-weight:700; font-size:16px;}
+  border-radius:999px; padding:6px 14px; font-weight:700; font-size:17px;}
 .topbar .grow{flex:1;}
 
 .hero{display:block; margin:6px auto; max-height:34vh;}
@@ -69,9 +69,10 @@ nav#tabs{
 }
 nav#tabs button{
   flex:1; min-height:var(--tap); border:none; background:none; color:var(--text-2);
-  font-size:14px; padding:8px 4px; display:flex; flex-direction:column; align-items:center; gap:3px;
+  font-size:15px; line-height:1.1; padding:8px 4px; display:flex; flex-direction:column; align-items:center; gap:3px;
 }
 nav#tabs button .ic{font-size:24px; line-height:1;}
+nav#tabs button .ic svg{width:26px; height:26px; display:block;}
 nav#tabs button.active{color:var(--accent-dark); font-weight:700;}
 nav#tabs button.active .ic{transform:translateY(-1px);}
 
@@ -90,6 +91,8 @@ nav#tabs button.active .ic{transform:translateY(-1px);}
   background:#fff; color:var(--text); box-shadow:var(--shadow);
 }
 .opt:disabled{opacity:1;}
+/* Во время проигрывания знака — мягко гасим варианты: видно «сейчас слушай, не нажимай». */
+.options.playing .opt{opacity:.45;}
 .opt.correct{background:var(--success); color:#fff; border-color:var(--success);}
 .opt.wrong{background:var(--error); color:#fff; border-color:var(--error);}
 .opt.reveal{border-color:var(--success); box-shadow:0 0 0 3px rgba(62,142,90,.35);}
@@ -115,7 +118,7 @@ nav#tabs button.active .ic{transform:translateY(-1px);}
   border:2px solid #E4D8C2; display:flex; flex-direction:column; align-items:center; justify-content:center;
   font-size:28px; font-weight:700; gap:2px;
 }
-.cell small{font-size:14px; color:var(--accent-dark); letter-spacing:2px; font-weight:700;}
+.cell small{font-size:17px; color:var(--accent-dark); letter-spacing:2px; font-weight:700;}
 .seg{display:flex; gap:8px; justify-content:center; margin:10px 0; flex-wrap:wrap;}
 .seg button{flex:1; min-height:52px; border-radius:12px; border:2px solid #E4D8C2; background:#fff; font-weight:600;}
 .seg button.active{background:var(--accent); color:#fff; border-color:var(--accent);}
