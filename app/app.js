@@ -1,7 +1,7 @@
 // Бони М — контроллер интерфейса. Чистая логика — в js/*, здесь только экраны и события.
 import * as DATA from './js/data.js';
 import { load, save, needsOnboarding } from './js/state.js';
-import { clampEff, charTiming } from './js/timing.js';
+import { clampEff, charTiming, classifyHold, keyThresholds } from './js/timing.js';
 import * as P from './js/progress.js';
 import * as G from './js/gamify.js';
 import * as A from './js/audio.js';
@@ -36,6 +36,9 @@ function stopActiveClock() {
 
 let currentTab = 'home';
 function go(tab) {
+  // Уход из «Учиться» любым путём (нижнее меню, кнопка) фиксирует сессию — иначе серия
+  // дней и журнал не запишутся, когда папа просто тапнет «Главная».
+  if (currentTab === 'learn' && tab !== 'learn') finalizeLearnSession();
   if (tab !== 'learn' && tab !== 'key') stopActiveClock();
   currentTab = tab;
   A.stopAll();
@@ -287,16 +290,24 @@ function toggleHelp() {
   }).join('')}</ul></div>`;
 }
 
+// Засчитать текущее занятие один раз (≥15 ответов). Вызывается из любого ухода.
+function finalizeLearnSession() {
+  if (!L || L.recorded || L.answers < 15) return false;
+  const acc = Math.round(L.correct / L.answers * 100);
+  const counted = G.recordSession(state, { answers: L.answers, accuracyPct: acc, todayStr: G.localDate() });
+  L.recorded = true;
+  persist();
+  return counted;
+}
+
 function exitLearn() {
   stopActiveClock();
-  if (L && L.answers >= 15) {
+  const counted = finalizeLearnSession();
+  if (counted && L) {
     const acc = Math.round(L.correct / L.answers * 100);
-    const counted = G.recordSession(state, { answers: L.answers, accuracyPct: acc, todayStr: G.localDate() });
-    persist();
-    if (counted) {
-      showHero('hero-radost.webp', 'Занятие засчитано', `Ответов: ${L.answers}, точность ${acc}%`, 1800).then(() => { learnOpts.repetition = false; go('home'); });
-      return;
-    }
+    showHero('hero-radost.webp', 'Занятие засчитано', `Ответов: ${L.answers}, точность ${acc}%`, 1800)
+      .then(() => { learnOpts.repetition = false; go('home'); });
+    return;
   }
   learnOpts.repetition = false;
   go('home');
@@ -362,17 +373,13 @@ function keyPadUp() {
   K.holdStart = null;
   $('#pad').classList.remove('down');
   A.keyUp();
-  const { keyDit, debounceMin } = require_thresholds();
-  if (hold < debounceMin) return; // фильтр дребезга
-  const el = hold <= 2 * keyDit + 1e-9 ? '.' : '-';
+  const th = keyThresholds(state.settings.keyWpm);
+  if (hold < th.debounceMin) return; // фильтр дребезга (§13.7)
+  const el = classifyHold(hold, state.settings.keyWpm);
   K.elements.push(el);
   $('#keyout').textContent = K.elements.join(' ').replace(/\./g, '•').replace(/-/g, '—');
-  // ждём паузу: конец знака (3·dit) или слова (7·dit)
-  K.gapTimer = setTimeout(() => decodeKey(false), 3 * keyDit * 1000);
-}
-function require_thresholds() {
-  const keyDit = 1.2 / state.settings.keyWpm;
-  return { keyDit, debounceMin: 0.3 * keyDit };
+  // ждём паузу конца знака (3·keyDit) → декодируем
+  K.gapTimer = setTimeout(() => decodeKey(), th.charGapMin * 1000);
 }
 function decodeKey() {
   const code = K.elements.join('');
@@ -521,7 +528,12 @@ function doRestore(e) {
 // ——————————————————————————— Системное ———————————————————————————
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) { A.stopAll(); stopActiveClock(); }
-  else if (currentTab === 'learn' || currentTab === 'key') startActiveClock();
+  else if (currentTab === 'learn' || currentTab === 'key') {
+    startActiveClock();
+    // Сворачивание во время проигрывания обрывает звук и оставляет кнопки заблокированными —
+    // переиграем текущий знак, чтобы занятие не «зависло».
+    if (currentTab === 'learn' && L && L.locked && !L.awaiting) playTarget();
+  }
 });
 
 // Wake Lock во время занятия (§13.5) — мягко, без падений.

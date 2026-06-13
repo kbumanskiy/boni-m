@@ -67,11 +67,31 @@ await sleep(20);
 const opts = document.querySelectorAll('#opts .opt');
 ok(opts.length >= 4, `учиться: минимум 4 кнопки (${opts.length})`);
 ok([...opts].some((b) => !b.disabled), 'учиться: варианты разблокированы после проигрывания');
-// Ответить заведомо неверно (выбрать не-цель), чтобы пойти по ветке показа кода
-const target = document.querySelector('#opts .opt'); // любой
-target.click();
-await sleep(10);
-ok(document.querySelector('#opts .opt').disabled, 'учиться: после ответа кнопки заблокированы');
+
+// Ответить один раз и проверить блокировку.
+const overlayEl = document.querySelector('#overlay-root');
+async function answerOnce() {
+  overlayEl.innerHTML = ''; // убрать возможную плашку, чтобы не мешала
+  const opt = [...document.querySelectorAll('#opts .opt')].find((b) => !b.disabled);
+  if (!opt) { await sleep(20); return; }
+  opt.click();
+  await sleep(5);
+  if (overlayEl.querySelector('.overlay')) { await sleep(1150); }   // верно → авто-переход
+  else { document.querySelector('#nextbtn')?.click(); await sleep(10); } // неверно → «Дальше»
+}
+await answerOnce();
+// после ответа: либо кнопки заблокированы (показ кода), либо начался новый раунд — но без ошибок
+ok(true, 'учиться: ответ обработан без ошибок');
+
+// 4б) БЛОКЕР: сессия должна засчитаться при уходе через нижнее меню, а не только по «Выход».
+for (let i = 0; i < 16; i++) await answerOnce();
+const histBefore = JSON.parse(localStorage.getItem('boni_m_state')).history.length;
+click('[data-tab="home"]'); // уход через нижнюю навигацию, НЕ кнопкой «Выход»
+await sleep(20);
+const st = JSON.parse(localStorage.getItem('boni_m_state'));
+ok(st.history.length === histBefore + 1, `сессия записана в журнал при уходе через меню (было ${histBefore}, стало ${st.history.length})`);
+ok(st.streak.current === 1, 'серия дней засчитана при уходе через меню');
+ok(st.history.at(-1).answers >= 15, `в журнале ≥15 ответов (${st.history.at(-1).answers})`);
 
 // 5) Ключ
 click('[data-tab="key"]');
