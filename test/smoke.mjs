@@ -152,16 +152,20 @@ click('[data-a="en"]');
 click('[data-s="letters"]');
 ok(document.querySelectorAll('.cell').length === 26, 'справочник: 26 латинских букв');
 
-// 7) Кабинет: профиль, настройки, переключатели
+// 7) Кабинет: открывается ОТДЕЛЬНОЙ вкладкой «Журнал», язык переключается понятными кнопками
 click('[data-tab="ref"]'); // вернуть ru
 click('[data-a="ru"]');
-document.querySelector('.avatar') || click('[data-tab="home"]');
-click('[data-tab="home"]');
+ok(document.querySelector('#tabs [data-tab="cabinet"]'), 'нижнее меню: есть вкладка «Журнал»');
+click('[data-tab="cabinet"]'); // открыть кабинет вкладкой, а не тапом по портрету
 await sleep(10);
-click('#toCab');
-await sleep(10);
-ok(text().includes('Бортжурнал'), 'кабинет: открылся');
+ok(text().includes('Бортжурнал'), 'кабинет: открылся со вкладки');
 ok(document.querySelector('#name').value === 'Бонислав', 'кабинет: имя подставлено');
+ok(document.querySelector('#lang-ru') && document.querySelector('#lang-en'), 'кабинет: язык — кнопки «Русская/English»');
+click('#lang-en'); // переключение языка не падает
+await sleep(10);
+ok(JSON.parse(localStorage.getItem('boni_m_state')).settings.alphabet === 'en', 'кабинет: язык переключился на English');
+click('#lang-ru');
+await sleep(10);
 click('#vib'); // тумблер вибрации не падает
 click('#chants');
 ok(true, 'кабинет: тумблеры настроек работают');

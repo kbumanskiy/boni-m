@@ -556,6 +556,13 @@ function renderCabinet() {
       <label style="text-align:left">Позывной</label><input type="text" id="callsign" value="${esc(state.profile.callsign)}">
     </div>
     <div class="card">
+      <b>🌐 Язык азбуки</b>
+      <div class="seg" style="margin-bottom:0">
+        <button id="lang-ru" class="${s.alphabet === 'ru' ? 'active' : ''}">Русская</button>
+        <button id="lang-en" class="${s.alphabet === 'en' ? 'active' : ''}">English</button>
+      </div>
+    </div>
+    <div class="card">
       <b>Мои успехи</b>
       <div class="rowflex"><span>Освоено знаков</span><span>${t.learnedCount} / 32</span></div>
       <div class="rowflex"><span>Цифры</span><span>${t.digitsLearned} / 10</span></div>
@@ -576,7 +583,6 @@ function renderCabinet() {
       <input type="range" id="key" min="8" max="18" value="${s.keyWpm}">
       <div class="rowflex"><span>Напевы (рус)</span><button class="btn secondary switch" id="chants">${s.showChants ? 'Вкл' : 'Выкл'}</button></div>
       <div class="rowflex"><span>Вибрация</span><button class="btn secondary switch" id="vib">${s.vibration ? 'Вкл' : 'Выкл'}</button></div>
-      <div class="rowflex"><span>Алфавит</span><button class="btn secondary switch" id="alpha">${s.alphabet === 'ru' ? 'РУС' : 'ENG'}</button></div>
     </div>
     <div class="card">
       <b>Резервная копия</b>
@@ -596,7 +602,8 @@ function renderCabinet() {
   $('#tone').addEventListener('change', () => A.playCode('-.-', state.settings, {}));
   $('#chants').addEventListener('click', () => { s.showChants = !s.showChants; persist(); renderCabinet(); });
   $('#vib').addEventListener('click', () => { s.vibration = !s.vibration; persist(); renderCabinet(); });
-  $('#alpha').addEventListener('click', () => { s.alphabet = s.alphabet === 'ru' ? 'en' : 'ru'; persist(); renderCabinet(); });
+  $('#lang-ru').addEventListener('click', () => { s.alphabet = 'ru'; persist(); renderCabinet(); });
+  $('#lang-en').addEventListener('click', () => { s.alphabet = 'en'; persist(); renderCabinet(); });
   $('#backup').addEventListener('click', doBackup);
   $('#restore').addEventListener('click', () => $('#file').click());
   $('#file').addEventListener('change', doRestore);
