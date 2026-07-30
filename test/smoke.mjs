@@ -57,6 +57,7 @@ click('#start');
 await sleep(10);
 
 // 3) Главная
+ok(!document.querySelector('#overlay-root .overlay'), 'при входе не выпадает поздравлений');
 ok(text().includes('Продолжить обучение'), 'главная: кнопка продолжить');
 ok(text().includes('Освоено: 4 из 32'), 'главная: стартовый набор 4 знака');
 ok(!document.querySelector('#tabs').classList.contains('hidden'), 'нижняя навигация видна');
@@ -129,12 +130,41 @@ ok(st.history.length === histBefore + 1, `сессия записана в жу�
 ok(st.streak.current === 1, 'серия дней засчитана при уходе через меню');
 ok(st.history.at(-1).answers >= 15, `в журнале ≥15 ответов (${st.history.at(-1).answers})`);
 
+// 4г) Первый знак занятия запоминается между запусками: папа каждый раз открывает
+// приложение заново, и без этого занятие начиналось бы одной и той же буквой.
+const savedFirst = JSON.parse(localStorage.getItem('boni_m_state')).progress.ru.lastFirst;
+ok(typeof savedFirst === 'string' && savedFirst.length === 1,
+  `знак, с которого началось занятие, сохранён («${savedFirst}»)`);
+
 // 5) Ключ — режим «Тренировка» (по умолчанию)
 click('[data-tab="key"]');
 await sleep(10);
 ok(document.querySelector('#pad'), 'ключ: площадка отрисована');
+ok(document.querySelector('#pad').tagName === 'BUTTON', 'ключ: площадка — настоящая кнопка (клавиатура и диктор)');
+ok(document.querySelector('#pad').getAttribute('aria-label'), 'ключ: у площадки есть доступное название');
 ok(text().includes('Отстучите'), 'ключ: подсказка-цель (тренировка)');
 ok(document.querySelector('#kspeed'), 'ключ: регулятор скорости ключа есть');
+
+// 5а) Уход пальцем с площадки в середине нажатия обязан завершить знак, а не «залипнуть».
+const padTrain = document.querySelector('#pad');
+fire(padTrain, 'pointerdown');
+ok(padTrain.classList.contains('down'), 'ключ: нажатие видно');
+fire(padTrain, 'pointerleave');
+ok(!padTrain.classList.contains('down'), 'ключ: уход пальцем с площадки снимает нажатие');
+
+// 5б) Клавиатура: пробел работает как нажатие и удержание, автоповтор не плодит лишние точки.
+const keyEv = (type, code, repeat = false) =>
+  padTrain.dispatchEvent(new window.KeyboardEvent(type, { code, repeat, bubbles: true, cancelable: true }));
+keyEv('keydown', 'Space');
+ok(padTrain.classList.contains('down'), 'ключ: пробел нажимает площадку');
+keyEv('keydown', 'Space', true); // автоповтор системы
+keyEv('keydown', 'Space', true);
+await sleep(60);
+keyEv('keyup', 'Space');
+ok(!padTrain.classList.contains('down'), 'ключ: отпускание пробела снимает нажатие');
+await sleep(360); // дождаться разбора знака
+ok(document.querySelector('#keychar').textContent.trim().length > 0,
+  'ключ: набор с клавиатуры разобран (автоповтор не сломал знак)');
 
 // 5б) Ключ — режим «Свободно»: переключение, реальное отстукивание, авто-пробел, стирание
 click('.seg [data-m="free"]');

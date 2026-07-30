@@ -861,4 +861,11 @@ try { if (navigator.storage && navigator.storage.persist) navigator.storage.pers
 // Старт.
 applyTheme();
 if (needsOnboarding(state)) renderOnboarding();
-else go('home');
+else {
+  // У тех, кто уже занимался прежней версией, заслуженные вехи могли не записаться.
+  // Доначисляем их ТИХО при запуске: иначе они выпадут баннером «Новая веха!» посреди
+  // занятия — за то, что человек сделал месяц назад.
+  G.checkMilestones(state, { triggers: ['chars'] });
+  persist();
+  go('home');
+}
