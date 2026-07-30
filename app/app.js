@@ -1,4 +1,4 @@
-// Морзе 73 — контроллер интерфейса. Чистая логика — в js/*, здесь только экраны и события.
+// Школа Морзе 73 — контроллер интерфейса. Чистая логика — в js/*, здесь только экраны и события.
 import * as DATA from './js/data.js';
 import { load, save, needsOnboarding } from './js/state.js';
 import { clampEff, charTiming, classifyHold, keyThresholds } from './js/timing.js';
@@ -26,6 +26,10 @@ const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&l
 const traceHTML = (parts, cls = '') =>
   `<span class="trace ${cls}" aria-hidden="true">${parts.map((p) => `<i class="${p}"></i>`).join('')}</span>`;
 const traceOfCode = (code, cls = '') => traceHTML(TR.traceParts(code), cls);
+// След по фактическим удержаниям: ширина каждой полоски пропорциональна реальному времени.
+const traceOfHolds = (holds, unit, cls = '') =>
+  `<span class="trace ${cls}" aria-hidden="true">${TR.traceFromHolds(holds, unit).map((p) =>
+    `<i class="${p.tone ? 'tone' : 'g1'}" style="width:calc(var(--u) * ${p.units.toFixed(2)})"></i>`).join('')}</span>`;
 
 // ——— Тема оформления: по настройке телефона либо вручную ———
 function applyTheme() {
@@ -64,9 +68,10 @@ function go(tab) {
   if (tab !== 'learn' && tab !== 'key') stopActiveClock();
   if (currentTab === 'learn' && tab !== 'learn') {
     if (L && L.nextTimer) { clearTimeout(L.nextTimer); L.nextTimer = null; }
+    if (L && L.revealTimer) { clearTimeout(L.revealTimer); L.revealTimer = null; }
     finalizeLearnSession();
   }
-  if (currentTab === 'key' && tab !== 'key') clearKeyTimers();
+  if (currentTab === 'key' && tab !== 'key') { clearKeyTimers(); if (K && K.detach) K.detach(); }
   currentTab = tab;
   A.stopAll();
   [...tabsEl.children].forEach((b) => b.classList.toggle('active', b.dataset.tab === tab));
@@ -106,7 +111,7 @@ function renderOnboarding() {
   screenEl.innerHTML = `
     <div class="center intro">
       <div class="heroblock"><img class="hero" src="assets/hero-zastavka.webp" alt="Радист Боня за ключом"></div>
-      <div class="eyebrow">Морзе 73</div>
+      <div class="eyebrow">Школа Морзе 73</div>
       <h1>Здравствуйте!</h1>
       <p class="muted">Меня зовут Боня, я радист. Научу принимать морзянку на слух.</p>
       <div class="card" style="text-align:left">
@@ -159,20 +164,11 @@ function renderHome() {
   const greeted = state._greeted ? 'С возвращением' : 'Здравствуйте';
   state._greeted = true;
   const drill = G.callsignDrillAvailable(t) && !state.milestones.callsign;
-  // Позывной, написанный ритмом морзянки — то, ради чего папа и учится. Каждый вход
-  // начинается с него: это и украшение, и постоянная тренировка глазом.
-  const callsignTrace = traceHTML(TR.traceSequence(DATA.CALLSIGN_CODES));
   const ticks = Array.from({ length: total },
     (_, i) => `<i class="${i < learned ? 'on' : ''}"></i>`).join('');
+  // Шапки «Станция Boney M» здесь нет намеренно: на главной уже есть портрет Бони и
+  // приветствие по имени, а нажимаемый портрет-аватар дублировал вкладку «Журнал».
   screenEl.innerHTML = `
-    <div class="station">
-      <img class="avatar" id="toCab" src="assets/hero-portret.webp" alt="Открыть бортжурнал">
-      <div class="who">
-        <div class="eyebrow">Станция</div>
-        <div class="callsign">${esc(state.profile.callsign)}</div>
-      </div>
-      ${callsignTrace}
-    </div>
     <div class="heroblock">
       <img class="hero" src="assets/hero-zastavka.webp" alt="">
     </div>
@@ -183,14 +179,13 @@ function renderHome() {
       <div class="ticks" role="img" aria-label="Освоено ${learned} из ${total} знаков">${ticks}</div>
       <div class="learned">Освоено: ${learned} из ${total}</div>
       <div class="stats">
-        <div class="stat"><div class="eyebrow">Дни в эфире</div><b>${state.streak.current}</b></div>
-        <div class="stat"><div class="eyebrow">Лучшая серия</div><b>${state.streak.longest}</b></div>
+        <div class="stat"><div class="eyebrow">Дней подряд</div><b>${state.streak.current}</b></div>
+        <div class="stat"><div class="eyebrow">Рекорд</div><b>${state.streak.longest}</b></div>
       </div>
     </div>
     ${drill ? `<button class="btn secondary" id="drill">${ICON.inbox(24)} Принять свой позывной</button>` : ''}
     <button class="btn" id="continue">Продолжить обучение</button>
     <button class="btn secondary" id="review" ${learned < 1 ? 'disabled' : ''}>Повторение пройденного</button>`;
-  $('#toCab').addEventListener('click', () => go('cabinet'));
   $('#continue').addEventListener('click', () => { learnOpts.repetition = false; go('learn'); });
   $('#review').addEventListener('click', () => { learnOpts.repetition = true; go('learn'); });
   if (drill) $('#drill').addEventListener('click', callsignDrill);
@@ -205,18 +200,22 @@ function renderLearn() {
   P.ensureStarted(t);
   const repetition = learnOpts.repetition;
   L = { target: null, options: [], recentTargets: [], locked: false, answers: 0, correct: 0,
-        repetition, slow: false, awaiting: false, nextTimer: null };
+        repetition, slow: false, awaiting: false, nextTimer: null, revealTimer: null };
   // Всё занятие должно помещаться в один экран: во время урока прокручивать нечего и незачем,
   // а «Повторить» и регулятор скорости нужны под рукой, а не за краем экрана.
   screenEl.innerHTML = `
     <div class="screenbar">
-      <h2>${repetition ? 'Повторение' : 'Учиться'}</h2>
+      <div>
+        <h2>${repetition ? 'Повторение' : 'Учиться'}</h2>
+        <div class="counter" id="counter"></div>
+      </div>
       <button class="iconbtn" id="exit" aria-label="Выйти из занятия">${ICON.exit(22)}<span>Выход</span></button>
     </div>
     <div class="lamp" id="flash" aria-hidden="true"></div>
     <div class="feedback center" id="fb">Слушайте знак…</div>
     <div class="options" id="opts"></div>
-    <button class="btn secondary" id="again">${ICON.replay(24)} Повторить</button>
+    <div id="reveal"></div>
+    <button class="btn secondary" id="again">${ICON.replay(24)} Послушать ещё раз</button>
     <div class="slider">
       <div class="slider-head">
         <label for="lspeed">Скорость морзянки</label>
@@ -225,10 +224,11 @@ function renderLearn() {
       <input type="range" id="lspeed" min="5" max="15" value="${Math.min(15, state.settings.effWpm)}">
       <div class="slider-ends"><span>медленнее</span><span>быстрее</span></div>
     </div>
-    <button class="linkbtn" id="help">${ICON.help(22)} Показать коды набора</button>
+    <button class="linkbtn" id="help">${ICON.help(22)} Показать коды знаков</button>
     <div id="help-box"></div>`;
   $('#exit').addEventListener('click', exitLearn);
   $('#again').addEventListener('click', () => playTarget());
+  renderCounter();
   // Живой регулятор скорости: меняем при перетаскивании, переигрываем на отпускании (без «спама» звуком).
   const lspeed = $('#lspeed');
   lspeed.addEventListener('input', (e) => {
@@ -242,6 +242,21 @@ function renderLearn() {
   nextRound();
 }
 
+// Занятие засчитывается от 15 ответов (§7.2). Без счётчика это правило невидимо.
+function renderCounter() {
+  const el = $('#counter');
+  if (!el) return;
+  if (L.repetition) { el.textContent = 'не идёт в зачёт дня'; el.className = 'counter'; return; }
+  if (L.answers >= 15) {
+    el.innerHTML = `${ICON.check(20)} засчитано · ответов ${L.answers}`;
+    el.className = 'counter done';
+  } else {
+    // Коротко: длинное пояснение занимало три строки и выдавливало занятие за экран.
+    el.textContent = `ответов ${L.answers} из 15`;
+    el.className = 'counter';
+  }
+}
+
 function settingsForPlay() {
   const s = { ...state.settings };
   if (L.slow) s.effWpm = clampEff(Math.max(5, s.effWpm - 3), s.charWpm);
@@ -250,8 +265,10 @@ function settingsForPlay() {
 
 function nextRound() {
   if (L.nextTimer) { clearTimeout(L.nextTimer); L.nextTimer = null; }
+  if (L.revealTimer) { clearTimeout(L.revealTimer); L.revealTimer = null; }
   L.slow = false; L.awaiting = false;
   screenEl.classList.remove('revealing');
+  const rev = $('#reveal'); if (rev) rev.innerHTML = '';
   const t = track();
   const active = P.activeSet(t, state.settings.alphabet);
   const newest = L.repetition ? null : P.newestChar(t, state.settings.alphabet);
@@ -275,13 +292,17 @@ function playTarget() {
   L.locked = true;
   renderOptions(true);
   const flash = $('#flash');
+  // Лампа горит ровно, пока идёт знак, и НЕ мигает по элементам. Раньше она повторяла
+  // ритм: тире светилось втрое дольше точки — код можно было прочитать глазами, ничего
+  // не слушая. Это ровно тот навык, который упражнение должно тренировать.
+  // Ровное свечение оставляет пользу для слабослышащего («сейчас идёт знак») и убирает подсказку.
+  flash.classList.add('on');
   A.playCode(codeOf(L.target), settingsForPlay(), {
-    onFlash: (kind) => {
-      flash.classList.remove('on-dit', 'on-dah');
-      if (kind === 'dit') flash.classList.add('on-dit');
-      else if (kind === 'dah') flash.classList.add('on-dah');
+    onDone: () => {
+      flash.classList.remove('on');
+      L.locked = false;
+      renderOptions(false);
     },
-    onDone: () => { L.locked = false; renderOptions(false); },
   });
 }
 
@@ -302,6 +323,7 @@ function answer(ch) {
   const t = track();
   P.recordAnswer(t, L.target, correct, !L.repetition);
   L.answers++; if (correct) L.correct++;
+  renderCounter();
   const box = $('#opts');
   [...box.children].forEach((b) => { b.disabled = true; });
   const chosen = [...box.children].find((b) => b.dataset.c === ch);
@@ -335,17 +357,23 @@ function answer(ch) {
     const chant = state.settings.showChants && state.settings.alphabet === 'ru' && info?.chant ? `<div class="chant">напев: ${esc(info.chant)}</div>` : '';
     screenEl.classList.add('revealing');
     $('#fb').className = 'feedback center no';
-    // Показываем не только код, но и ритм полосками: слух ловит именно ритм, а «•—•»
-    // приходится расшифровывать в голове.
-    $('#fb').innerHTML = `<div class="reveal-char">Это «${esc(L.target)}»</div>
-      ${traceOfCode(codeOf(L.target), 'big centered')}
-      <div class="codeline">${visualCode(codeOf(L.target))}</div>${chant}
-      <div class="reveal-actions">
-        <button class="btn secondary" id="relisten">${ICON.replay(24)} Послушать</button>
-        <button class="btn" id="nextbtn">Дальше</button>
+    $('#fb').textContent = 'Не угадали';
+    // Разбор идёт ПОД сеткой букв, а не над ней. Иначе он раздвигал сетку, и кнопка
+    // «Дальше» вставала ровно туда, где только что был палец: дрожащая рука или
+    // повторное касание пролистывали разбор, не дав его прочитать.
+    $('#reveal').innerHTML = `
+      <div class="card reveal">
+        <div class="reveal-char">Это «${esc(L.target)}»</div>
+        <div class="codeline">${visualCode(codeOf(L.target))}</div>${chant}
+        <div class="reveal-actions">
+          <button class="btn secondary" id="relisten">${ICON.sound(24)} Послушать</button>
+          <button class="btn" id="nextbtn" disabled>Дальше</button>
+        </div>
       </div>`;
     $('#relisten').addEventListener('click', () => A.playCode(codeOf(L.target), settingsForPlay(), {}));
     $('#nextbtn').addEventListener('click', () => { if (!afterAnswerProgress(false)) nextRound(); });
+    // Короткая задержка: «Дальше» не должна сработать от того же касания или его дребезга.
+    L.revealTimer = setTimeout(() => { L.revealTimer = null; const b = $('#nextbtn'); if (b) b.disabled = false; }, 450);
     persist();
   }
 }
@@ -414,16 +442,19 @@ function toggleHelp() {
   const btn = $('#help');
   if (box.innerHTML) {
     box.innerHTML = '';
-    btn.innerHTML = `${ICON.help(22)} Показать коды набора`;
+    btn.innerHTML = `${ICON.help(22)} Показать коды знаков`;
     return;
   }
   const active = P.activeSet(track(), state.settings.alphabet);
-  btn.innerHTML = `${ICON.help(22)} Скрыть коды набора`;
+  btn.innerHTML = `${ICON.help(22)} Скрыть коды знаков`;
   box.innerHTML = `<div class="card"><ul class="codelist">${active.map((c) => {
     const info = DATA.charInfo(c);
     const chant = state.settings.showChants && state.settings.alphabet === 'ru' && info?.chant ? `<span class="chant">${esc(info.chant)}</span>` : '';
-    return `<li><b>${esc(c)}</b>${traceOfCode(codeOf(c))}${chant}</li>`;
+    return `<li><b>${esc(c)}</b><span class="codeline small">${visualCode(codeOf(c))}</span>${chant}</li>`;
   }).join('')}</ul></div>`;
+  // Карточка открывается в самом низу экрана — без прокрутки её просто не видно,
+  // и нажатие выглядит как «ничего не произошло».
+  box.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
 }
 
 // Засчитать текущее занятие один раз (≥15 ответов). Вызывается из любого ухода.
@@ -467,7 +498,7 @@ function callsignDrill() {
       <div class="callsign">${esc(DATA.CALLSIGN)}</div>
       ${traceHTML(TR.traceSequence(DATA.CALLSIGN_CODES), 'centered')}
     </div>
-    <button class="btn" id="play">${ICON.sound(24)} Прослушать</button>
+    <button class="btn" id="play">${ICON.sound(24)} Послушать</button>
     <button class="btn secondary" id="got">${ICON.check(24)} Я принял</button>
     <button class="linkbtn" id="back">Назад</button></div>`;
   $('#play').addEventListener('click', () => A.playSequence(DATA.CALLSIGN_RU_CHARS, (c) => DATA.CODE_BY_CHAR.ru.get(c), state.settings, {}));
@@ -491,8 +522,9 @@ function clearKeyTimers() {
 
 function renderKey() {
   clearKeyTimers();
+  if (K && K.detach) K.detach();
   const mode = state.settings.keyMode === 'free' ? 'free' : 'train';
-  K = { mode, elements: [], holdStart: null, gapTimer: null, spaceTimer: null, hintTimer: null, target: null, line: KT.emptyLine() };
+  K = { mode, elements: [], holds: [], detach: null, holdStart: null, gapTimer: null, spaceTimer: null, hintTimer: null, target: null, line: KT.emptyLine() };
   const toggle = `<div class="seg">
       <button data-m="train" class="${mode === 'train' ? 'active' : ''}">Тренировка</button>
       <button data-m="free" class="${mode === 'free' ? 'active' : ''}">Свободно</button>
@@ -517,10 +549,10 @@ function renderKey() {
           <div class="eyebrow">Отстучите</div>
           <div class="taskchar">${esc(K.target)}</div>
         </div>
-        <button class="btn secondary" id="sample">${ICON.sound(24)} Образец</button>
+        <button class="btn secondary" id="sample">${ICON.sound(24)} Послушать</button>
       </div>
       <button type="button" class="keypad" id="pad" aria-label="Ключ: нажимайте и держите"><span class="keyout" id="keyout" aria-live="polite">Нажимайте и держите</span></button>
-      <div class="keyverdict" id="keychar" aria-live="polite"></div>
+      <div class="keyverdict" id="keychar" aria-live="polite"><div class="muted">Отстучите знак — разберём, что получилось</div></div>
       <button class="linkbtn" id="newtarget">Другой знак</button>${speedCtl}`;
     $('#sample').addEventListener('click', () => A.playCode(codeOf(K.target), { ...state.settings, charWpm: state.settings.keyWpm, effWpm: state.settings.keyWpm }, {}));
     $('#newtarget').addEventListener('click', renderKey);
@@ -535,8 +567,8 @@ function renderKey() {
         <button class="btn secondary" id="clear">${ICON.clear(24)} Очистить</button>
       </div>${speedCtl}`;
     renderKeyLine();
-    $('#erase').addEventListener('click', () => { clearKeyTimers(); K.elements = []; setKeyout('·'); K.line = KT.eraseLast(K.line); renderKeyLine(); vibrate(10); });
-    $('#clear').addEventListener('click', () => { clearKeyTimers(); K.elements = []; setKeyout('·'); K.line = KT.clearLine(); renderKeyLine(); vibrate(10); });
+    $('#erase').addEventListener('click', () => { clearKeyTimers(); K.elements = []; K.holds = []; setKeyout('·'); K.line = KT.eraseLast(K.line); renderKeyLine(); vibrate(10); });
+    $('#clear').addEventListener('click', () => { clearKeyTimers(); K.elements = []; K.holds = []; setKeyout('·'); K.line = KT.clearLine(); renderKeyLine(); vibrate(10); });
   }
 
   screenEl.querySelectorAll('.seg [data-m]').forEach((b) =>
@@ -550,12 +582,27 @@ function renderKey() {
   });
 
   const pad = $('#pad');
-  const down = (e) => { e.preventDefault(); keyPadDown(); };
+  const down = (e) => {
+    e.preventDefault();
+    // Захватываем указатель: палец, чуть сползший с площадки во время удержания, продолжает
+    // считаться нажатым. Раньше это обрывало тире, и вердикт говорил «вышло Е вместо М»,
+    // не намекая, что причина в съехавшем пальце.
+    try { pad.setPointerCapture(e.pointerId); } catch {}
+    keyPadDown();
+  };
   const up = (e) => { e.preventDefault(); keyPadUp(); };
   pad.addEventListener('pointerdown', down);
   pad.addEventListener('pointerup', up);
-  pad.addEventListener('pointerleave', up);
   pad.addEventListener('pointercancel', up);
+  // Страховка на случай, если захват указателя не сработал: отпускание пальца ГДЕ УГОДНО
+  // обязано закрыть знак, иначе тон звучит бесконечно, а площадка остаётся вжатой.
+  const windowUp = () => { if (K && K.holdStart !== null) keyPadUp(); };
+  window.addEventListener('pointerup', windowUp);
+  window.addEventListener('pointercancel', windowUp);
+  K.detach = () => {
+    window.removeEventListener('pointerup', windowUp);
+    window.removeEventListener('pointercancel', windowUp);
+  };
   // С клавиатуры: пробел или Enter работают как нажатие и удержание. e.repeat отсекает
   // автоповтор, иначе одно удержание превратилось бы в череду точек.
   pad.addEventListener('keydown', (e) => {
@@ -602,6 +649,7 @@ function keyPadUp() {
   if (hold < th.debounceMin) return; // фильтр дребезга (§13.7)
   const el = classifyHold(hold, state.settings.keyWpm);
   K.elements.push(el);
+  K.holds.push(hold);
   setKeyout(K.elements.join(' ').replace(/\./g, '•').replace(/-/g, '—'));
   // ждём паузу конца знака (3·keyDit) → декодируем
   K.gapTimer = setTimeout(() => decodeKey(), th.charGapMin * 1000);
@@ -609,8 +657,10 @@ function keyPadUp() {
 function decodeKey() {
   K.gapTimer = null;
   const code = K.elements.join('');
-  K.elements = [];
+  const holds = K.holds;
+  K.elements = []; K.holds = [];
   setKeyout('·');
+  const keyDit = keyThresholds(state.settings.keyWpm).keyDit;
   const map = DATA.CODE_BY_CHAR[state.settings.alphabet];
   let found = '?';
   for (const [ch, c] of map.entries()) if (c === code) { found = ch; break; }
@@ -623,18 +673,29 @@ function decodeKey() {
     if (el) {
       if (found === '?') {
         el.className = 'keyverdict';
-        el.innerHTML = `<div class="muted">Такого знака нет — вышло ${traceOfCode(code)}</div>
-          <div class="cmp"><span class="eyebrow">Нужно</span>${traceOfCode(codeOf(K.target))}</div>`;
+        el.innerHTML = `<div class="muted">Такого знака в азбуке нет</div>
+          <div class="cmp"><span class="eyebrow">Вышло</span>${traceOfHolds(holds, keyDit)}</div>
+          <div class="cmp"><span class="eyebrow">Нужно</span>${traceOfCode(codeOf(K.target))}</div>
+          <button class="btn secondary" id="againkey">Отстучать ещё раз</button>`;
       } else if (ok) {
         el.className = 'keyverdict ok';
         el.innerHTML = `<div class="verdict">${ICON.check(26)} Верно — ${esc(found)}</div>
-          ${traceOfCode(code, 'big')}`;
+          <button class="btn" id="nextkey">Следующий знак</button>`;
       } else {
         el.className = 'keyverdict no';
+        // «Вышло» рисуем по ФАКТИЧЕСКИМ удержаниям: видно, что точка вышла длинной,
+        // а не просто «получилась другая буква».
         el.innerHTML = `<div class="verdict">Вышло «${esc(found)}», а нужно «${esc(K.target)}»</div>
-          <div class="cmp"><span class="eyebrow">Вышло</span>${traceOfCode(code)}</div>
-          <div class="cmp"><span class="eyebrow">Нужно</span>${traceOfCode(codeOf(K.target))}</div>`;
+          <div class="cmp"><span class="eyebrow">Вышло</span>${traceOfHolds(holds, keyDit)}</div>
+          <div class="cmp"><span class="eyebrow">Нужно</span>${traceOfCode(codeOf(K.target))}</div>
+          <button class="btn secondary" id="againkey">Отстучать ещё раз</button>`;
       }
+      $('#nextkey')?.addEventListener('click', renderKey);
+      $('#againkey')?.addEventListener('click', () => {
+        const box = $('#keychar');
+        box.className = 'keyverdict';
+        box.innerHTML = '<div class="muted">Отстучите знак заново</div>';
+      });
     }
     if (ok) { A.cue('success'); vibrate(40); }
     return;
@@ -664,7 +725,7 @@ function renderReference() {
   else if (refSection === 'punct') items = DATA.PUNCTUATION;
   screenEl.innerHTML = `
     <div class="screenbar"><h2>Азбука</h2></div>
-    <p class="muted hint">Нажмите на знак, чтобы услышать его и увидеть ритм.</p>
+    <p class="muted hint">Нажмите на знак, чтобы послушать его.</p>
     <div class="seg">
       <button data-a="ru" class="${refAlpha === 'ru' ? 'active' : ''}">Русская</button>
       <button data-a="en" class="${refAlpha === 'en' ? 'active' : ''}">English</button>
@@ -675,7 +736,11 @@ function renderReference() {
       <button data-s="punct" class="${refSection === 'punct' ? 'active' : ''}">Знаки</button>
     </div>
     <div class="grid" id="grid">${items.map((it) => `
-      <button class="cell" data-c="${esc(it.char)}"><span>${esc(it.char)}</span><small>${visualCode(it.code)}</small></button>`).join('')}</div>
+      <button class="cell" data-c="${esc(it.char)}">
+        <span>${esc(it.char)}</span>
+        <small>${visualCode(it.code)}</small>
+        ${it.name ? `<span class="cellname">${esc(it.name)}</span>` : ''}
+      </button>`).join('')}</div>
     <div id="card-box"></div>`;
   screenEl.querySelectorAll('.seg [data-a]').forEach((b) => b.addEventListener('click', () => { refAlpha = b.dataset.a; renderReference(); }));
   screenEl.querySelectorAll('.seg [data-s]').forEach((b) => b.addEventListener('click', () => { refSection = b.dataset.s; renderReference(); }));
@@ -688,6 +753,7 @@ function refCard(ch) {
   overlayRoot.innerHTML = `<div class="overlay">
     <button class="closebtn" id="x" aria-label="Закрыть">✕</button>
     <div class="bigchar">${esc(ch)}</div>
+    ${info.name ? `<div class="cardname">${esc(info.name)}</div>` : ''}
     ${traceOfCode(code, 'big centered')}
     <div class="codeline">${visualCode(code)}</div>
     ${chant}
@@ -715,11 +781,13 @@ function renderCabinet() {
   const themeBtn = (id, mode, icon, label) =>
     `<button id="${id}" class="${s.theme === mode ? 'active' : ''}">${icon}<span>${label}</span></button>`;
   screenEl.innerHTML = `
-    <div class="screenbar"><h2>Бортжурнал</h2></div>
+    <div class="screenbar"><h2>Журнал</h2></div>
     <div class="card center">
       <img class="avatar big" src="assets/hero-portret.webp" alt="">
       <div class="odometer">${state.profile.points}</div>
       <div class="eyebrow">очков опыта</div>
+      <p class="muted hint" style="margin-top:6px">По очку за верный ответ и по десять за веху.
+         Просто счётчик работы — на звание не влияет.</p>
       <div class="rankline">${esc(rank)}</div>
     </div>
     <div class="card">
@@ -727,8 +795,8 @@ function renderCabinet() {
       <ul class="list">
         <li><span>Освоено букв</span><span class="num">${t.learnedCount} / 32</span></li>
         <li><span>Освоено цифр</span><span class="num">${t.digitsLearned} / 10</span></li>
-        <li><span>Дни в эфире подряд</span><span class="num">${state.streak.current}</span></li>
-        <li><span>Лучшая серия</span><span class="num">${state.streak.longest}</span></li>
+        <li><span>Дней подряд сейчас</span><span class="num">${state.streak.current}</span></li>
+        <li><span>Лучший результат</span><span class="num">${state.streak.longest} дн.</span></li>
         <li><span>Всего в эфире</span><span class="num">${Math.round(state.totalSeconds / 60)} мин</span></li>
       </ul>
     </div>
@@ -748,10 +816,12 @@ function renderCabinet() {
       </div>
     </div>
     <div class="card">
-      <div class="eyebrow">Язык азбуки</div>
+      <div class="eyebrow">Чему учимся</div>
+      <p class="muted hint">Это меняет сам курс: прогресс по русской и латинской азбуке
+         считается отдельно. В «Азбуке» переключатель показывает лишь таблицу и на курс не влияет.</p>
       <div class="seg" style="margin-bottom:0">
-        <button id="lang-ru" class="${s.alphabet === 'ru' ? 'active' : ''}">Русская</button>
-        <button id="lang-en" class="${s.alphabet === 'en' ? 'active' : ''}">English</button>
+        <button id="lang-ru" class="${s.alphabet === 'ru' ? 'active' : ''}">Русская азбука</button>
+        <button id="lang-en" class="${s.alphabet === 'en' ? 'active' : ''}">Латинская (English)</button>
       </div>
     </div>
     <div class="card">
@@ -761,18 +831,26 @@ function renderCabinet() {
       <label for="tone">Высота тона <output class="num">${s.toneHz} Гц</output></label>
       <input type="range" id="tone" min="500" max="800" step="10" value="${s.toneHz}">
       <label for="vol">Громкость</label>
-      <input type="range" id="vol" min="0" max="1" step="0.05" value="${s.volume}">
+      <input type="range" id="vol" min="0.15" max="1" step="0.05" value="${Math.max(0.15, s.volume)}">
       <label for="key">Скорость ключа <output class="num">${s.keyWpm}</output></label>
       <input type="range" id="key" min="8" max="18" value="${s.keyWpm}">
     </div>
     <div class="card">
       <div class="eyebrow">Помощь при обучении</div>
-      <div class="rowflex"><span>Напевы букв</span><button class="btn secondary switch" id="chants">${s.showChants ? 'Включены' : 'Выключены'}</button></div>
-      <div class="rowflex"><span>Отклик вибрацией</span><button class="btn secondary switch" id="vib">${s.vibration ? 'Включён' : 'Выключен'}</button></div>
+      <div class="rowflex">
+        <span>Напевы букв: <b>${s.showChants ? 'включены' : 'выключены'}</b></span>
+        <button class="btn secondary switch" id="chants">${s.showChants ? 'Выключить' : 'Включить'}</button>
+      </div>
+      <div class="rowflex">
+        <span>Вибрация при нажатии: <b>${s.vibration ? 'включена' : 'выключена'}</b></span>
+        <button class="btn secondary switch" id="vib">${s.vibration ? 'Выключить' : 'Включить'}</button>
+      </div>
     </div>
     <div class="card">
       <div class="eyebrow">Резервная копия</div>
-      <p class="muted hint">Прогресс хранится в самом телефоне. Копия сохранит его, если телефон сменится.</p>
+      <p class="muted hint">Прогресс хранится в самом телефоне. «Сохранить копию» скачает файл
+         в папку загрузок — его стоит переслать себе на почту. Если телефон сменится,
+         этим файлом прогресс возвращается.</p>
       <button class="btn secondary" id="backup">${ICON.save(24)} Сохранить копию</button>
       <button class="btn secondary" id="restore">${ICON.restore(24)} Восстановить из копии</button>
       <input type="file" id="file" accept="application/json" class="hidden">
@@ -791,6 +869,7 @@ function renderCabinet() {
   $('#vol').addEventListener('input', (e) => { s.volume = +e.target.value; persist(); });
   $('#key').addEventListener('input', (e) => { s.keyWpm = +e.target.value; persist(); });
   $('#tone').addEventListener('change', () => A.playCode('-.-', state.settings, {}));
+  $('#vol').addEventListener('change', () => A.playCode('-.-', state.settings, {}));
   $('#chants').addEventListener('click', () => { s.showChants = !s.showChants; persist(); renderCabinet(); });
   $('#vib').addEventListener('click', () => { s.vibration = !s.vibration; persist(); renderCabinet(); });
   $('#lang-ru').addEventListener('click', () => { s.alphabet = 'ru'; persist(); renderCabinet(); });
@@ -833,7 +912,7 @@ document.addEventListener('visibilitychange', () => {
     A.stopAll(); stopActiveClock();
     if (currentTab === 'key') {
       clearKeyTimers();
-      if (K) { K.holdStart = null; K.elements = []; }
+      if (K) { K.holdStart = null; K.elements = []; K.holds = []; }
       // Иначе площадка остаётся визуально вжатой и «залипшей» после возврата.
       $('#pad')?.classList.remove('down');
       setKeyout('·');

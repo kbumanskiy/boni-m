@@ -63,6 +63,16 @@ const SCREENS = {
   ref:     async (page) => { await page.click('[data-tab="ref"]'); await page.waitForTimeout(300); },
   cabinet: async (page) => { await page.click('[data-tab="cabinet"]'); await page.waitForTimeout(300); },
   onboarding: async () => {},
+  // Вкладки «Азбуки»: цифры и знаки препинания. Их отсутствие здесь и было дырой в проверке —
+  // обрезанный столбец жил на экранах, которые ни разу не снимались.
+  refdigits: async (page) => { await page.click('[data-tab="ref"]'); await page.waitForTimeout(200);
+                               await page.click('[data-s="digits"]'); await page.waitForTimeout(250); },
+  refpunct:  async (page) => { await page.click('[data-tab="ref"]'); await page.waitForTimeout(200);
+                               await page.click('[data-s="punct"]'); await page.waitForTimeout(250); },
+  refen:     async (page) => { await page.click('[data-tab="ref"]'); await page.waitForTimeout(200);
+                               await page.click('[data-a="en"]'); await page.waitForTimeout(250); },
+  refcard:   async (page) => { await page.click('[data-tab="ref"]'); await page.waitForTimeout(200);
+                               await page.click('.cell'); await page.waitForTimeout(250); },
   // Разбор ошибки: жмём варианты, пока не попадётся неверный — это состояние надо видеть.
   learnwrong: async (page) => {
     await page.click('[data-tab="learn"]'); await page.waitForTimeout(900);

@@ -3,12 +3,15 @@
 import { CALLSIGN_RU_CHARS, KOCH_ORDER_RU, RU_LETTERS } from './data.js';
 
 // §8: ранги по числу освоенных букв (learnedCount из 32).
+// «Юный радист» убран намеренно: первое, что видел под шильдиком «ЗВАНИЕ» человек 73 лет
+// с настоящим позывным и стажем. Звания теперь про этап обучения, а не про возраст.
+// «Уверенный приём» тоже заменён — это описание навыка, а не звание.
 export function rankFor(learnedCount, avgAccuracy) {
   if (learnedCount >= 32 && avgAccuracy >= 0.90) return 'Мастер ключа';
   if (learnedCount >= 26) return 'Опытный оператор';
-  if (learnedCount >= 18) return 'Уверенный приём';
+  if (learnedCount >= 18) return 'Уверенный оператор';
   if (learnedCount >= 10) return 'Радист';
-  if (learnedCount >= 4) return 'Юный радист';
+  if (learnedCount >= 4) return 'Стажёр эфира';
   return 'Первый сигнал';
 }
 

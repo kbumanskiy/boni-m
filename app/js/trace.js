@@ -30,3 +30,18 @@ export function traceSequence(codes) {
 export function traceUnits(parts) {
   return parts.reduce((n, p) => n + (p === 'dah' || p === 'g3' ? 3 : 1), 0);
 }
+
+// След по ФАКТИЧЕСКИМ удержаниям, а не по уже распознанному коду.
+// Разница принципиальная: распознанный код показывает «вышла буква Е», а фактические
+// длительности показывают «точка вышла вдвое длиннее нужного» — то есть ПРИЧИНУ.
+// holds — длительности удержаний в секундах, unit — эталонная длина точки.
+export function traceFromHolds(holds, unit) {
+  const out = [];
+  for (const hold of holds) {
+    if (!(hold > 0) || !(unit > 0)) continue;
+    if (out.length) out.push({ units: 1, tone: false });
+    // Ограничиваем сверху, иначе одно долгое удержание распирает строку за край экрана.
+    out.push({ units: Math.min(6, Math.max(0.5, hold / unit)), tone: true });
+  }
+  return out;
+}

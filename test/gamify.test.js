@@ -8,10 +8,14 @@ import {
 } from '../app/js/gamify.js';
 
 test('§8: ранги по числу освоенных букв', () => {
+  // Ни одно звание не должно звучать снисходительно для человека 73 лет с позывным.
+  for (const n of [0, 4, 10, 18, 26, 32]) {
+    assert.ok(!/юн|молод|новичок|начинающ/i.test(rankFor(n, 1)), `звание «${rankFor(n, 1)}» звучит покровительственно`);
+  }
   assert.equal(rankFor(0, 1), 'Первый сигнал');
-  assert.equal(rankFor(4, 1), 'Юный радист');
+  assert.equal(rankFor(4, 1), 'Стажёр эфира');
   assert.equal(rankFor(10, 1), 'Радист');
-  assert.equal(rankFor(18, 1), 'Уверенный приём');
+  assert.equal(rankFor(18, 1), 'Уверенный оператор');
   assert.equal(rankFor(26, 1), 'Опытный оператор');
   assert.equal(rankFor(32, 0.95), 'Мастер ключа');
   assert.equal(rankFor(32, 0.80), 'Опытный оператор', 'без 90% точности не Мастер');

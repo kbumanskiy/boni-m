@@ -69,14 +69,23 @@ export function keyDitSeconds(keyWpm) {
   return 1.2 / keyWpm;
 }
 
+// Нижние пределы пауз — под реальную руку 73 лет, а не под учебник.
+// По формуле ТЗ пауза конца знака на скорости 12 равна 0,3 с: спокойные три касания
+// внутри одной буквы не укладываются, и «С» распадается на «Е Е Е». Скорость передачи
+// (длина точки и тире) остаётся ровно по стандарту — растянуты только ПАУЗЫ, то есть
+// человеку дают договорить знак. Тот же приём уже применён к авто-пробелу.
+const CHAR_GAP_FLOOR = 0.6; // сек — не меньше этого ждём конца знака
+const WORD_GAP_MARGIN = 0.5; // сек — насколько пауза слова длиннее паузы знака
+
 // Пороги распознавания в режиме «Ключ» (секунды).
 export function keyThresholds(keyWpm) {
   const keyDit = keyDitSeconds(keyWpm);
+  const charGapMin = Math.max(CHAR_GAP_FLOOR, 3 * keyDit);
   return {
     keyDit,
     elementMax: 2 * keyDit, // удержание <= этого → точка, больше → тире
-    charGapMin: 3 * keyDit, // пауза >= этого → конец знака
-    wordGapMin: 7 * keyDit, // пауза >= этого → конец слова
+    charGapMin,             // пауза >= этого → конец знака
+    wordGapMin: Math.max(charGapMin + WORD_GAP_MARGIN, 7 * keyDit), // пауза >= этого → конец слова
     debounceMin: 0.3 * keyDit, // фильтр сверхкоротких касаний/дребезга (§13.7)
   };
 }

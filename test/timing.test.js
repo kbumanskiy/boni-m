@@ -66,8 +66,11 @@ test('Ключ: пороги от keyDit (keyWpm=12 → dit=100мс)', () => {
   const th = keyThresholds(12);
   assert.ok(approx(th.keyDit, 0.1));
   assert.ok(approx(th.elementMax, 0.2));
-  assert.ok(approx(th.charGapMin, 0.3));
-  assert.ok(approx(th.wordGapMin, 0.7));
+  // Паузы намеренно длиннее формулы ТЗ: по ней конец знака наступал через 0,3 с, и
+  // спокойные касания 73-летней руки не укладывались — «С» распадалась на «Е Е Е».
+  assert.ok(approx(th.charGapMin, 0.6), `конец знака ${th.charGapMin}`);
+  assert.ok(approx(th.wordGapMin, 1.1), `конец слова ${th.wordGapMin}`);
+  assert.ok(th.wordGapMin > th.charGapMin, 'пауза слова всегда длиннее паузы знака');
   assert.ok(approx(th.debounceMin, 0.03));
 });
 
@@ -78,7 +81,18 @@ test('Ключ: классификация удержания в точку/ти
 });
 
 test('Ключ: классификация паузы intra/char/word', () => {
-  assert.equal(classifyGap(0.1, 12), 'intra'); // < 3*dit
-  assert.equal(classifyGap(0.4, 12), 'char');  // >= 3*dit, < 7*dit
-  assert.equal(classifyGap(0.8, 12), 'word');  // >= 7*dit
+  assert.equal(classifyGap(0.1, 12), 'intra');  // внутри знака
+  assert.equal(classifyGap(0.4, 12), 'intra',
+    'полсекунды раздумья внутри буквы больше не разрывают её');
+  assert.equal(classifyGap(0.7, 12), 'char');   // конец знака
+  assert.equal(classifyGap(1.3, 12), 'word');   // конец слова
+});
+
+test('на любой скорости ключа пауза конца знака посильна пожилой руке', () => {
+  for (const wpm of [8, 10, 12, 15, 18]) {
+    const th = keyThresholds(wpm);
+    assert.ok(th.charGapMin >= 0.6, `скорость ${wpm}: конец знака через ${th.charGapMin}с — слишком быстро`);
+    assert.ok(th.wordGapMin - th.charGapMin >= 0.4,
+      `скорость ${wpm}: между концом знака и концом слова всего ${(th.wordGapMin - th.charGapMin).toFixed(2)}с`);
+  }
 });

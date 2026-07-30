@@ -69,6 +69,10 @@ const opts = document.querySelectorAll('#opts .opt');
 ok(opts.length >= 4, `учиться: минимум 4 кнопки (${opts.length})`);
 ok([...opts].some((b) => !b.disabled), 'учиться: варианты разблокированы после проигрывания');
 ok(document.querySelector('#lspeed'), 'учиться: регулятор скорости морзянки есть');
+// Правило «занятие засчитывается от 15 ответов» было невидимым: папа мог заниматься
+// каждый день по 10 ответов и не понимать, почему «дни в эфире» стоят на нуле.
+ok(document.querySelector('#counter')?.textContent.includes('15'),
+  'учиться: видно, сколько ответов нужно для зачёта занятия');
 
 // Ответить один раз и проверить блокировку.
 const overlayEl = document.querySelector('#overlay-root');
@@ -88,6 +92,7 @@ async function waitAnswerable(ms = 3000) {
 // неверном ответе: игра не должна ни открывать знак, ни объявлять веху.
 const wrongAnswerViolations = [];
 let wrongAnswersSeen = 0;
+let nextbtnWasGuarded = false;
 const learnedNow = () => {
   const st = JSON.parse(localStorage.getItem('boni_m_state'));
   return st.progress.ru.learnedCount + st.progress.ru.digitsLearned;
@@ -108,6 +113,11 @@ async function answerOnce() {
       wrongAnswerViolations.push('оверлей после ошибки: ' + overlay.textContent.trim().slice(0, 60));
     }
     if (learnedNow() > before) wrongAnswerViolations.push('после ошибки открылся новый знак');
+    // «Дальше» намеренно недоступна первые ~450 мс: иначе то же касание, которым дан
+    // неверный ответ, пролистывало бы разбор, не дав его прочитать.
+    const btn = document.querySelector('#nextbtn');
+    if (btn && btn.disabled) nextbtnWasGuarded = true;
+    for (let t = 0; t < 1500 && document.querySelector('#nextbtn')?.disabled; t += 25) await sleep(25);
     document.querySelector('#nextbtn')?.click(); // неверно → «Дальше»
   }
   // верный ответ авто-переходит сам — следующий answerOnce дождётся через waitAnswerable
@@ -122,6 +132,12 @@ for (let i = 0; i < 40; i++) await answerOnce();
 // 4в) БЛОКЕР: после неверного ответа игра не поздравляет и не открывает новый знак.
 ok(wrongAnswersSeen > 0, `в прогоне встретились неверные ответы (${wrongAnswersSeen}) — проверка осмысленна`);
 ok(wrongAnswerViolations.length === 0, `после ошибки нет поздравлений и новых знаков${wrongAnswerViolations.length ? ': ' + wrongAnswerViolations.join(' | ') : ''}`);
+ok(nextbtnWasGuarded, 'кнопка «Дальше» защищена от случайного нажатия тем же касанием');
+// Разбор ошибки идёт ПОД сеткой букв: иначе кнопка встаёт туда, где только что был палец.
+const revealBox = document.querySelector('#reveal');
+ok(revealBox && [...document.querySelector('#screen').children].indexOf(revealBox)
+   > [...document.querySelector('#screen').children].indexOf(document.querySelector('#opts')),
+  'разбор ошибки расположен ниже сетки букв');
 const histBefore = JSON.parse(localStorage.getItem('boni_m_state')).history.length;
 click('[data-tab="home"]'); // уход через нижнюю навигацию, НЕ кнопкой «Выход»
 await sleep(20);
@@ -145,12 +161,17 @@ ok(document.querySelector('#pad').getAttribute('aria-label'), 'ключ: у пл
 ok(text().includes('Отстучите'), 'ключ: подсказка-цель (тренировка)');
 ok(document.querySelector('#kspeed'), 'ключ: регулятор скорости ключа есть');
 
-// 5а) Уход пальцем с площадки в середине нажатия обязан завершить знак, а не «залипнуть».
+// 5а) Палец, чуть сползший с площадки, НЕ должен обрывать тире — иначе разбор говорит
+// «вышло Е вместо М» и не намекает, что причина в съехавшем пальце.
 const padTrain = document.querySelector('#pad');
 fire(padTrain, 'pointerdown');
 ok(padTrain.classList.contains('down'), 'ключ: нажатие видно');
 fire(padTrain, 'pointerleave');
-ok(!padTrain.classList.contains('down'), 'ключ: уход пальцем с площадки снимает нажатие');
+ok(padTrain.classList.contains('down'), 'ключ: сползший палец не обрывает знак');
+// А вот отпускание пальца где угодно обязано закрыть знак: иначе тон звучал бы бесконечно.
+window.dispatchEvent(new window.Event('pointerup', { bubbles: true }));
+ok(!padTrain.classList.contains('down'), 'ключ: отпускание пальца вне площадки закрывает знак');
+await sleep(750);
 
 // 5б) Клавиатура: пробел работает как нажатие и удержание, автоповтор не плодит лишние точки.
 const keyEv = (type, code, repeat = false) =>
@@ -162,7 +183,7 @@ keyEv('keydown', 'Space', true);
 await sleep(60);
 keyEv('keyup', 'Space');
 ok(!padTrain.classList.contains('down'), 'ключ: отпускание пробела снимает нажатие');
-await sleep(360); // дождаться разбора знака
+await sleep(750); // дождаться разбора знака (пауза конца знака смягчена до 0,6 с)
 ok(document.querySelector('#keychar').textContent.trim().length > 0,
   'ключ: набор с клавиатуры разобран (автоповтор не сломал знак)');
 
@@ -176,7 +197,7 @@ ok(text().includes('пробел'), 'ключ: подсказка про сво�
 // Реальное отстукивание: короткое нажатие = точка; в рус. таблице «.» = Е.
 const pad = document.querySelector('#pad');
 fire(pad, 'pointerdown'); await sleep(60); fire(pad, 'pointerup');
-await sleep(360); // > паузы конца знака (3·keyDit при keyWpm=12 = 0.3с) → декодирование
+await sleep(750); // > паузы конца знака (смягчена до 0,6 с) → декодирование
 ok(document.querySelector('#text').textContent.includes('Е'), 'ключ: отстуканная точка дала букву Е');
 
 // Авто-пробел по длинной паузе — и ровно один.
@@ -211,17 +232,19 @@ click('[data-a="ru"]');
 ok(document.querySelector('#tabs [data-tab="cabinet"]'), 'нижнее меню: есть вкладка «Журнал»');
 click('[data-tab="cabinet"]'); // открыть кабинет вкладкой, а не тапом по портрету
 await sleep(10);
-ok(text().includes('Бортжурнал'), 'кабинет: открылся со вкладки');
-ok(document.querySelector('#name').value === 'Бонислав', 'кабинет: имя подставлено');
-ok(document.querySelector('#lang-ru') && document.querySelector('#lang-en'), 'кабинет: язык — кнопки «Русская/English»');
+// Одно место — одно имя: вкладка «Журнал» и заголовок «Журнал» (было «Бортжурнал»).
+ok(text().includes('Мои успехи'), 'журнал: открылся со вкладки');
+ok(!text().includes('Бортжурнал'), 'журнал: вкладка и заголовок называются одинаково');
+ok(document.querySelector('#name').value === 'Бонислав', 'журнал: имя подставлено');
+ok(document.querySelector('#lang-ru') && document.querySelector('#lang-en'), 'журнал: курс — кнопки «Русская/Латинская»');
 click('#lang-en'); // переключение языка не падает
 await sleep(10);
-ok(JSON.parse(localStorage.getItem('boni_m_state')).settings.alphabet === 'en', 'кабинет: язык переключился на English');
+ok(JSON.parse(localStorage.getItem('boni_m_state')).settings.alphabet === 'en', 'журнал: курс переключился на латинский');
 click('#lang-ru');
 await sleep(10);
 click('#vib'); // тумблер вибрации не падает
 click('#chants');
-ok(true, 'кабинет: тумблеры настроек работают');
+ok(true, 'журнал: тумблеры настроек работают');
 
 assert.equal(errors.length, 0, 'необработанные ошибки: ' + errors.map(String).join(' | '));
 console.log(`\nДымовой тест пройден: ${pass} проверок, ошибок ${errors.length}`);
