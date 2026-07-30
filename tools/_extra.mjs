@@ -29,7 +29,7 @@ const SEED = {
   milestones:{first4:true,tenMin:true},
 };
 
-const browser = await chromium.launch({ channel: undefined, executablePath: '/root/.cache/ms-playwright/chromium-1234/chrome-linux/chrome' });
+const browser = await chromium.launch({ channel: undefined, executablePath: '/root/.cache/ms-playwright/chromium-1234/chrome-linux64/chrome' });
 const ctx = await browser.newContext({viewport:{width:390,height:844},deviceScaleFactor:2,colorScheme:'light',locale:'ru-RU'});
 const page = await ctx.newPage();
 await page.addInitScript((s)=>{ localStorage.setItem('boni_m_state', JSON.stringify(s)); localStorage.setItem('boni_m_onboarded','1'); }, SEED);
