@@ -83,13 +83,32 @@ async function waitAnswerable(ms = 3000) {
   }
   return null;
 }
+// Копим нарушения правила «после ошибки — никаких поздравлений». Проверяется на каждом
+// неверном ответе: игра не должна ни открывать знак, ни объявлять веху.
+const wrongAnswerViolations = [];
+let wrongAnswersSeen = 0;
+const learnedNow = () => {
+  const st = JSON.parse(localStorage.getItem('boni_m_state'));
+  return st.progress.ru.learnedCount + st.progress.ru.digitsLearned;
+};
+
 async function answerOnce() {
   overlayEl.innerHTML = '';                    // снять возможный оверлей-событие
   const opt = await waitAnswerable();
   if (!opt) return;
+  const before = learnedNow();
   opt.click();
   await sleep(8);
-  if (document.querySelector('#opts .opt.wrong')) document.querySelector('#nextbtn')?.click(); // неверно → «Дальше»
+  if (document.querySelector('#opts .opt.wrong')) {
+    wrongAnswersSeen++;
+    // Диалог «отложить трудный знак» — законное следствие ошибки, поздравления — нет.
+    const overlay = overlayEl.querySelector('.overlay');
+    if (overlay && !overlayEl.querySelector('#park')) {
+      wrongAnswerViolations.push('оверлей после ошибки: ' + overlay.textContent.trim().slice(0, 60));
+    }
+    if (learnedNow() > before) wrongAnswerViolations.push('после ошибки открылся новый знак');
+    document.querySelector('#nextbtn')?.click(); // неверно → «Дальше»
+  }
   // верный ответ авто-переходит сам — следующий answerOnce дождётся через waitAnswerable
 }
 await answerOnce();
@@ -97,7 +116,11 @@ await answerOnce();
 ok(true, 'учиться: ответ обработан без ошибок');
 
 // 4б) БЛОКЕР: сессия должна засчитаться при уходе через нижнее меню, а не только по «Выход».
-for (let i = 0; i < 16; i++) await answerOnce();
+for (let i = 0; i < 40; i++) await answerOnce();
+
+// 4в) БЛОКЕР: после неверного ответа игра не поздравляет и не открывает новый знак.
+ok(wrongAnswersSeen > 0, `в прогоне встретились неверные ответы (${wrongAnswersSeen}) — проверка осмысленна`);
+ok(wrongAnswerViolations.length === 0, `после ошибки нет поздравлений и новых знаков${wrongAnswerViolations.length ? ': ' + wrongAnswerViolations.join(' | ') : ''}`);
 const histBefore = JSON.parse(localStorage.getItem('boni_m_state')).history.length;
 click('[data-tab="home"]'); // уход через нижнюю навигацию, НЕ кнопкой «Выход»
 await sleep(20);

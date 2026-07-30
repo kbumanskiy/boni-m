@@ -5,7 +5,7 @@ import { defaultState } from '../app/js/state.js';
 import {
   activeSet, newestChar, recordAnswer, shouldOpenNext, openNext,
   shouldOfferPark, parkNewest, combinedOrder, openedCount,
-  pickTarget, buildOptions, ensureStarted,
+  pickTarget, pickFirstTarget, buildOptions, ensureStarted,
 } from '../app/js/progress.js';
 
 function freshTrack() {
@@ -124,4 +124,78 @@ test('§7.2: один знак не бывает целью более 2 раз 
   const active = ['Е', 'Т', 'И', 'М'];
   const target = pickTarget(active, ['М', 'М'], 'М', rng);
   assert.notEqual(target, 'М', 'после двух М подряд третий раз М не выбирается');
+});
+
+// ——— Разнообразие знаков. Жалоба: «маршрут всегда начинается с одной и той же буквы». ———
+
+test('первый знак занятия выбирается равномерно, без уклона к новейшему', () => {
+  const active = ['Е', 'Т', 'И', 'М'];
+  const rng = seeded(11);
+  const cnt = {};
+  for (let i = 0; i < 8000; i++) {
+    const c = pickFirstTarget(active, null, rng);
+    cnt[c] = (cnt[c] || 0) + 1;
+  }
+  for (const c of active) {
+    const share = cnt[c] / 8000;
+    assert.ok(Math.abs(share - 0.25) < 0.03, `${c}: доля ${(share * 100).toFixed(1)}% вместо ~25%`);
+  }
+});
+
+test('первый знак занятия не повторяет тот, с которого начали в прошлый раз', () => {
+  const active = ['Е', 'Т', 'И', 'М'];
+  const rng = seeded(5);
+  for (let i = 0; i < 500; i++) {
+    assert.notEqual(pickFirstTarget(active, 'М', rng), 'М');
+  }
+  // Вырожденный случай: набор из одного знака — начинаем с него, а не падаем.
+  assert.equal(pickFirstTarget(['Е'], 'Е', rng), 'Е');
+});
+
+// Считает фактические доли выпадений целей на длинном прогоне.
+function targetShares(active, newest, seed, rounds = 12000) {
+  const rng = seeded(seed);
+  const cnt = {};
+  const recent = [];
+  for (let i = 0; i < rounds; i++) {
+    const c = pickTarget(active, recent, newest, rng);
+    recent.push(c);
+    cnt[c] = (cnt[c] || 0) + 1;
+  }
+  const shares = {};
+  for (const c of active) shares[c] = (cnt[c] || 0) / rounds;
+  return shares;
+}
+
+test('на стартовом наборе новейший знак заметно чаще прочих, но не половина раундов', () => {
+  const active = ['Е', 'Т', 'И', 'М'];
+  const shares = targetShares(active, 'М', 23);
+  const newest = shares['М'];
+  assert.ok(newest > 0.27 && newest < 0.33,
+    `доля новейшего ${(newest * 100).toFixed(1)}% — должна быть около 30% (было 50%)`);
+  for (const c of ['Е', 'Т', 'И']) {
+    assert.ok(shares[c] > 0.18, `${c} выпадает лишь ${(shares[c] * 100).toFixed(1)}% — слишком редко`);
+    assert.ok(shares[c] < newest, `${c} выпадает не реже новейшего`);
+  }
+});
+
+test('на большом наборе уклон к новейшему слабеет — старые знаки не выпадают из повторения', () => {
+  const active = ['Е','Т','И','М','А','Н','С','О','У','К','Р','В']; // 12 знаков
+  const shares = targetShares(active, 'В', 29);
+  const newest = shares['В'];
+  const others = active.filter((c) => c !== 'В').map((c) => shares[c]);
+  assert.ok(newest > 0.15 && newest < 0.26,
+    `доля новейшего на 12 знаках ${(newest * 100).toFixed(1)}% — должна быть около 21%`);
+  assert.ok(Math.min(...others) > 0.04, 'каждый старый знак продолжает выпадать');
+  assert.ok(newest > Math.max(...others), 'новейший всё равно самый частый');
+});
+
+test('одна и та же цель не идёт два раза подряд, пока есть из чего выбрать', () => {
+  const active = ['Е', 'Т', 'И', 'М'];
+  const rng = seeded(31);
+  const recent = [];
+  for (let i = 0; i < 3000; i++) recent.push(pickTarget(active, recent, 'М', rng));
+  for (let i = 1; i < recent.length; i++) {
+    assert.notEqual(recent[i], recent[i - 1], `повтор подряд на позиции ${i}: ${recent[i]}`);
+  }
 });

@@ -69,6 +69,27 @@ test('§8: вехи половины/полного алфавита, цифр, 
   assert.equal(st.profile.points, 50); // first4, half, allDigits, tenMin, callsign = 5 * 10
 });
 
+// ——— Точность событий. Жалоба: «не угадал букву, а он говорит про новый уровень». ———
+
+test('во время викторины проверяются только вехи за знаки — время не выстреливает не вовремя', () => {
+  const st = defaultState();
+  st.progress.ru.learnedCount = 4;
+  st.totalSeconds = 700; // порог «10 минут в эфире» уже пройден прошлыми занятиями
+  const newly = checkMilestones(st, { triggers: ['chars'] });
+  assert.ok(newly.includes('first4'), 'веха за знаки выдаётся');
+  assert.ok(!newly.includes('tenMin'), 'веха за время НЕ выдаётся посреди викторины');
+  // При завершении занятия — выдаётся.
+  const atExit = checkMilestones(st);
+  assert.ok(atExit.includes('tenMin'), 'веха за время выдаётся при завершении занятия');
+});
+
+test('веха позывного не выдаётся при проверке только знаковых вех', () => {
+  const st = defaultState();
+  st.progress.ru.learnedCount = 21;
+  const newly = checkMilestones(st, { triggers: ['chars'], callsignReceived: true });
+  assert.ok(!newly.includes('callsign'), 'событийная веха ждёт своего момента');
+});
+
 test('§7.2: сессия <15 ответов не засчитывается; >=15 — пишет журнал и серию', () => {
   const st = defaultState();
   assert.equal(recordSession(st, { answers: 14, accuracyPct: 90, todayStr: '2026-06-13' }), false);

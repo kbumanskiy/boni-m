@@ -39,9 +39,11 @@ let currentTab = 'home';
 function go(tab) {
   // Уход из «Учиться» любым путём (нижнее меню, кнопка) фиксирует сессию — иначе серия
   // дней и журнал не запишутся, когда папа просто тапнет «Главная».
+  // Сначала остановить часы (время войдёт в totalSeconds), потом засчитывать занятие —
+  // иначе веха «10 минут в эфире» опоздает на одно занятие.
+  if (tab !== 'learn' && tab !== 'key') stopActiveClock();
   if (currentTab === 'learn' && tab !== 'learn') finalizeLearnSession();
   if (currentTab === 'key' && tab !== 'key') clearKeyTimers();
-  if (tab !== 'learn' && tab !== 'key') stopActiveClock();
   currentTab = tab;
   A.stopAll();
   [...tabsEl.children].forEach((b) => b.classList.toggle('active', b.dataset.tab === tab));
@@ -107,7 +109,14 @@ function onboardingStep2() {
       </div>
       <button class="btn" id="start">Начать</button>
     </div>`;
-  $('#start').addEventListener('click', () => { P.ensureStarted(track()); persist(); go('home'); });
+  $('#start').addEventListener('click', () => {
+    P.ensureStarted(track());
+    // Первые 4 знака открыты прямо сейчас — веха принадлежит этому моменту, а не первому
+    // ответу в викторине (иначе «Новая веха!» выпадала даже на неверный ответ новичка).
+    G.checkMilestones(state, { triggers: ['chars'] });
+    persist();
+    go('home');
+  });
 }
 
 // ——————————————————————————— Главная (§7.1) ———————————————————————————
@@ -189,9 +198,17 @@ function settingsForPlay() {
 
 function nextRound() {
   L.slow = false; L.awaiting = false;
-  const active = P.activeSet(track(), state.settings.alphabet);
-  const newest = L.repetition ? null : P.newestChar(track(), state.settings.alphabet);
-  L.target = P.pickTarget(active, L.recentTargets, newest);
+  const t = track();
+  const active = P.activeSet(t, state.settings.alphabet);
+  const newest = L.repetition ? null : P.newestChar(t, state.settings.alphabet);
+  if (L.recentTargets.length === 0) {
+    // Самый первый знак занятия — равномерно и не тот, с которого начали в прошлый раз.
+    L.target = P.pickFirstTarget(active, t.lastFirst);
+    t.lastFirst = L.target;
+    persist();
+  } else {
+    L.target = P.pickTarget(active, L.recentTargets, newest);
+  }
   L.recentTargets.push(L.target);
   L.options = P.buildOptions(active, L.target, newest);
   renderOptions(true);
@@ -248,7 +265,7 @@ function answer(ch) {
     setTimeout(() => {
       if (currentTab !== 'learn') return;
       L.awaiting = false;
-      if (!afterAnswerProgress()) nextRound();
+      if (!afterAnswerProgress(true)) nextRound();
     }, 600);
   } else {
     L.awaiting = true;
@@ -262,7 +279,7 @@ function answer(ch) {
       <button class="btn secondary" id="relisten" style="max-width:220px;margin:10px auto">Переслушать</button>
       <button class="btn" id="nextbtn" style="max-width:220px;margin:6px auto">Дальше</button>`;
     $('#relisten').addEventListener('click', () => A.playCode(codeOf(L.target), settingsForPlay(), {}));
-    $('#nextbtn').addEventListener('click', () => { if (!afterAnswerProgress()) nextRound(); });
+    $('#nextbtn').addEventListener('click', () => { if (!afterAnswerProgress(false)) nextRound(); });
     persist();
   }
 }
@@ -270,16 +287,27 @@ function answer(ch) {
 // Продвижение, вехи, предложение отложить — после ответа (не в режиме повторения).
 // Возвращает true, если функция сама берёт на себя переход к следующему знаку
 // (показывает событие-оверлей или диалог «отложить») — тогда вызывающий не делает nextRound.
-function afterAnswerProgress() {
+//
+// Главное правило: показываем только то, что вызвано ИМЕННО этим ответом. Поощрения
+// (новый знак, веха) — исключительно после верного ответа; иначе игра поздравляла с новым
+// уровнем сразу после промаха, потому что окно точности всё ещё держалось выше порога.
+function afterAnswerProgress(correct) {
   if (L.repetition) return false;
   const t = track(), alpha = state.settings.alphabet;
+
+  // После ошибки уместно единственное событие — предложение отложить трудный знак:
+  // оно вызвано этой самой ошибкой, а не «пройденным порогом».
+  if (!correct) {
+    if (P.shouldOfferPark(t, alpha)) { offerPark(); return true; }
+    return false;
+  }
 
   // 1) Открылся новый знак — это событие: показываем героя и ТОЛЬКО ПОТОМ следующий раунд.
   if (P.shouldOpenNext(t, alpha)) {
     const opened = P.openNext(t, alpha);
     const info = DATA.charInfo(opened);
     const chant = state.settings.showChants && alpha === 'ru' && info?.chant ? `, напев «${info.chant}»` : '';
-    const newly = G.checkMilestones(state);
+    const newly = G.checkMilestones(state, { triggers: ['chars'] });
     persist();
     showHero('hero-radost.webp', `Открыт новый знак: ${opened}`, `${visualCode(codeOf(opened))}${chant}`, 2400)
       .then(() => (newly.length ? milestoneBanner(newly) : null))
@@ -291,7 +319,8 @@ function afterAnswerProgress() {
   if (P.shouldOfferPark(t, alpha)) { offerPark(); return true; }
 
   // 3) Веха без нового знака — короткий баннер, затем следующий раунд.
-  const newly = G.checkMilestones(state);
+  // Только вехи за знаки: вехи за время и события принадлежат другим моментам.
+  const newly = G.checkMilestones(state, { triggers: ['chars'] });
   persist();
   if (newly.length) {
     milestoneBanner(newly).then(() => { if (currentTab === 'learn') nextRound(); });
@@ -326,11 +355,14 @@ function toggleHelp() {
 }
 
 // Засчитать текущее занятие один раз (≥15 ответов). Вызывается из любого ухода.
+// Вехи за время («10 минут в эфире») проверяются здесь: время попадает в totalSeconds
+// только при остановке часов, поэтому завершение занятия — их естественный момент.
 function finalizeLearnSession() {
   if (!L || L.recorded || L.answers < 15) return false;
   const acc = Math.round(L.correct / L.answers * 100);
   const counted = G.recordSession(state, { answers: L.answers, accuracyPct: acc, todayStr: G.localDate() });
   L.recorded = true;
+  L.newMilestones = G.checkMilestones(state);
   persist();
   return counted;
 }
@@ -340,7 +372,9 @@ function exitLearn() {
   const counted = finalizeLearnSession();
   if (counted && L) {
     const acc = Math.round(L.correct / L.answers * 100);
+    const newly = L.newMilestones || [];
     showHero('hero-radost.webp', 'Занятие засчитано', `Ответов: ${L.answers}, точность ${acc}%`, 1800)
+      .then(() => milestoneBanner(newly))
       .then(() => { learnOpts.repetition = false; go('home'); });
     return;
   }

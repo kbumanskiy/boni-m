@@ -10,8 +10,9 @@ export function defaultState() {
     version: STATE_VERSION,
     profile: { name: '', callsign: 'Boney M', points: 0 },
     progress: {
-      ru: { learnedCount: 0, digitsLearned: 0, perChar: {}, recent: [], parked: [] },
-      en: { learnedCount: 0, digitsLearned: 0, perChar: {}, recent: [], parked: [] },
+      // lastFirst — знак, с которого началось прошлое занятие (чтобы не начинать с него снова).
+      ru: { learnedCount: 0, digitsLearned: 0, perChar: {}, recent: [], parked: [], lastFirst: null },
+      en: { learnedCount: 0, digitsLearned: 0, perChar: {}, recent: [], parked: [], lastFirst: null },
     },
     settings: {
       alphabet: 'ru', charWpm: 18, effWpm: 9, keyWpm: 12,
@@ -37,6 +38,7 @@ function sanitizeTrack(raw, def) {
     perChar: isObj(t.perChar) ? t.perChar : {},
     recent: Array.isArray(t.recent) ? t.recent.slice(-30) : [],
     parked: Array.isArray(t.parked) ? t.parked.slice(0, 2) : [], // одновременно не более двух (§6.1)
+    lastFirst: typeof t.lastFirst === 'string' && t.lastFirst ? t.lastFirst : null,
   };
 }
 

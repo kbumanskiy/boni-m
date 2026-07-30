@@ -144,18 +144,34 @@ function shuffle(arr, rng) {
   return a;
 }
 
-// Выбрать цель: случайно из набора, с уклоном к новейшему, но не одна и та же цель >2 раз подряд.
+// Насколько чаще среднего звучит новейший знак — и жёсткий предел его доли. Раньше он
+// добавлялся в пул тройным весом: на стартовом наборе из 4 знаков это давало ему половину
+// всех раундов, и занятие ощущалось как «всё время одна и та же буква».
+const NEWEST_TIMES = 2.5;      // примерно во столько раз чаще среднего знака
+const NEWEST_MAX_SHARE = 0.3;  // но не больше 30% раундов — иначе повторение старых знаков худеет
+
+// Первый знак занятия: строго равномерно, без уклона к новейшему, и не тот, с которого
+// начали в прошлый раз (avoid) — иначе каждое занятие открывается одной и той же буквой.
+export function pickFirstTarget(active, avoid, rng = Math.random) {
+  const pool = active.filter((c) => c !== avoid);
+  const from = pool.length ? pool : active;
+  return from[Math.floor(rng() * from.length)];
+}
+
+// Выбрать цель внутри занятия: с уклоном к новейшему, но никогда два раза подряд одна и та же
+// (повтор подряд — главный источник ощущения однообразия).
 export function pickTarget(active, recentTargets, newest, rng = Math.random) {
-  let pool = active.slice();
-  // Запрет третьего повтора подряд.
-  const last2 = recentTargets.slice(-2);
-  if (last2.length === 2 && last2[0] === last2[1]) {
-    pool = pool.filter((c) => c !== last2[0]);
-  }
-  if (pool.length === 0) pool = active.slice();
-  // Уклон к новейшему: добавим его в пул дополнительным весом.
-  if (newest && pool.includes(newest)) pool = pool.concat([newest, newest]);
-  return pool[Math.floor(rng() * pool.length)];
+  const prev = recentTargets[recentTargets.length - 1];
+  let pool = active.filter((c) => c !== prev);
+  if (!pool.length) pool = active.slice(); // набор из одного знака — деваться некуда
+  // Желаемая доля новейшего, поправленная на запрет повтора подряд: без поправки этот запрет
+  // сам срезал бы новейший знак ниже равномерной доли (он чаще прочих оказывается предыдущим).
+  const share = Math.min(NEWEST_MAX_SHARE, NEWEST_TIMES / Math.max(1, active.length));
+  const chance = share / (1 - share);
+  if (newest && newest !== prev && pool.includes(newest) && rng() < chance) return newest;
+  const rest = pool.filter((c) => c !== newest);
+  const from = rest.length ? rest : pool;
+  return from[Math.floor(rng() * from.length)];
 }
 
 // Сформировать кнопки-варианты: всегда >=4; при наборе >8 — 6–8 с обязательными целью и новейшим.

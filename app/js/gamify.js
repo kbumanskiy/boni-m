@@ -57,21 +57,30 @@ export function callsignDrillAvailable(track) {
   return CALLSIGN_RU_CHARS.every((c) => learned.includes(c));
 }
 
-// §8: список вех. Возвращает массив id вновь полученных (и отмечает их + начисляет очки).
+// §8: список вех. У каждой указан источник (trigger) — от чего она зависит:
+//   'chars' — от числа освоенных знаков, 'time' — от времени в эфире, 'event' — от действия.
+// Источник важен: во время викторины можно показывать только вехи за знаки, иначе игра
+// объявляет «Новая веха!» в момент, никак не связанный с только что данным ответом.
 export const MILESTONES = {
-  first4:    { id: 'first4',    title: 'Освоены первые 4 знака' },
-  tenMin:    { id: 'tenMin',    title: '10 минут в эфире' },
-  callsign:  { id: 'callsign',  title: 'Принят на слух свой позывной' },
-  allDigits: { id: 'allDigits', title: 'Освоены все цифры' },
-  half:      { id: 'half',      title: 'Освоена половина алфавита' },
-  full:      { id: 'full',      title: 'Освоен весь алфавит' },
+  first4:    { id: 'first4',    title: 'Освоены первые 4 знака',         trigger: 'chars' },
+  tenMin:    { id: 'tenMin',    title: '10 минут в эфире',               trigger: 'time' },
+  callsign:  { id: 'callsign',  title: 'Принят на слух свой позывной',   trigger: 'event' },
+  allDigits: { id: 'allDigits', title: 'Освоены все цифры',              trigger: 'chars' },
+  half:      { id: 'half',      title: 'Освоена половина алфавита',      trigger: 'chars' },
+  full:      { id: 'full',      title: 'Освоен весь алфавит',            trigger: 'chars' },
 };
 
+// Возвращает массив id вновь полученных вех (и отмечает их + начисляет очки).
+// ctx.triggers — какие источники учитывать; по умолчанию все.
 export function checkMilestones(state, ctx = {}) {
   const track = state.progress[state.settings.alphabet];
   const ms = state.milestones;
+  const allow = ctx.triggers || ['chars', 'time', 'event'];
   const newly = [];
-  const grant = (id) => { if (!ms[id]) { ms[id] = true; newly.push(id); state.profile.points += 10; } };
+  const grant = (id) => {
+    if (!allow.includes(MILESTONES[id].trigger)) return;
+    if (!ms[id]) { ms[id] = true; newly.push(id); state.profile.points += 10; }
+  };
 
   if ((track.learnedCount || 0) >= 4) grant('first4');
   if ((state.totalSeconds || 0) >= 600) grant('tenMin');
