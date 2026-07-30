@@ -6,6 +6,7 @@ import * as P from './js/progress.js';
 import * as G from './js/gamify.js';
 import * as A from './js/audio.js';
 import * as KT from './js/keytext.js';
+import * as TR from './js/trace.js';
 
 let state = load();
 const persist = () => save(state);
@@ -19,6 +20,24 @@ const codeOf = (ch) => DATA.CODE_BY_CHAR[state.settings.alphabet]?.get(ch) || DA
 const visualCode = (code) => code.split('').map((c) => (c === '.' ? '•' : '—')).join(' ');
 const track = () => state.progress[state.settings.alphabet];
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+// ——— «След сигнала»: ритм кода полосками. Подпись оформления и наглядная опора для слуха. ———
+const traceHTML = (parts, cls = '') =>
+  `<span class="trace ${cls}" aria-hidden="true">${parts.map((p) => `<i class="${p}"></i>`).join('')}</span>`;
+const traceOfCode = (code, cls = '') => traceHTML(TR.traceParts(code), cls);
+
+// ——— Тема оформления: по настройке телефона либо вручную ———
+function applyTheme() {
+  const mode = state.settings.theme;
+  const root = document.documentElement;
+  if (mode === 'light' || mode === 'dark') root.dataset.theme = mode;
+  else delete root.dataset.theme;
+  // Цвет системной панели браузера должен совпадать с фоном, иначе сверху остаётся чужая полоса.
+  const dark = mode === 'dark'
+    || (mode !== 'light' && globalThis.matchMedia?.('(prefers-color-scheme: dark)').matches);
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.setAttribute('content', dark ? '#100E0B' : '#F6F1E6');
+}
 
 function vibrate(ms) {
   try { if (state.settings.vibration && 'vibrate' in navigator) navigator.vibrate(ms); } catch {}
@@ -129,23 +148,38 @@ function renderHome() {
   const greeted = state._greeted ? 'С возвращением' : 'Здравствуйте';
   state._greeted = true;
   const drill = G.callsignDrillAvailable(t) && !state.milestones.callsign;
+  // Позывной, написанный ритмом морзянки — то, ради чего папа и учится. Каждый вход
+  // начинается с него: это и украшение, и постоянная тренировка глазом.
+  const callsignTrace = traceHTML(TR.traceSequence(DATA.CALLSIGN_CODES));
+  const ticks = Array.from({ length: total },
+    (_, i) => `<i class="${i < learned ? 'on' : ''}"></i>`).join('');
   screenEl.innerHTML = `
-    <div class="topbar">
-      <img class="avatar" id="toCab" src="assets/hero-portret.webp" alt="Кабинет">
-      <div class="grow"><strong>${esc(greeted)}, ${esc(state.profile.name)}!</strong></div>
-      <span class="chip" id="toCab2">${esc(state.profile.callsign)}</span>
+    <div class="station">
+      <img class="avatar" id="toCab" src="assets/hero-portret.webp" alt="Открыть бортжурнал">
+      <div class="who">
+        <div class="eyebrow">Станция</div>
+        <div class="callsign">${esc(state.profile.callsign)}</div>
+      </div>
+      ${callsignTrace}
     </div>
-    <img class="hero" src="assets/hero-zastavka.webp" alt="">
+    <div class="heroblock">
+      <img class="hero" src="assets/hero-zastavka.webp" alt="">
+    </div>
+    <div class="greeting">${esc(greeted)}, ${esc(state.profile.name)}!</div>
     <div class="card">
-      <div class="rowflex"><strong>${esc(rank)}</strong><span class="muted">Освоено: ${learned} из ${total}</span></div>
-      <div class="progress"><i style="width:${Math.round(learned / total * 100)}%"></i></div>
-      <div class="rowflex muted"><span>📡 Дни в эфире: ${state.streak.current}</span><span>Лучшая: ${state.streak.longest}</span></div>
+      <div class="eyebrow">Звание</div>
+      <div class="rankline">${esc(rank)}</div>
+      <div class="ticks" role="img" aria-label="Освоено ${learned} из ${total} знаков">${ticks}</div>
+      <div class="learned">Освоено: ${learned} из ${total}</div>
+      <div class="stats">
+        <div class="stat"><div class="eyebrow">Дни в эфире</div><b>${state.streak.current}</b></div>
+        <div class="stat"><div class="eyebrow">Лучшая серия</div><b>${state.streak.longest}</b></div>
+      </div>
     </div>
-    ${drill ? `<button class="btn secondary" id="drill">📨 Принять свой позывной</button>` : ''}
+    ${drill ? `<button class="btn secondary" id="drill">Принять свой позывной</button>` : ''}
     <button class="btn" id="continue">Продолжить обучение</button>
     <button class="btn secondary" id="review" ${learned < 1 ? 'disabled' : ''}>Повторение пройденного</button>`;
   $('#toCab').addEventListener('click', () => go('cabinet'));
-  $('#toCab2').addEventListener('click', () => go('cabinet'));
   $('#continue').addEventListener('click', () => { learnOpts.repetition = false; go('learn'); });
   $('#review').addEventListener('click', () => { learnOpts.repetition = true; go('learn'); });
   if (drill) $('#drill').addEventListener('click', callsignDrill);
@@ -693,5 +727,6 @@ if ('serviceWorker' in navigator) {
 try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch {}
 
 // Старт.
+applyTheme();
 if (needsOnboarding(state)) renderOnboarding();
 else go('home');

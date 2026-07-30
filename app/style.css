@@ -1,157 +1,324 @@
-/* Бони М — тёплая светлая тема (ТЗ §12) и доступность под 73 года (§11). */
+/* ═══════════════════════════════════════════════════════════════════════════
+   Бони М — визуальная система «приёмник».
+
+   Идея: приложение — это прибор, за которым сидит оператор. Отсюда моноширинный
+   шрифт для всего, что является данными (позывной, коды, счётчики, подписи-шильдики),
+   янтарный свет одного акцента и «след сигнала» — ритм кода, нарисованный
+   пропорциональными полосками, как на ленте самопишущего аппарата.
+
+   Две темы из одного набора переменных: по настройке телефона, с ручной перебивкой
+   через data-theme на <html>. Доступность (ТЗ §11) — жёсткое условие, не пожелание:
+   основной текст ≥20px, самый мелкий ≥17px, площадь нажатия ≥64px, контраст ≥4.5:1.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ——— Светлая тема (по умолчанию) ——— */
 :root{
-  --bg:#FBF3E6; --card:#FFFFFF; --accent:#C8861E; --accent-dark:#A86E12;
-  --text:#2B2620; --text-2:#564C41; --success:#3E8E5A; --error:#C0563B;
-  --radius:18px; --shadow:0 4px 16px rgba(80,60,30,.12);
+  color-scheme: light;
+
+  --bg:#F6F1E6;  --bg-2:#EDE4D1;
+  --surface:#FFFFFF; --surface-2:#FAF4E8;
+  --line:#E0D5BD; --line-strong:#C7B694;
+  --text:#1E1A13; --text-dim:#544B3D;
+  --accent:#9C6608;          /* заливки — затемнён, чтобы белый текст на нём читался */
+  --accent-text:#8A5B06;     /* янтарный КАК текст — темнее, чтобы читался на светлом */
+  --on-accent:#FFFFFF;
+  --ok:#2C7548; --bad:#AC3F27;
+  --on-ok:#FFFFFF; --on-bad:#FFFFFF;
+  --tick-off:#9C8657;        /* пустая риска шкалы — тоже обязана быть различима */
+  --glow:rgba(185,121,11,.16);
+  --shadow:0 1px 2px rgba(62,46,18,.05), 0 10px 26px rgba(62,46,18,.09);
+  --shadow-lift:0 2px 4px rgba(62,46,18,.07), 0 18px 40px rgba(62,46,18,.14);
+
+  /* Типографика */
+  --font:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --mono:ui-monospace,SFMono-Regular,"SF Mono","Cascadia Mono","Roboto Mono",Menlo,Consolas,monospace;
+
+  /* Форма */
+  --r-lg:24px; --r:18px; --r-sm:12px; --r-pill:999px;
   --tap:64px;
+  --u:5px;                   /* единица «следа сигнала»: точка = 1u, тире = 3u */
 }
+
+/* ——— Тёмная тема ——— */
+@media (prefers-color-scheme: dark){
+  :root{
+    color-scheme: dark;
+    --bg:#100E0B; --bg-2:#191510;
+    --surface:#1B1712; --surface-2:#241F17;
+    --line:#332C21; --line-strong:#4C4230;
+    --text:#F7F2E6; --text-dim:#B2A894;
+    --accent:#F2A63C;
+    --accent-text:#F6B863;
+    --on-accent:#16100A;
+    --ok:#5CC985; --bad:#FF8767;
+    --on-ok:#0B1A10; --on-bad:#2A0C04;   /* на ярком цвете нужна тёмная тушь, не белая */
+    --tick-off:#6E6249;
+    --glow:rgba(242,166,60,.22);
+    --shadow:0 1px 2px rgba(0,0,0,.5), 0 10px 26px rgba(0,0,0,.45);
+    --shadow-lift:0 2px 6px rgba(0,0,0,.55), 0 20px 46px rgba(0,0,0,.55);
+  }
+}
+
+/* ——— Ручная перебивка темы: должна побеждать в обе стороны ——— */
+:root[data-theme="light"]{
+  color-scheme: light;
+  --bg:#F6F1E6; --bg-2:#EDE4D1;
+  --surface:#FFFFFF; --surface-2:#FAF4E8;
+  --line:#E0D5BD; --line-strong:#C7B694;
+  --text:#1E1A13; --text-dim:#544B3D;
+  --accent:#9C6608; --accent-text:#8A5B06; --on-accent:#FFFFFF;
+  --ok:#2C7548; --bad:#AC3F27; --on-ok:#FFFFFF; --on-bad:#FFFFFF;
+  --tick-off:#9C8657;
+  --glow:rgba(185,121,11,.16);
+  --shadow:0 1px 2px rgba(62,46,18,.05), 0 10px 26px rgba(62,46,18,.09);
+  --shadow-lift:0 2px 4px rgba(62,46,18,.07), 0 18px 40px rgba(62,46,18,.14);
+}
+:root[data-theme="dark"]{
+  color-scheme: dark;
+  --bg:#100E0B; --bg-2:#191510;
+  --surface:#1B1712; --surface-2:#241F17;
+  --line:#332C21; --line-strong:#4C4230;
+  --text:#F7F2E6; --text-dim:#B2A894;
+  --accent:#F2A63C; --accent-text:#F6B863; --on-accent:#16100A;
+  --ok:#5CC985; --bad:#FF8767; --on-ok:#0B1A10; --on-bad:#2A0C04;
+  --tick-off:#6E6249;
+  --glow:rgba(242,166,60,.22);
+  --shadow:0 1px 2px rgba(0,0,0,.5), 0 10px 26px rgba(0,0,0,.45);
+  --shadow-lift:0 2px 6px rgba(0,0,0,.55), 0 20px 46px rgba(0,0,0,.55);
+}
+
 *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
 html,body{margin:0; padding:0;}
 body{
-  font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  font-family:var(--font);
   background:var(--bg); color:var(--text);
   font-size:20px; line-height:1.45;
   -webkit-text-size-adjust:100%;
-  padding-bottom:calc(84px + env(safe-area-inset-bottom));
+  padding-bottom:calc(96px + env(safe-area-inset-bottom));
   overflow-x:hidden;
 }
-h1{font-size:32px; margin:.2em 0;}
-h2{font-size:26px; margin:.3em 0;}
+h1{font-size:34px; line-height:1.15; letter-spacing:-.02em; margin:.2em 0; font-weight:700;}
+h2{font-size:27px; line-height:1.2; letter-spacing:-.015em; margin:.3em 0; font-weight:700;}
 p{margin:.4em 0;}
 button{font-family:inherit; font-size:20px; cursor:pointer;}
 img{max-width:100%; height:auto;}
-.muted{color:var(--text-2);}
+.muted{color:var(--text-dim);}
 .center{text-align:center;}
 .hidden{display:none !important;}
+.grow{flex:1;}
 
-/* Контейнер экрана */
-#screen{padding:16px 16px 8px; max-width:560px; margin:0 auto; min-height:60vh;}
+/* Видимый фокус с клавиатуры — обязательный минимум качества. */
+:focus-visible{outline:3px solid var(--accent); outline-offset:3px; border-radius:6px;}
 
-/* Карточки */
+#screen{padding:14px 16px 8px; max-width:560px; margin:0 auto; min-height:60vh;}
+
+/* ——— Шильдик: моноширинная подпись над значением, как гравировка на панели ——— */
+.eyebrow{
+  font-family:var(--mono); font-size:17px; font-weight:600;
+  letter-spacing:.14em; text-transform:uppercase; color:var(--text-dim);
+  line-height:1.2;
+}
+
+/* ——— Карточки ——— */
 .card{
-  background:var(--card); border-radius:var(--radius); box-shadow:var(--shadow);
-  padding:18px; margin:14px 0;
+  background:var(--surface); border:1px solid var(--line); border-radius:var(--r);
+  box-shadow:var(--shadow); padding:16px; margin:12px 0;
 }
 
-/* Кнопки */
+/* ——— Кнопки ——— */
 .btn{
-  display:inline-flex; align-items:center; justify-content:center; gap:8px;
-  min-height:var(--tap); padding:14px 22px; border:none; border-radius:14px;
-  background:var(--accent); color:#fff; font-weight:600; box-shadow:var(--shadow);
-  width:100%; margin:8px 0; transition:transform .08s ease, background .15s ease;
+  display:inline-flex; align-items:center; justify-content:center; gap:10px;
+  min-height:var(--tap); padding:14px 22px; border:1px solid transparent; border-radius:var(--r);
+  background:var(--accent); color:var(--on-accent); font-weight:650; letter-spacing:-.01em;
+  box-shadow:var(--shadow); width:100%; margin:8px 0;
+  transition:transform .1s ease, filter .15s ease, background .15s ease;
 }
-.btn:active{transform:scale(.98);}
-.btn.secondary{background:#fff; color:var(--accent-dark); border:2px solid var(--accent);}
-.btn.ghost{background:transparent; color:var(--text-2); box-shadow:none; border:2px solid #E4D8C2;}
-.btn:disabled{opacity:.45;}
+.btn:active{transform:translateY(1px) scale(.995); filter:brightness(.95);}
+.btn.secondary{background:var(--surface); color:var(--accent-text); border-color:var(--line-strong);}
+.btn.ghost{background:transparent; color:var(--text-dim); border-color:var(--line); box-shadow:none;}
+.btn:disabled{opacity:.4;}
 .btn-row{display:flex; gap:10px;}
-.btn-row .btn{margin:8px 0;}
+.btn-row .btn{margin:10px 0;}
 
-/* Шапка главной */
-.topbar{display:flex; align-items:center; gap:12px; padding:8px 4px;}
-.avatar{width:56px; height:56px; border-radius:50%; object-fit:cover; background:#fff; box-shadow:var(--shadow);}
-.chip{background:#fff; border:2px solid var(--accent); color:var(--accent-dark);
-  border-radius:999px; padding:6px 14px; font-weight:700; font-size:17px;}
-.topbar .grow{flex:1;}
+/* ——— След сигнала: подпись проекта. Точка = 1 единица, тире = 3, паузы такие же. ———
+   Полоски со скруглёнными концами читаются как запись на ленте самописца. */
+.trace{display:flex; align-items:center; height:14px;}
+.trace i{display:block; height:100%; border-radius:calc(var(--u) / 1.6); background:var(--accent);}
+.trace i.dit{width:var(--u);}
+.trace i.dah{width:calc(var(--u) * 3);}
+.trace i.g1{width:var(--u); background:none;}
+.trace i.g3{width:calc(var(--u) * 3); background:none;}
+.trace.big{height:26px; --u:9px;}
+.trace.dim i{background:var(--tick-off);}
 
-.hero{display:block; margin:6px auto; max-height:34vh;}
+/* ——— Шапка станции ——— */
+.station{
+  display:grid; grid-template-columns:auto 1fr; column-gap:14px; row-gap:6px;
+  align-items:center; padding:4px 2px 0;
+}
+.station .avatar{grid-row:1 / span 2; align-self:start;}
+.station .who{min-width:0;}
+.callsign{
+  font-family:var(--mono); font-size:26px; font-weight:700; letter-spacing:.02em;
+  color:var(--text); line-height:1.15; white-space:nowrap;
+}
+.station .trace{--u:4px; grid-column:2;}
+.avatar{
+  width:60px; height:60px; border-radius:var(--r-pill); object-fit:cover;
+  background:var(--surface-2); border:2px solid var(--line-strong); padding:2px;
+}
+.chip{
+  font-family:var(--mono); background:var(--surface); border:1px solid var(--line-strong);
+  color:var(--accent-text); border-radius:var(--r-pill); padding:8px 16px;
+  font-weight:700; font-size:18px; white-space:nowrap;
+}
+
+/* ——— Иллюстрация: у файлов прозрачный фон, поэтому герой не «в рамке», а выходит
+   из тёплого света — как оператор под настольной лампой. ——— */
+.heroblock{position:relative; display:grid; place-items:center; padding:2px 0 0; margin:4px 0 0;}
+.heroblock::before{
+  content:""; position:absolute; left:50%; top:52%; transform:translate(-50%,-50%);
+  width:min(92%, 420px); aspect-ratio:1/1; border-radius:50%;
+  background:radial-gradient(circle, var(--glow) 0%, transparent 68%);
+}
+.hero{display:block; position:relative; margin:0 auto; max-height:30vh;}
+.heroblock .hero{max-height:22vh;}
 .hero.small{max-height:22vh;}
+.greeting{position:relative; text-align:center; margin-top:2px;}
 
-/* Прогресс-полоса */
-.progress{height:16px; background:#EFE3CC; border-radius:999px; overflow:hidden; margin:8px 0;}
-.progress > i{display:block; height:100%; background:var(--accent); border-radius:999px; transition:width .4s ease;}
+.rankline{font-size:27px; font-weight:700; letter-spacing:-.015em; line-height:1.2; margin-top:3px;}
+.learned{color:var(--text-dim); font-size:19px;}
+.greeting{font-size:24px; font-weight:700; letter-spacing:-.015em; line-height:1.25; margin:2px 0 0; text-align:center;}
 
-/* Нижняя навигация */
+/* ——— Шкала освоенного: каждая риска — знак алфавита, как деления на шкале настройки ——— */
+.ticks{display:flex; align-items:flex-end; gap:2px; height:24px; margin:10px 0 8px;}
+.ticks i{flex:1; height:50%; border-radius:2px; background:var(--tick-off);}
+.ticks i.on{height:100%; background:var(--accent);}
+
+/* Полоса-прогресс (используется там, где рисок было бы слишком много) */
+.progress{height:12px; background:var(--bg-2); border:1px solid var(--line); border-radius:var(--r-pill); overflow:hidden; margin:10px 0;}
+.progress > i{display:block; height:100%; background:var(--accent); border-radius:var(--r-pill); transition:width .4s ease;}
+
+/* ——— Пара показателей в подвале карточки ——— */
+.stats{display:flex; gap:12px; border-top:1px solid var(--line); margin-top:13px; padding-top:12px;}
+.stat{flex:1;}
+.stat b{display:block; font-family:var(--mono); font-size:30px; font-weight:700; line-height:1.1; color:var(--text); margin-top:4px;}
+
+/* ——— Нижняя навигация ——— */
 nav#tabs{
-  position:fixed; left:0; right:0; bottom:0; display:flex;
-  background:#fff; box-shadow:0 -2px 12px rgba(80,60,30,.12);
-  padding-bottom:env(safe-area-inset-bottom); z-index:20;
+  position:fixed; left:0; right:0; bottom:0; display:flex; gap:1px;
+  background:var(--surface); border-top:1px solid var(--line);
+  box-shadow:0 -6px 24px rgba(0,0,0,.10);
+  padding:6px 4px env(safe-area-inset-bottom); z-index:20;
 }
 nav#tabs button{
-  flex:1; min-height:var(--tap); border:none; background:none; color:var(--text-2);
-  font-size:15px; line-height:1.1; padding:8px 4px; display:flex; flex-direction:column; align-items:center; gap:3px;
+  flex:1 1 0; min-width:0; min-height:var(--tap); border:none; background:none; color:var(--text-dim);
+  font-size:17px; line-height:1.1; padding:8px 1px; margin:0 1px; border-radius:14px; letter-spacing:-.02em;
+  display:flex; flex-direction:column; align-items:center; justify-content:center; gap:5px;
+  position:relative;
 }
 nav#tabs button .ic{font-size:24px; line-height:1;}
-nav#tabs button .ic svg{width:26px; height:26px; display:block;}
-nav#tabs button.active{color:var(--accent-dark); font-weight:700;}
-nav#tabs button.active .ic{transform:translateY(-1px);}
-
-/* Викторина «Учиться» */
-.flash{
-  width:130px; height:130px; border-radius:50%; margin:14px auto; background:#EFE3CC;
-  display:flex; align-items:center; justify-content:center; font-size:54px; color:var(--accent-dark);
-  transition:background .04s linear, transform .04s linear;
+nav#tabs button .ic svg{width:27px; height:27px; display:block;}
+nav#tabs button.active{color:var(--accent-text); font-weight:700; background:var(--surface-2);}
+nav#tabs button.active::before{
+  content:""; position:absolute; top:0; left:50%; transform:translateX(-50%);
+  width:26px; height:3px; border-radius:0 0 3px 3px; background:var(--accent);
 }
-.flash.on-dit{background:var(--accent); transform:scale(1.04);}
-.flash.on-dah{background:var(--accent); transform:scale(1.10);}
-.options{display:grid; grid-template-columns:repeat(2,1fr); gap:12px; margin-top:10px;}
+
+/* ——— Викторина «Учиться» ——— */
+.flash{
+  width:140px; height:140px; border-radius:50%; margin:16px auto;
+  background:var(--surface-2); border:1px solid var(--line);
+  display:flex; align-items:center; justify-content:center;
+  font-size:54px; color:var(--accent-text);
+  transition:background .04s linear, transform .04s linear, box-shadow .04s linear;
+}
+.flash.on-dit,.flash.on-dah{background:var(--accent); color:var(--on-accent); box-shadow:0 0 0 14px var(--glow);}
+.flash.on-dit{transform:scale(1.04);}
+.flash.on-dah{transform:scale(1.09);}
+
+.options{display:grid; grid-template-columns:repeat(2,1fr); gap:12px; margin-top:12px;}
 .options.cols3{grid-template-columns:repeat(3,1fr);}
 .opt{
-  min-height:84px; font-size:38px; font-weight:700; border-radius:16px; border:2px solid #E4D8C2;
-  background:#fff; color:var(--text); box-shadow:var(--shadow);
+  min-height:88px; font-size:40px; font-weight:700; border-radius:var(--r);
+  border:1px solid var(--line-strong); background:var(--surface); color:var(--text);
+  box-shadow:var(--shadow); transition:transform .1s ease, background .15s ease;
 }
+.opt:active{transform:translateY(1px);}
 .opt:disabled{opacity:1;}
-/* Во время проигрывания знака — мягко гасим варианты: видно «сейчас слушай, не нажимай». */
-.options.playing .opt{opacity:.45;}
-.opt.correct{background:var(--success); color:#fff; border-color:var(--success);}
-.opt.wrong{background:var(--error); color:#fff; border-color:var(--error);}
-.opt.reveal{border-color:var(--success); box-shadow:0 0 0 3px rgba(62,142,90,.35);}
+.options.playing .opt{opacity:.4;}
+.opt.correct{background:var(--ok); color:var(--on-ok); border-color:var(--ok);}
+.opt.wrong{background:var(--bad); color:var(--on-bad); border-color:var(--bad);}
+.opt.reveal{border-color:var(--ok); box-shadow:0 0 0 3px color-mix(in srgb, var(--ok) 38%, transparent);}
 
-.feedback{min-height:40px; font-size:22px; font-weight:600; margin:8px 0;}
-.feedback.ok{color:var(--success);}
-.feedback.no{color:var(--error);}
-.codeline{font-size:34px; letter-spacing:6px; color:var(--accent-dark); font-weight:700;}
-.chant{color:var(--text-2); font-style:italic;}
+.feedback{min-height:40px; font-size:22px; font-weight:650; margin:10px 0;}
+.feedback.ok{color:var(--ok);}
+.feedback.no{color:var(--bad);}
+.codeline{font-family:var(--mono); font-size:32px; letter-spacing:6px; color:var(--accent-text); font-weight:700;}
+.chant{color:var(--text-dim); font-style:italic;}
 
-/* Оверлей реакции героя «Верно!» / вехи */
+/* ——— Оверлей события ——— */
 .overlay{
-  position:fixed; inset:0; background:rgba(251,243,230,.92); z-index:40;
-  display:flex; flex-direction:column; align-items:center; justify-content:center; gap:10px; padding:24px; text-align:center;
+  position:fixed; inset:0; z-index:40; padding:24px; text-align:center;
+  background:color-mix(in srgb, var(--bg) 94%, transparent);
+  backdrop-filter:blur(8px);
+  display:flex; flex-direction:column; align-items:center; justify-content:center; gap:12px;
 }
 .overlay img{max-height:38vh;}
-.overlay h2{color:var(--success);}
+.overlay h2{color:var(--ok);}
 
-/* Справочник */
+/* ——— Справочник ——— */
 .grid{display:grid; grid-template-columns:repeat(4,1fr); gap:10px;}
 .cell{
-  aspect-ratio:1/1; border-radius:14px; background:#fff; box-shadow:var(--shadow);
-  border:2px solid #E4D8C2; display:flex; flex-direction:column; align-items:center; justify-content:center;
-  font-size:28px; font-weight:700; gap:2px;
+  aspect-ratio:1/1; border-radius:var(--r-sm); background:var(--surface); box-shadow:var(--shadow);
+  border:1px solid var(--line-strong); display:flex; flex-direction:column;
+  align-items:center; justify-content:center; font-size:30px; font-weight:700; gap:4px; color:var(--text);
 }
-.cell small{font-size:17px; color:var(--accent-dark); letter-spacing:2px; font-weight:700;}
-.seg{display:flex; gap:8px; justify-content:center; margin:10px 0; flex-wrap:wrap;}
-.seg button{flex:1; min-height:52px; border-radius:12px; border:2px solid #E4D8C2; background:#fff; font-weight:600;}
-.seg button.active{background:var(--accent); color:#fff; border-color:var(--accent);}
+.cell small{font-family:var(--mono); font-size:17px; color:var(--accent-text); letter-spacing:1px; font-weight:700;}
 
-/* Ключ */
+/* ——— Переключатель-сегменты ——— */
+.seg{
+  display:flex; gap:4px; margin:12px 0; padding:4px;
+  background:var(--bg-2); border:1px solid var(--line); border-radius:var(--r);
+}
+.seg button{
+  flex:1; min-height:54px; border-radius:14px; border:1px solid transparent;
+  background:none; color:var(--text-dim); font-weight:650;
+}
+.seg button.active{background:var(--surface); color:var(--text); border-color:var(--line-strong); box-shadow:var(--shadow);}
+
+/* ——— Ключ ——— */
 .keypad{
-  width:100%; height:40vh; min-height:230px; border-radius:24px; margin-top:14px;
-  background:linear-gradient(180deg,#F3E7CE,#E7D2A8); border:3px solid var(--accent);
-  display:flex; align-items:center; justify-content:center; color:var(--accent-dark);
-  font-size:24px; font-weight:700; user-select:none; touch-action:none;
+  width:100%; height:40vh; min-height:230px; border-radius:var(--r-lg); margin-top:14px;
+  background:var(--surface-2); border:2px solid var(--line-strong);
+  display:flex; align-items:center; justify-content:center;
+  color:var(--text-dim); font-size:22px; font-weight:650; user-select:none; touch-action:none;
+  transition:background .06s linear, box-shadow .06s linear, color .06s linear;
 }
-.keypad.down{background:var(--accent); color:#fff;}
-.keyout{font-size:40px; letter-spacing:8px; color:var(--accent-dark); min-height:48px; text-align:center;}
+.keypad.down{background:var(--accent); border-color:var(--accent); color:var(--on-accent); box-shadow:0 0 0 12px var(--glow);}
+.keyout{font-family:var(--mono); font-size:38px; letter-spacing:8px; color:var(--accent-text); min-height:48px; text-align:center;}
 .keychar{font-size:30px; text-align:center; min-height:40px; font-weight:700;}
-/* Свободный набор: набранная строка (слова/предложения) */
-.keytext{font-size:30px; font-weight:700; letter-spacing:2px; line-height:1.35; text-align:center;
-  word-break:break-word; min-height:48px; padding:6px 4px; color:var(--text);}
-
-/* Поля ввода */
-input[type=text]{
-  width:100%; font-size:24px; padding:14px; border-radius:14px; border:2px solid #E4D8C2;
-  background:#fff; color:var(--text);
+.keytext{
+  font-family:var(--mono); font-size:30px; font-weight:700; letter-spacing:2px; line-height:1.35;
+  text-align:center; word-break:break-word; min-height:48px; padding:6px 4px; color:var(--text);
 }
-label{display:block; font-weight:600; margin-top:14px;}
-input[type=range]{width:100%; height:40px;}
+
+/* ——— Поля и регуляторы ——— */
+input[type=text]{
+  width:100%; font-size:24px; padding:14px; border-radius:var(--r-sm);
+  border:1px solid var(--line-strong); background:var(--surface); color:var(--text);
+}
+label{display:block; font-weight:650; margin-top:14px;}
+input[type=range]{width:100%; height:44px; accent-color:var(--accent);}
 .rowflex{display:flex; align-items:center; justify-content:space-between; gap:10px;}
-.switch{min-width:96px;}
+.switch{min-width:104px;}
 
 .list{list-style:none; padding:0; margin:0;}
-.list li{display:flex; justify-content:space-between; padding:10px 0; border-bottom:1px solid #EFE3CC;}
-.odometer{font-size:40px; font-weight:800; color:var(--accent-dark); letter-spacing:1px;}
+.list li{display:flex; justify-content:space-between; gap:10px; padding:12px 0; border-bottom:1px solid var(--line);}
+.list li:last-child{border-bottom:none;}
+.odometer{font-family:var(--mono); font-size:44px; font-weight:700; color:var(--accent-text); letter-spacing:.02em;}
 
-/* Доступность: уважать prefers-reduced-motion (§11) */
+/* ——— Доступность: уважать prefers-reduced-motion (§11) ——— */
 @media (prefers-reduced-motion: reduce){
   *{transition:none !important; animation:none !important;}
   .flash.on-dit,.flash.on-dah{transform:none;}

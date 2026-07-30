@@ -18,6 +18,7 @@ export function defaultState() {
       alphabet: 'ru', charWpm: 18, effWpm: 9, keyWpm: 12,
       toneHz: 600, volume: 0.5, showChants: true, vibration: true,
       keyMode: 'train', // режим «Ключа»: 'train' (с подсказкой) | 'free' (свободный набор)
+      theme: 'auto',    // оформление: 'auto' (как в телефоне) | 'light' | 'dark'
     },
     streak: { current: 0, longest: 0, lastActiveDate: null },
     totalSeconds: 0,
@@ -72,6 +73,7 @@ export function migrate(raw) {
     s.settings.showChants = r.showChants !== false;
     s.settings.vibration = r.vibration !== false;
     s.settings.keyMode = r.keyMode === 'free' ? 'free' : 'train';
+    s.settings.theme = ['light', 'dark'].includes(r.theme) ? r.theme : 'auto';
   }
   // Серия дней
   if (isObj(raw.streak)) {
