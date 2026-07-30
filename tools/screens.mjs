@@ -62,6 +62,29 @@ const SCREENS = {
   ref:     async (page) => { await page.click('[data-tab="ref"]'); await page.waitForTimeout(300); },
   cabinet: async (page) => { await page.click('[data-tab="cabinet"]'); await page.waitForTimeout(300); },
   onboarding: async () => {},
+  // Разбор ошибки: жмём варианты, пока не попадётся неверный — это состояние надо видеть.
+  learnwrong: async (page) => {
+    await page.click('[data-tab="learn"]'); await page.waitForTimeout(900);
+    for (let i = 0; i < 12; i++) {
+      const btn = page.locator('#opts .opt:not([disabled])').first();
+      if (!(await btn.count())) { await page.waitForTimeout(400); continue; }
+      await btn.click(); await page.waitForTimeout(250);
+      if (await page.locator('#nextbtn').count()) return;
+      await page.waitForTimeout(500);
+    }
+  },
+  // Вердикт на «Ключе»: отстукиваем одну точку и ждём разбора.
+  keyverdict: async (page) => {
+    await page.click('[data-tab="key"]'); await page.waitForTimeout(300);
+    const pad = page.locator('#pad');
+    await pad.dispatchEvent('pointerdown'); await page.waitForTimeout(70);
+    await pad.dispatchEvent('pointerup');   await page.waitForTimeout(700);
+  },
+  // Подсказка с кодами активного набора.
+  learnhelp: async (page) => {
+    await page.click('[data-tab="learn"]'); await page.waitForTimeout(900);
+    await page.click('#help'); await page.waitForTimeout(250);
+  },
 };
 
 // Автопроверка вёрстки прямо в браузере: обрезанный текст, вылезание за край, мелкий шрифт,
@@ -104,10 +127,11 @@ const list = want.length ? want.filter((n) => n in SCREENS) : Object.keys(SCREEN
 // В этом окружении в кэше Playwright лежит другая сборка Chromium, чем ждёт библиотека —
 // берём ту, что реально установлена, вместо падения с «Executable doesn't exist».
 async function launch() {
-  try { return await chromium.launch(); } catch (e) {
+  const args = ['--autoplay-policy=no-user-gesture-required']; // иначе звук не стартует и кнопки остаются гашёными
+  try { return await chromium.launch({ args }); } catch (e) {
     const { glob } = await import('node:fs/promises');
     for await (const p of glob('/root/.cache/ms-playwright/chromium-*/chrome-linux64/chrome')) {
-      return await chromium.launch({ executablePath: p });
+      return await chromium.launch({ executablePath: p, args });
     }
     throw e;
   }

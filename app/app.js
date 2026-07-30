@@ -1,4 +1,4 @@
-// Бони М — контроллер интерфейса. Чистая логика — в js/*, здесь только экраны и события.
+// Морзе 73 — контроллер интерфейса. Чистая логика — в js/*, здесь только экраны и события.
 import * as DATA from './js/data.js';
 import { load, save, needsOnboarding } from './js/state.js';
 import { clampEff, charTiming, classifyHold, keyThresholds } from './js/timing.js';
@@ -7,6 +7,7 @@ import * as G from './js/gamify.js';
 import * as A from './js/audio.js';
 import * as KT from './js/keytext.js';
 import * as TR from './js/trace.js';
+import { ICON } from './js/icons.js';
 
 let state = load();
 const persist = () => save(state);
@@ -98,13 +99,17 @@ function milestoneBanner(ids) {
 function renderOnboarding() {
   tabsEl.classList.add('hidden');
   screenEl.innerHTML = `
-    <div class="center">
-      <img class="hero" src="assets/hero-zastavka.webp" alt="Бони М за ключом">
+    <div class="center intro">
+      <div class="heroblock"><img class="hero" src="assets/hero-zastavka.webp" alt="Радист Боня за ключом"></div>
+      <div class="eyebrow">Морзе 73</div>
       <h1>Здравствуйте!</h1>
-      <p class="muted">Как вас зовут?</p>
-      <input type="text" id="name" placeholder="Ваше имя" autocomplete="off">
-      <label>Позывной</label>
-      <input type="text" id="callsign" value="${esc(state.profile.callsign)}">
+      <p class="muted">Меня зовут Боня, я радист. Научу принимать морзянку на слух.</p>
+      <div class="card" style="text-align:left">
+        <label for="name">Как вас зовут?</label>
+        <input type="text" id="name" placeholder="Ваше имя" autocomplete="off">
+        <label for="callsign">Ваш позывной</label>
+        <input type="text" id="callsign" value="${esc(state.profile.callsign)}">
+      </div>
       <button class="btn" id="next" disabled>Дальше</button>
     </div>`;
   const name = $('#name'), next = $('#next');
@@ -119,14 +124,15 @@ function renderOnboarding() {
 }
 function onboardingStep2() {
   screenEl.innerHTML = `
-    <div class="center">
-      <img class="hero" src="assets/hero-portret.webp" alt="">
+    <div class="center intro">
+      <div class="heroblock"><img class="hero" src="assets/hero-portret.webp" alt=""></div>
       <h1>Рады знакомству, ${esc(state.profile.name)}!</h1>
       <div class="card" style="text-align:left">
-        <p>Здесь вы научитесь принимать и передавать морзянку на слух.</p>
-        <p>Начнём с четырёх знаков и будем добавлять новые, когда вы будете готовы.</p>
+        <p>Начнём с четырёх знаков. Новые буквы буду открывать сам — когда увижу,
+           что прежние вы уже узнаёте уверенно.</p>
+        <p class="muted">Торопиться некуда. Интернет не нужен: всё работает и без него.</p>
       </div>
-      <button class="btn" id="start">Начать</button>
+      <button class="btn" id="start">Начать занятие</button>
     </div>`;
   $('#start').addEventListener('click', () => {
     P.ensureStarted(track());
@@ -176,7 +182,7 @@ function renderHome() {
         <div class="stat"><div class="eyebrow">Лучшая серия</div><b>${state.streak.longest}</b></div>
       </div>
     </div>
-    ${drill ? `<button class="btn secondary" id="drill">Принять свой позывной</button>` : ''}
+    ${drill ? `<button class="btn secondary" id="drill">${ICON.inbox(24)} Принять свой позывной</button>` : ''}
     <button class="btn" id="continue">Продолжить обучение</button>
     <button class="btn secondary" id="review" ${learned < 1 ? 'disabled' : ''}>Повторение пройденного</button>`;
   $('#toCab').addEventListener('click', () => go('cabinet'));
@@ -195,18 +201,26 @@ function renderLearn() {
   const repetition = learnOpts.repetition;
   L = { target: null, options: [], recentTargets: [], locked: false, answers: 0, correct: 0,
         repetition, slow: false, awaiting: false };
+  // Всё занятие должно помещаться в один экран: во время урока прокручивать нечего и незачем,
+  // а «Повторить» и регулятор скорости нужны под рукой, а не за краем экрана.
   screenEl.innerHTML = `
-    <div class="rowflex">
+    <div class="screenbar">
       <h2>${repetition ? 'Повторение' : 'Учиться'}</h2>
-      <button class="btn ghost switch" id="exit">Выход</button>
+      <button class="iconbtn" id="exit" aria-label="Выйти из занятия">${ICON.exit(22)}<span>Выход</span></button>
     </div>
-    <div class="flash" id="flash" aria-hidden="true">•</div>
+    <div class="lamp" id="flash" aria-hidden="true"></div>
     <div class="feedback center" id="fb">Слушайте знак…</div>
     <div class="options" id="opts"></div>
-    <button class="btn secondary" id="again" style="margin-top:14px">🔁 Повторить</button>
-    <label class="muted" style="margin-top:8px">🐢 Скорость морзянки 🐇 (${state.settings.effWpm})</label>
-    <input type="range" id="lspeed" min="5" max="15" value="${Math.min(15, state.settings.effWpm)}">
-    <button class="btn ghost" id="help" style="margin-top:6px">Подсказка: коды набора</button>
+    <button class="btn secondary" id="again">${ICON.replay(24)} Повторить</button>
+    <div class="slider">
+      <div class="slider-head">
+        <label for="lspeed">Скорость морзянки</label>
+        <output class="num" id="lspeed-val">${state.settings.effWpm}</output>
+      </div>
+      <input type="range" id="lspeed" min="5" max="15" value="${Math.min(15, state.settings.effWpm)}">
+      <div class="slider-ends"><span>медленнее</span><span>быстрее</span></div>
+    </div>
+    <button class="linkbtn" id="help">${ICON.help(22)} Показать коды набора</button>
     <div id="help-box"></div>`;
   $('#exit').addEventListener('click', exitLearn);
   $('#again').addEventListener('click', () => playTarget());
@@ -215,8 +229,7 @@ function renderLearn() {
   lspeed.addEventListener('input', (e) => {
     state.settings.effWpm = clampEff(+e.target.value, state.settings.charWpm);
     persist();
-    const lbl = lspeed.previousElementSibling;
-    if (lbl) lbl.textContent = `🐢 Скорость морзянки 🐇 (${state.settings.effWpm})`;
+    $('#lspeed-val').textContent = state.settings.effWpm;
   });
   lspeed.addEventListener('change', () => { if (!L.locked && !L.awaiting) playTarget(); });
   $('#help').addEventListener('click', toggleHelp);
@@ -232,6 +245,7 @@ function settingsForPlay() {
 
 function nextRound() {
   L.slow = false; L.awaiting = false;
+  screenEl.classList.remove('revealing');
   const t = track();
   const active = P.activeSet(t, state.settings.alphabet);
   const newest = L.repetition ? null : P.newestChar(t, state.settings.alphabet);
@@ -267,9 +281,11 @@ function playTarget() {
 
 function renderOptions(disabled) {
   const box = $('#opts');
-  const cols3 = L.options.length === 6 || L.options.length === 9;
+  // Раскладка гибкая, последний ряд центрируется — иначе «лишняя» седьмая буква висит одна
+  // в углу. При наборе до 4 знаков даём по две в ряд: кнопки крупнее, попасть проще.
+  const wide = L.options.length <= 4;
   // disabled здесь = идёт проигрывание знака → мягко гасим кнопки (класс playing).
-  box.className = 'options' + (cols3 ? ' cols3' : '') + (disabled ? ' playing' : '');
+  box.className = 'options' + (wide ? ' wide' : '') + (disabled ? ' playing' : '');
   box.innerHTML = L.options.map((c) => `<button class="opt" data-c="${esc(c)}" ${disabled ? 'disabled' : ''}>${esc(c)}</button>`).join('');
   [...box.children].forEach((b) => b.addEventListener('click', () => answer(b.dataset.c)));
 }
@@ -308,10 +324,17 @@ function answer(ch) {
     A.cue('error'); vibrate([20, 40, 20]);
     const info = DATA.charInfo(L.target);
     const chant = state.settings.showChants && state.settings.alphabet === 'ru' && info?.chant ? `<div class="chant">напев: ${esc(info.chant)}</div>` : '';
+    screenEl.classList.add('revealing');
     $('#fb').className = 'feedback center no';
-    $('#fb').innerHTML = `Это «${esc(L.target)}» <span class="codeline">${visualCode(codeOf(L.target))}</span>${chant}
-      <button class="btn secondary" id="relisten" style="max-width:220px;margin:10px auto">Переслушать</button>
-      <button class="btn" id="nextbtn" style="max-width:220px;margin:6px auto">Дальше</button>`;
+    // Показываем не только код, но и ритм полосками: слух ловит именно ритм, а «•—•»
+    // приходится расшифровывать в голове.
+    $('#fb').innerHTML = `<div class="reveal-char">Это «${esc(L.target)}»</div>
+      ${traceOfCode(codeOf(L.target), 'big centered')}
+      <div class="codeline">${visualCode(codeOf(L.target))}</div>${chant}
+      <div class="reveal-actions">
+        <button class="btn secondary" id="relisten">${ICON.replay(24)} Послушать</button>
+        <button class="btn" id="nextbtn">Дальше</button>
+      </div>`;
     $('#relisten').addEventListener('click', () => A.playCode(codeOf(L.target), settingsForPlay(), {}));
     $('#nextbtn').addEventListener('click', () => { if (!afterAnswerProgress(false)) nextRound(); });
     persist();
@@ -379,12 +402,18 @@ function offerPark() {
 
 function toggleHelp() {
   const box = $('#help-box');
-  if (box.innerHTML) { box.innerHTML = ''; return; }
+  const btn = $('#help');
+  if (box.innerHTML) {
+    box.innerHTML = '';
+    btn.innerHTML = `${ICON.help(22)} Показать коды набора`;
+    return;
+  }
   const active = P.activeSet(track(), state.settings.alphabet);
-  box.innerHTML = `<div class="card"><ul class="list">${active.map((c) => {
+  btn.innerHTML = `${ICON.help(22)} Скрыть коды набора`;
+  box.innerHTML = `<div class="card"><ul class="codelist">${active.map((c) => {
     const info = DATA.charInfo(c);
-    const chant = state.settings.showChants && state.settings.alphabet === 'ru' && info?.chant ? ` <span class="chant">${esc(info.chant)}</span>` : '';
-    return `<li><b>${esc(c)}</b><span class="codeline" style="font-size:22px">${visualCode(codeOf(c))}</span>${chant}</li>`;
+    const chant = state.settings.showChants && state.settings.alphabet === 'ru' && info?.chant ? `<span class="chant">${esc(info.chant)}</span>` : '';
+    return `<li><b>${esc(c)}</b>${traceOfCode(codeOf(c))}${chant}</li>`;
   }).join('')}</ul></div>`;
 }
 
@@ -419,14 +448,18 @@ function exitLearn() {
 // ——— Спецдрилл «Свой позывной» (§9) ———
 function callsignDrill() {
   tabsEl.classList.add('hidden');
-  screenEl.innerHTML = `<div class="center">
+  screenEl.innerHTML = `<div class="center intro">
     <h2>Ваш позывной на слух</h2>
-    <img class="hero small" src="assets/hero-klyuch.webp" alt="">
-    <p class="muted">Сейчас прозвучит ваш позывной целиком, как радиограмма. Это коды, которые вы уже знаете.</p>
-    <div class="codeline">Boney&nbsp;M</div>
-    <button class="btn" id="play">Прослушать</button>
-    <button class="btn secondary" id="got">Я принял!</button>
-    <button class="btn ghost" id="back">Назад</button></div>`;
+    <div class="heroblock"><img class="hero small" src="assets/hero-klyuch.webp" alt=""></div>
+    <p class="muted">Сейчас позывной прозвучит целиком, как настоящая радиограмма.
+       Все эти коды вы уже знаете.</p>
+    <div class="card">
+      <div class="callsign">${esc(state.profile.callsign)}</div>
+      ${traceHTML(TR.traceSequence(DATA.CALLSIGN_CODES), 'centered')}
+    </div>
+    <button class="btn" id="play">${ICON.sound(24)} Прослушать</button>
+    <button class="btn secondary" id="got">${ICON.check(24)} Я принял</button>
+    <button class="linkbtn" id="back">Назад</button></div>`;
   $('#play').addEventListener('click', () => A.playSequence(DATA.CALLSIGN_RU_CHARS, (c) => DATA.CODE_BY_CHAR.ru.get(c), state.settings, {}));
   $('#got').addEventListener('click', () => {
     const newly = G.checkMilestones(state, { callsignReceived: true });
@@ -449,32 +482,41 @@ function renderKey() {
       <button data-m="free" class="${mode === 'free' ? 'active' : ''}">Свободно</button>
     </div>`;
   const speedCtl = `
-    <label class="muted" style="margin-top:10px">🐢 Скорость ключа 🐇 (${state.settings.keyWpm})</label>
-    <input type="range" id="kspeed" min="8" max="18" value="${state.settings.keyWpm}">`;
+    <div class="slider">
+      <div class="slider-head">
+        <label for="kspeed">Скорость ключа</label>
+        <output class="num" id="kspeed-val">${state.settings.keyWpm}</output>
+      </div>
+      <input type="range" id="kspeed" min="8" max="18" value="${state.settings.keyWpm}">
+      <div class="slider-ends"><span>медленнее</span><span>быстрее</span></div>
+    </div>`;
 
   if (mode === 'train') {
     const order = P.activeSet(track(), state.settings.alphabet);
     K.target = order[Math.floor(Math.random() * order.length)];
     screenEl.innerHTML = `
-      <h2>Ключ</h2>${toggle}
-      <p class="muted center">Отстучите: <b style="font-size:28px;color:var(--accent-dark)">${esc(K.target)}</b>
-        <button class="btn ghost switch" id="sample" style="display:inline-flex;width:auto;margin-left:8px">🔊 образец</button></p>
-      <div class="keyout" id="keyout">·</div>
-      <div class="keychar" id="keychar">&nbsp;</div>
-      <div class="keypad" id="pad">Нажимайте и держите</div>
-      <button class="btn ghost" id="newtarget">Другой знак</button>${speedCtl}`;
+      <div class="screenbar"><h2>Ключ</h2></div>${toggle}
+      <div class="card task">
+        <div>
+          <div class="eyebrow">Отстучите</div>
+          <div class="taskchar">${esc(K.target)}</div>
+        </div>
+        <button class="btn secondary" id="sample">${ICON.sound(24)} Образец</button>
+      </div>
+      <div class="keypad" id="pad"><span class="keyout" id="keyout" aria-live="polite">Нажимайте и держите</span></div>
+      <div class="keyverdict" id="keychar" aria-live="polite"></div>
+      <button class="linkbtn" id="newtarget">Другой знак</button>${speedCtl}`;
     $('#sample').addEventListener('click', () => A.playCode(codeOf(K.target), { ...state.settings, charWpm: state.settings.keyWpm, effWpm: state.settings.keyWpm }, {}));
     $('#newtarget').addEventListener('click', renderKey);
   } else {
     screenEl.innerHTML = `
-      <h2>Ключ</h2>${toggle}
-      <p class="muted center">Отстукивайте — буквы складываются в строку. Пауза подольше = пробел.</p>
+      <div class="screenbar"><h2>Ключ</h2></div>${toggle}
+      <p class="muted center hint">Отстукивайте — буквы складываются в строку. Пауза подольше — пробел.</p>
       <div class="keytext" id="text"></div>
-      <div class="keyout" id="keyout">·</div>
-      <div class="keypad" id="pad">Нажимайте и держите</div>
+      <div class="keypad" id="pad"><span class="keyout" id="keyout" aria-live="polite">Нажимайте и держите</span></div>
       <div class="btn-row">
-        <button class="btn secondary" id="erase">⌫ Стереть</button>
-        <button class="btn secondary" id="clear">Очистить</button>
+        <button class="btn secondary" id="erase">${ICON.erase(24)} Стереть</button>
+        <button class="btn secondary" id="clear">${ICON.clear(24)} Очистить</button>
       </div>${speedCtl}`;
     renderKeyLine();
     $('#erase').addEventListener('click', () => { clearKeyTimers(); K.elements = []; setKeyout('·'); K.line = KT.eraseLast(K.line); renderKeyLine(); vibrate(10); });
@@ -488,8 +530,7 @@ function renderKey() {
   if (kspeed) kspeed.addEventListener('input', (e) => {
     state.settings.keyWpm = Math.min(18, Math.max(8, Math.round(+e.target.value)));
     persist();
-    const lbl = kspeed.previousElementSibling;
-    if (lbl) lbl.textContent = `🐢 Скорость ключа 🐇 (${state.settings.keyWpm})`;
+    $('#kspeed-val').textContent = state.settings.keyWpm;
   });
 
   const pad = $('#pad');
@@ -502,7 +543,16 @@ function renderKey() {
   startActiveClock();
 }
 
-const setKeyout = (s) => { const el = $('#keyout'); if (el) el.textContent = s; };
+const KEY_HINT = 'Нажимайте и держите';
+// Пока ничего не набрано — площадка подсказывает, что делать; во время набора показывает
+// точки и тире прямо в себе.
+function setKeyout(s) {
+  const el = $('#keyout');
+  if (!el) return;
+  const empty = !s || s === '·';
+  el.textContent = empty ? KEY_HINT : s;
+  el.classList.toggle('typing', !empty);
+}
 function renderKeyLine() {
   const el = $('#text'); if (!el) return;
   el.innerHTML = K.line.text
@@ -544,8 +594,24 @@ function decodeKey() {
   if (K.mode === 'train') {
     const ok = found === K.target;
     const el = $('#keychar');
-    if (el) el.innerHTML = found === '?' ? '<span class="muted">не распознано</span>'
-      : `<span style="color:${ok ? 'var(--success)' : 'var(--text)'}">${esc(found)}</span>${ok ? ' ✓' : ''}`;
+    // Сравнение ритмов — то, чего на «Ключе» не хватало: видно не просто «неверно»,
+    // а ЧЕМ именно отличается — где тире вышло короткое, где лишняя точка.
+    if (el) {
+      if (found === '?') {
+        el.className = 'keyverdict';
+        el.innerHTML = `<div class="muted">Такого знака нет — вышло ${traceOfCode(code)}</div>
+          <div class="cmp"><span class="eyebrow">Нужно</span>${traceOfCode(codeOf(K.target))}</div>`;
+      } else if (ok) {
+        el.className = 'keyverdict ok';
+        el.innerHTML = `<div class="verdict">${ICON.check(26)} Верно — ${esc(found)}</div>
+          ${traceOfCode(code, 'big')}`;
+      } else {
+        el.className = 'keyverdict no';
+        el.innerHTML = `<div class="verdict">Вышло «${esc(found)}», а нужно «${esc(K.target)}»</div>
+          <div class="cmp"><span class="eyebrow">Вышло</span>${traceOfCode(code)}</div>
+          <div class="cmp"><span class="eyebrow">Нужно</span>${traceOfCode(codeOf(K.target))}</div>`;
+      }
+    }
     if (ok) { A.cue('success'); vibrate(40); }
     return;
   }
@@ -573,15 +639,16 @@ function renderReference() {
   if (refSection === 'digits') items = DATA.DIGITS;
   else if (refSection === 'punct') items = DATA.PUNCTUATION;
   screenEl.innerHTML = `
-    <h2>Справочник</h2>
+    <div class="screenbar"><h2>Азбука</h2></div>
+    <p class="muted hint">Нажмите на знак, чтобы услышать его и увидеть ритм.</p>
     <div class="seg">
-      <button data-a="ru" class="${refAlpha === 'ru' ? 'active' : ''}">РУС</button>
-      <button data-a="en" class="${refAlpha === 'en' ? 'active' : ''}">ENG</button>
+      <button data-a="ru" class="${refAlpha === 'ru' ? 'active' : ''}">Русская</button>
+      <button data-a="en" class="${refAlpha === 'en' ? 'active' : ''}">English</button>
     </div>
     <div class="seg">
       <button data-s="letters" class="${refSection === 'letters' ? 'active' : ''}">Буквы</button>
       <button data-s="digits" class="${refSection === 'digits' ? 'active' : ''}">Цифры</button>
-      <button data-s="punct" class="${refSection === 'punct' ? 'active' : ''}">Доп.</button>
+      <button data-s="punct" class="${refSection === 'punct' ? 'active' : ''}">Знаки</button>
     </div>
     <div class="grid" id="grid">${items.map((it) => `
       <button class="cell" data-c="${esc(it.char)}"><span>${esc(it.char)}</span><small>${visualCode(it.code)}</small></button>`).join('')}</div>
@@ -595,11 +662,12 @@ function refCard(ch) {
   const code = info.code;
   const chant = refAlpha === 'ru' && state.settings.showChants && info.chant ? `<div class="chant">напев: ${esc(info.chant)}</div>` : '';
   overlayRoot.innerHTML = `<div class="overlay">
-    <button class="btn ghost" id="x" style="position:absolute;top:16px;right:16px;width:auto">✕</button>
-    <div style="font-size:72px;font-weight:800;color:var(--text)">${esc(ch)}</div>
-    <div class="codeline" style="font-size:44px">${visualCode(code)}</div>
+    <button class="closebtn" id="x" aria-label="Закрыть">✕</button>
+    <div class="bigchar">${esc(ch)}</div>
+    ${traceOfCode(code, 'big centered')}
+    <div class="codeline">${visualCode(code)}</div>
     ${chant}
-    <button class="btn" id="play" style="max-width:220px">🔊 Послушать</button></div>`;
+    <button class="btn" id="play" style="max-width:260px">${ICON.sound(24)} Послушать</button></div>`;
   const playSettings = () => DATA.DIGITS.some((d) => d.char === ch)
     ? { ...state.settings } : { ...state.settings, alphabet: refAlpha };
   $('#play').addEventListener('click', () => A.playCode(code, playSettings(), {}));
@@ -612,54 +680,85 @@ function renderCabinet() {
   const t = track();
   const rank = G.rankFor(t.learnedCount, G.avgAccuracy(t));
   const s = state.settings;
-  const ms = Object.values(G.MILESTONES).map((m) => `<li><span>${state.milestones[m.id] ? '✅' : '⬜'} ${esc(m.title)}</span></li>`).join('');
-  const hist = state.history.slice(-10).reverse().map((h) => `<li><span>${esc(h.date)}</span><span class="muted">${h.answers} отв · ${h.accuracyPct}%</span></li>`).join('') || '<li class="muted">пока пусто</li>';
+  const ms = Object.values(G.MILESTONES).map((m) => {
+    const done = !!state.milestones[m.id];
+    return `<li class="${done ? 'done' : ''}"><span>${esc(m.title)}</span>
+      <span class="mark" aria-label="${done ? 'получена' : 'ещё не получена'}">${done ? ICON.check(24) : '—'}</span></li>`;
+  }).join('');
+  const hist = state.history.slice(-10).reverse().map((h) => `<li><span>${esc(G.formatDate(h.date))}</span><span class="muted">${h.answers} ответов · ${h.accuracyPct}%</span></li>`).join('') || '<li class="muted">пока пусто</li>';
+  // Журнал был одной длинной простынёй: успехи, настройки и профиль вперемешку. Разбит по
+  // смыслу — сначала то, чем гордиться, потом кто ты в эфире, потом настройки.
+  const themeBtn = (id, mode, icon, label) =>
+    `<button id="${id}" class="${s.theme === mode ? 'active' : ''}">${icon}<span>${label}</span></button>`;
   screenEl.innerHTML = `
-    <div class="rowflex"><h2>Бортжурнал</h2><button class="btn ghost switch" id="back">Назад</button></div>
+    <div class="screenbar"><h2>Бортжурнал</h2></div>
     <div class="card center">
-      <img class="avatar" src="assets/hero-portret.webp" alt="" style="width:80px;height:80px">
-      <div class="odometer">${state.profile.points}</div><div class="muted">очков опыта</div>
-      <div style="font-weight:700;margin-top:4px">${esc(rank)}</div>
-      <label style="text-align:left">Имя</label><input type="text" id="name" value="${esc(state.profile.name)}">
-      <label style="text-align:left">Позывной</label><input type="text" id="callsign" value="${esc(state.profile.callsign)}">
+      <img class="avatar big" src="assets/hero-portret.webp" alt="">
+      <div class="odometer">${state.profile.points}</div>
+      <div class="eyebrow">очков опыта</div>
+      <div class="rankline">${esc(rank)}</div>
     </div>
     <div class="card">
-      <b>🌐 Язык азбуки</b>
+      <div class="eyebrow">Мои успехи</div>
+      <ul class="list">
+        <li><span>Освоено букв</span><span class="num">${t.learnedCount} / 32</span></li>
+        <li><span>Освоено цифр</span><span class="num">${t.digitsLearned} / 10</span></li>
+        <li><span>Дни в эфире подряд</span><span class="num">${state.streak.current}</span></li>
+        <li><span>Лучшая серия</span><span class="num">${state.streak.longest}</span></li>
+        <li><span>Всего в эфире</span><span class="num">${Math.round(state.totalSeconds / 60)} мин</span></li>
+      </ul>
+    </div>
+    <div class="card"><div class="eyebrow">Занятия</div><ul class="list">${hist}</ul></div>
+    <div class="card"><div class="eyebrow">Вехи</div><ul class="list milestones">${ms}</ul></div>
+    <div class="card">
+      <div class="eyebrow">Кто вы в эфире</div>
+      <label for="name">Имя</label><input type="text" id="name" value="${esc(state.profile.name)}">
+      <label for="callsign">Позывной</label><input type="text" id="callsign" value="${esc(state.profile.callsign)}">
+    </div>
+    <div class="card">
+      <div class="eyebrow">Оформление</div>
+      <div class="seg icons" style="margin-bottom:0">
+        ${themeBtn('theme-auto', 'auto', ICON.auto(22), 'Как в телефоне')}
+        ${themeBtn('theme-light', 'light', ICON.sun(22), 'Светлое')}
+        ${themeBtn('theme-dark', 'dark', ICON.moon(22), 'Тёмное')}
+      </div>
+    </div>
+    <div class="card">
+      <div class="eyebrow">Язык азбуки</div>
       <div class="seg" style="margin-bottom:0">
         <button id="lang-ru" class="${s.alphabet === 'ru' ? 'active' : ''}">Русская</button>
         <button id="lang-en" class="${s.alphabet === 'en' ? 'active' : ''}">English</button>
       </div>
     </div>
     <div class="card">
-      <b>Мои успехи</b>
-      <div class="rowflex"><span>Освоено знаков</span><span>${t.learnedCount} / 32</span></div>
-      <div class="rowflex"><span>Цифры</span><span>${t.digitsLearned} / 10</span></div>
-      <div class="rowflex"><span>Дни в эфире</span><span>${state.streak.current} (лучшая ${state.streak.longest})</span></div>
-      <div class="rowflex"><span>Всего в эфире</span><span>${Math.round(state.totalSeconds / 60)} мин</span></div>
-    </div>
-    <div class="card"><b>Журнал занятий</b><ul class="list">${hist}</ul></div>
-    <div class="card"><b>Вехи</b><ul class="list">${ms}</ul></div>
-    <div class="card">
-      <b>Настройки</b>
-      <label>Скорость: медленнее ↔ быстрее (${s.effWpm})</label>
+      <div class="eyebrow">Звук</div>
+      <label for="eff">Скорость морзянки <output class="num">${s.effWpm}</output></label>
       <input type="range" id="eff" min="5" max="15" value="${Math.min(15, s.effWpm)}">
-      <label>Тон: ниже ↔ выше (${s.toneHz} Гц)</label>
+      <label for="tone">Высота тона <output class="num">${s.toneHz} Гц</output></label>
       <input type="range" id="tone" min="500" max="800" step="10" value="${s.toneHz}">
-      <label>Громкость</label>
+      <label for="vol">Громкость</label>
       <input type="range" id="vol" min="0" max="1" step="0.05" value="${s.volume}">
-      <label>Скорость ключа (${s.keyWpm})</label>
+      <label for="key">Скорость ключа <output class="num">${s.keyWpm}</output></label>
       <input type="range" id="key" min="8" max="18" value="${s.keyWpm}">
-      <div class="rowflex"><span>Напевы (рус)</span><button class="btn secondary switch" id="chants">${s.showChants ? 'Вкл' : 'Выкл'}</button></div>
-      <div class="rowflex"><span>Вибрация</span><button class="btn secondary switch" id="vib">${s.vibration ? 'Вкл' : 'Выкл'}</button></div>
     </div>
     <div class="card">
-      <b>Резервная копия</b>
-      <button class="btn secondary" id="backup">💾 Сохранить копию</button>
-      <button class="btn secondary" id="restore">📂 Восстановить из копии</button>
+      <div class="eyebrow">Помощь при обучении</div>
+      <div class="rowflex"><span>Напевы букв</span><button class="btn secondary switch" id="chants">${s.showChants ? 'Включены' : 'Выключены'}</button></div>
+      <div class="rowflex"><span>Отклик вибрацией</span><button class="btn secondary switch" id="vib">${s.vibration ? 'Включён' : 'Выключен'}</button></div>
+    </div>
+    <div class="card">
+      <div class="eyebrow">Резервная копия</div>
+      <p class="muted hint">Прогресс хранится в самом телефоне. Копия сохранит его, если телефон сменится.</p>
+      <button class="btn secondary" id="backup">${ICON.save(24)} Сохранить копию</button>
+      <button class="btn secondary" id="restore">${ICON.restore(24)} Восстановить из копии</button>
       <input type="file" id="file" accept="application/json" class="hidden">
     </div>
-    <button class="btn ghost" id="reset" style="color:var(--error);margin-top:22px">Сбросить прогресс</button>`;
-  $('#back').addEventListener('click', () => go('home'));
+    <button class="linkbtn danger" id="reset">Начать обучение заново</button>`;
+  ['auto', 'light', 'dark'].forEach((mode) => {
+    $(`#theme-${mode}`).addEventListener('click', () => {
+      s.theme = mode; persist(); applyTheme(); renderCabinet();
+    });
+  });
   const saveProfile = () => { state.profile.name = $('#name').value.trim() || state.profile.name; state.profile.callsign = $('#callsign').value.trim() || 'Boney M'; persist(); };
   $('#name').addEventListener('change', saveProfile);
   $('#callsign').addEventListener('change', saveProfile);
@@ -676,7 +775,7 @@ function renderCabinet() {
   $('#restore').addEventListener('click', () => $('#file').click());
   $('#file').addEventListener('change', doRestore);
   $('#reset').addEventListener('click', () => {
-    if (confirm('Точно начать заново? Весь прогресс будет удалён.')) {
+    if (confirm('Начать обучение заново? Все освоенные знаки и журнал занятий будут удалены. Это не отменить.')) {
       try { localStorage.removeItem('boni_m_state'); } catch {}
       location.reload();
     }

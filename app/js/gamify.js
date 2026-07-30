@@ -30,6 +30,21 @@ export function localDate(d = new Date()) {
   return `${y}-${m}-${day}`;
 }
 
+// Дата по-человечески: «30 июля», с годом — только если он не текущий. Машинное
+// «2026-07-30» в журнале читать неприятно, а папе он нужен каждый день.
+const MONTHS = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня',
+                'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
+
+export function formatDate(dateStr, todayStr = localDate()) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(dateStr));
+  if (!m) return String(dateStr);
+  const [, year, month, day] = m;
+  const name = MONTHS[Number(month) - 1];
+  if (!name) return String(dateStr);
+  const sameYear = todayStr.slice(0, 4) === year;
+  return `${Number(day)} ${name}${sameYear ? '' : ' ' + year}`;
+}
+
 function dayDiff(fromStr, toStr) {
   const a = Date.parse(`${fromStr}T00:00:00Z`);
   const b = Date.parse(`${toStr}T00:00:00Z`);

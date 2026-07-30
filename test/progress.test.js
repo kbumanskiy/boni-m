@@ -109,14 +109,23 @@ test('§7.2: при наборе ≤8 показываются все знаки
   assert.deepEqual(new Set(opts), new Set(active));
 });
 
-test('§7.2: при наборе >8 — 6–8 кнопок, обязательно цель и новейший', () => {
-  const rng = seeded(7);
+test('§7.2: на большом наборе — ровно 6 кнопок, обязательно цель и новейший', () => {
   const active = ['Е','Т','И','М','А','Н','С','О','У','К','Р','В']; // 12
-  const opts = buildOptions(active, 'С', 'В', rng);
-  assert.ok(opts.length >= 6 && opts.length <= 8, `кнопок ${opts.length}`);
-  assert.ok(opts.includes('С'), 'цель присутствует');
-  assert.ok(opts.includes('В'), 'новейший присутствует');
-  assert.equal(new Set(opts).size, opts.length, 'без дублей');
+  // Число кнопок постоянное: от него зависит высота экрана, а занятие обязано
+  // помещаться без прокрутки.
+  for (const seed of [7, 13, 21, 34, 55]) {
+    const opts = buildOptions(active, 'С', 'В', seeded(seed));
+    assert.equal(opts.length, 6, `кнопок ${opts.length} при семени ${seed}`);
+    assert.ok(opts.includes('С'), 'цель присутствует');
+    assert.ok(opts.includes('В'), 'новейший присутствует');
+    assert.equal(new Set(opts).size, opts.length, 'без дублей');
+  }
+});
+
+test('§7.2: набор ровно из 6 знаков показывается целиком', () => {
+  const active = ['Е', 'Т', 'И', 'М', 'А', 'Н'];
+  const opts = buildOptions(active, 'А', 'Н', seeded(9));
+  assert.deepEqual(new Set(opts), new Set(active));
 });
 
 test('§7.2: один знак не бывает целью более 2 раз подряд', () => {

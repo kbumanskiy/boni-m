@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { defaultState } from '../app/js/state.js';
 import {
   rankFor, updateStreak, callsignDrillAvailable, checkMilestones,
-  recordSession, awardCorrect, addActiveTime, avgAccuracy,
+  recordSession, awardCorrect, addActiveTime, avgAccuracy, formatDate,
 } from '../app/js/gamify.js';
 
 test('§8: ранги по числу освоенных букв', () => {
@@ -108,4 +108,14 @@ test('очки: +1 за верный ответ; время копится; ср
   assert.equal(st.totalSeconds, 45);
   st.progress.ru.perChar = { 'Е': { correct: 9, total: 10 }, 'Т': { correct: 8, total: 10 } };
   assert.ok(Math.abs(avgAccuracy(st.progress.ru) - 0.85) < 1e-9);
+});
+
+test('дата в журнале читается по-человечески, год — только если не текущий', () => {
+  assert.equal(formatDate('2026-07-30', '2026-07-30'), '30 июля');
+  assert.equal(formatDate('2026-01-05', '2026-07-30'), '5 января');
+  assert.equal(formatDate('2025-12-31', '2026-07-30'), '31 декабря 2025');
+  // Битые значения не должны ломать экран.
+  assert.equal(formatDate('', '2026-07-30'), '');
+  assert.equal(formatDate('не дата', '2026-07-30'), 'не дата');
+  assert.equal(formatDate('2026-13-01', '2026-07-30'), '2026-13-01', 'несуществующий месяц отдаём как есть');
 });

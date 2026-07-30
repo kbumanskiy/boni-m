@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════════════════════════════════════════
-   Бони М — визуальная система «приёмник».
+   Морзе 73 — визуальная система «приёмник».
 
    Идея: приложение — это прибор, за которым сидит оператор. Отсюда моноширинный
    шрифт для всего, что является данными (позывной, коды, счётчики, подписи-шильдики),
@@ -94,11 +94,11 @@ body{
   background:var(--bg); color:var(--text);
   font-size:20px; line-height:1.45;
   -webkit-text-size-adjust:100%;
-  padding-bottom:calc(96px + env(safe-area-inset-bottom));
+  padding-bottom:calc(88px + env(safe-area-inset-bottom));
   overflow-x:hidden;
 }
-h1{font-size:34px; line-height:1.15; letter-spacing:-.02em; margin:.2em 0; font-weight:700;}
-h2{font-size:27px; line-height:1.2; letter-spacing:-.015em; margin:.3em 0; font-weight:700;}
+h1{font-size:34px; line-height:1.15; letter-spacing:-.02em; margin:.2em 0; font-weight:700; text-wrap:balance;}
+h2{font-size:27px; line-height:1.2; letter-spacing:-.015em; margin:.3em 0; font-weight:700; text-wrap:balance;}
 p{margin:.4em 0;}
 button{font-family:inherit; font-size:20px; cursor:pointer;}
 img{max-width:100%; height:auto;}
@@ -226,24 +226,14 @@ nav#tabs button.active::before{
 }
 
 /* ——— Викторина «Учиться» ——— */
-.flash{
-  width:140px; height:140px; border-radius:50%; margin:16px auto;
-  background:var(--surface-2); border:1px solid var(--line);
-  display:flex; align-items:center; justify-content:center;
-  font-size:54px; color:var(--accent-text);
-  transition:background .04s linear, transform .04s linear, box-shadow .04s linear;
-}
-.flash.on-dit,.flash.on-dah{background:var(--accent); color:var(--on-accent); box-shadow:0 0 0 14px var(--glow);}
-.flash.on-dit{transform:scale(1.04);}
-.flash.on-dah{transform:scale(1.09);}
-
-.options{display:grid; grid-template-columns:repeat(2,1fr); gap:12px; margin-top:12px;}
-.options.cols3{grid-template-columns:repeat(3,1fr);}
+.options{display:flex; flex-wrap:wrap; justify-content:center; gap:10px; margin-top:10px;}
 .opt{
-  min-height:88px; font-size:40px; font-weight:700; border-radius:var(--r);
+  flex:1 1 calc(33.333% - 8px); max-width:calc(33.333% - 7px);
+  min-height:92px; font-size:40px; font-weight:700; border-radius:var(--r);
   border:1px solid var(--line-strong); background:var(--surface); color:var(--text);
   box-shadow:var(--shadow); transition:transform .1s ease, background .15s ease;
 }
+.options.wide .opt{flex-basis:calc(50% - 6px); max-width:calc(50% - 5px); min-height:104px; font-size:46px;}
 .opt:active{transform:translateY(1px);}
 .opt:disabled{opacity:1;}
 .options.playing .opt{opacity:.4;}
@@ -278,25 +268,27 @@ nav#tabs button.active::before{
 
 /* ——— Переключатель-сегменты ——— */
 .seg{
-  display:flex; gap:4px; margin:12px 0; padding:4px;
+  display:flex; gap:4px; margin:10px 0; padding:4px;
   background:var(--bg-2); border:1px solid var(--line); border-radius:var(--r);
 }
 .seg button{
-  flex:1; min-height:54px; border-radius:14px; border:1px solid transparent;
+  flex:1; min-height:52px; border-radius:14px; border:1px solid transparent;
   background:none; color:var(--text-dim); font-weight:650;
 }
 .seg button.active{background:var(--surface); color:var(--text); border-color:var(--line-strong); box-shadow:var(--shadow);}
 
 /* ——— Ключ ——— */
 .keypad{
-  width:100%; height:40vh; min-height:230px; border-radius:var(--r-lg); margin-top:14px;
+  width:100%; height:200px; border-radius:var(--r-lg); margin-top:12px;
   background:var(--surface-2); border:2px solid var(--line-strong);
   display:flex; align-items:center; justify-content:center;
   color:var(--text-dim); font-size:22px; font-weight:650; user-select:none; touch-action:none;
   transition:background .06s linear, box-shadow .06s linear, color .06s linear;
 }
 .keypad.down{background:var(--accent); border-color:var(--accent); color:var(--on-accent); box-shadow:0 0 0 12px var(--glow);}
-.keyout{font-family:var(--mono); font-size:38px; letter-spacing:8px; color:var(--accent-text); min-height:48px; text-align:center;}
+.keyout{font-size:22px; font-weight:650; letter-spacing:0; text-align:center; padding:0 16px;}
+.keyout.typing{font-family:var(--mono); font-size:38px; letter-spacing:8px; color:var(--accent-text);}
+.keypad.down .keyout{color:var(--on-accent);}
 .keychar{font-size:30px; text-align:center; min-height:40px; font-weight:700;}
 .keytext{
   font-family:var(--mono); font-size:30px; font-weight:700; letter-spacing:2px; line-height:1.35;
@@ -317,6 +309,112 @@ input[type=range]{width:100%; height:44px; accent-color:var(--accent);}
 .list li{display:flex; justify-content:space-between; gap:10px; padding:12px 0; border-bottom:1px solid var(--line);}
 .list li:last-child{border-bottom:none;}
 .odometer{font-family:var(--mono); font-size:44px; font-weight:700; color:var(--accent-text); letter-spacing:.02em;}
+
+/* ═══ Элементы, добавленные при переработке экранов ═══ */
+
+/* Иконки одной линией наследуют цвет текста и не съезжают относительно строки. */
+.icon{flex:none; vertical-align:-.18em;}
+
+/* Заголовок экрана: название слева, действие справа — одинаково на всех экранах. */
+.screenbar{display:flex; align-items:center; justify-content:space-between; gap:12px; min-height:52px;}
+.screenbar h2{margin:0;}
+
+/* Кнопка-иконка с подписью: тихая, но с полноценной площадью нажатия. */
+.iconbtn{
+  display:inline-flex; align-items:center; gap:8px; min-height:48px; padding:8px 14px;
+  border:1px solid var(--line); border-radius:var(--r-sm);
+  background:var(--surface); color:var(--text-dim); font-size:18px; font-weight:600;
+}
+/* Третьестепенное действие: выглядит ссылкой, но нажимается как кнопка. */
+.linkbtn{
+  display:flex; align-items:center; justify-content:center; gap:8px;
+  width:100%; min-height:52px; margin:8px 0; padding:10px;
+  border:none; background:none; color:var(--text-dim); font-size:19px; font-weight:600;
+  text-decoration:underline; text-decoration-color:var(--line-strong); text-underline-offset:5px;
+}
+.linkbtn.danger{color:var(--bad); text-decoration-color:color-mix(in srgb, var(--bad) 45%, transparent);}
+
+/* Подсказка под заголовком экрана. */
+.hint{font-size:19px; margin:0 0 10px;}
+
+/* Лампа сигнала: во время звука наливается янтарём. Пустая — не рисуем в ней точку,
+   иначе кажется, что там что-то нажимается. */
+.lamp{
+  width:124px; height:124px; border-radius:50%; margin:16px auto 8px;
+  background:var(--surface-2); border:1px solid var(--line);
+  box-shadow:inset 0 0 0 8px var(--bg);
+  transition:background .04s linear, transform .04s linear, box-shadow .04s linear;
+}
+.lamp.on-dit,.lamp.on-dah{background:var(--accent); box-shadow:0 0 0 16px var(--glow);}
+.lamp.on-dit{transform:scale(1.03);}
+.lamp.on-dah{transform:scale(1.07);}
+
+/* Регулятор: иконки по краям, значение цифрой справа — вместо длинной подписи со скобками. */
+.slider{margin:6px 0 0;}
+.slider input[type=range]{width:100%; margin:0;}
+.slider-head{display:flex; align-items:baseline; justify-content:space-between; gap:10px;}
+.slider-head label{margin:0; font-size:19px; font-weight:600; color:var(--text-dim);}
+.slider-head .num{font-size:21px;}
+.slider-ends{display:flex; justify-content:space-between; color:var(--text-dim); font-size:17px; margin-top:-2px;}
+.num{font-family:var(--mono); font-variant-numeric:tabular-nums; font-weight:700; color:var(--accent-text);}
+
+
+/* Разбор ошибки: крупный знак, ритм полосками, затем коды и действия. */
+.reveal-char{font-size:24px; font-weight:700; margin-bottom:10px;}
+.reveal-actions{display:flex; gap:10px; margin-top:12px;}
+.reveal-actions .btn{margin:0;}
+.trace.centered{justify-content:center;}
+.trace.big.centered{margin:8px auto 10px;}
+
+/* Пока читается разбор ошибки, второстепенные органы управления убраны: они не нужны
+   в этот момент и раньше выдавливали кнопку «Дальше» под нижнее меню. */
+#screen.revealing .slider,
+#screen.revealing #help{display:none;}
+
+/* Список кодов активного набора (подсказка на занятии). */
+.codelist{list-style:none; padding:0; margin:0;}
+.codelist li{
+  display:grid; grid-template-columns:2.2ch auto 1fr; align-items:center; gap:14px;
+  padding:11px 0; border-bottom:1px solid var(--line);
+}
+.codelist li:last-child{border-bottom:none;}
+.codelist b{font-size:26px;}
+.codelist .chant{font-size:18px; text-align:right;}
+
+/* «Ключ»: задание крупно, вердикт с ритмами рядом. */
+.card.task{display:flex; align-items:center; justify-content:space-between; gap:14px; padding:12px 16px;}
+.card.task .btn{margin:0; width:auto; flex:none; min-height:56px; padding:12px 16px;}
+.taskchar{font-size:52px; font-weight:700; line-height:1.05;}
+.keyverdict{min-height:88px; margin-top:10px; text-align:center;}
+.keyverdict .verdict{font-size:21px; font-weight:700; display:flex; align-items:center; justify-content:center; gap:8px;}
+.keyverdict.ok .verdict{color:var(--ok);}
+.keyverdict.no .verdict{color:var(--bad);}
+.keyverdict .trace{justify-content:center; margin:6px 0;}
+.keyverdict .cmp{display:grid; grid-template-columns:6.5ch 1fr; align-items:center; gap:12px; margin-top:8px; text-align:left;}
+.keyverdict .cmp .trace{justify-content:flex-start; margin:0; height:20px; --u:8px;}
+.keyverdict .cmp .eyebrow{font-size:17px;}
+
+/* Карточка знака в «Азбуке». */
+.bigchar{font-size:76px; font-weight:800; line-height:1; color:var(--text);}
+.closebtn{
+  position:absolute; top:14px; right:14px; width:52px; height:52px; border-radius:50%;
+  border:1px solid var(--line-strong); background:var(--surface); color:var(--text); font-size:22px;
+}
+
+/* Вехи: полученные выделены, остальные приглушены — без эмодзи-галочек. */
+.milestones li.done span:first-child{font-weight:650;}
+.milestones li:not(.done){color:var(--text-dim);}
+.milestones .mark{color:var(--ok); display:flex;}
+.milestones li:not(.done) .mark{color:var(--line-strong);}
+
+/* Сегменты с иконками (выбор темы) — иконка над подписью, чтобы влезли три кнопки. */
+.seg.icons button{flex-direction:column; gap:5px; font-size:17px; min-height:74px; padding:8px 4px;
+  display:flex; align-items:center; justify-content:center; line-height:1.15;}
+.seg.icons button span{text-align:center;}
+
+.avatar.big{width:88px; height:88px;}
+.intro .card{text-align:left;}
+.intro .callsign{font-size:30px; text-align:center; margin-bottom:10px;}
 
 /* ——— Доступность: уважать prefers-reduced-motion (§11) ——— */
 @media (prefers-reduced-motion: reduce){

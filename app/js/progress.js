@@ -174,12 +174,18 @@ export function pickTarget(active, recentTargets, newest, rng = Math.random) {
   return from[Math.floor(rng() * from.length)];
 }
 
-// Сформировать кнопки-варианты: всегда >=4; при наборе >8 — 6–8 с обязательными целью и новейшим.
+// Сформировать кнопки-варианты. До 6 знаков показываем весь набор; дальше — ровно 6,
+// с обязательными целью и новейшим знаком.
+// Почему ровно 6, а не «6–8 случайно», как было: от числа кнопок скакала высота экрана
+// (два ряда или три), и занятие то влезало в один экран, то требовало прокрутки. Шесть
+// вариантов — это и стабильные два ряда, и достаточный выбор (шанс угадать 1 к 6).
+const OPTION_COUNT = 6;
+
 export function buildOptions(active, target, newest, rng = Math.random) {
-  if (active.length <= 8) {
-    return shuffle(active, rng); // показываем весь набор (>=4), позиция цели случайна
+  if (active.length <= OPTION_COUNT) {
+    return shuffle(active, rng); // показываем весь набор, позиция цели случайна
   }
-  const count = 6 + Math.floor(rng() * 3); // 6..8
+  const count = OPTION_COUNT;
   const must = new Set([target]);
   if (newest) must.add(newest);
   const others = shuffle(active.filter((c) => !must.has(c)), rng);

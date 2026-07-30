@@ -1,12 +1,13 @@
 {
-  "name": "Бони М — морзянка",
-  "short_name": "Бони М",
+  "name": "Морзе 73 — самоучитель морзянки",
+  "short_name": "Морзе 73",
+  "description": "Игра-самоучитель приёма и передачи азбуки Морзе на слух. Полностью работает без интернета.",
   "start_url": ".",
   "scope": ".",
   "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#FBF3E6",
-  "theme_color": "#C8861E",
+  "background_color": "#F6F1E6",
+  "theme_color": "#F6F1E6",
   "lang": "ru",
   "icons": [
     { "src": "assets/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
