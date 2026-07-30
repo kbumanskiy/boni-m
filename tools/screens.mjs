@@ -6,6 +6,7 @@ import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { mkdirSync } from 'node:fs';
 import { extname, join, normalize } from 'node:path';
+import { CHECK_LAYOUT } from './page-checks.mjs';
 
 const ROOT = new URL('../app/', import.meta.url).pathname;
 const OUT = new URL('./screenshots/', import.meta.url).pathname;
@@ -87,40 +88,6 @@ const SCREENS = {
   },
 };
 
-// Автопроверка вёрстки прямо в браузере: обрезанный текст, вылезание за край, мелкий шрифт,
-// маленькие кнопки. Глаз это пропускает, замер — нет.
-const CHECK_LAYOUT = () => {
-  window.checkLayout = () => {
-    const out = [];
-    const seen = new Set();
-    const name = (el) => el.tagName.toLowerCase()
-      + (el.id ? '#' + el.id : '') + (el.className && typeof el.className === 'string' ? '.' + el.className.trim().split(/\s+/).join('.') : '');
-    const say = (msg) => { if (!seen.has(msg)) { seen.add(msg); out.push(msg); } };
-
-    for (const el of document.querySelectorAll('#screen *, nav#tabs *, .overlay *')) {
-      const cs = getComputedStyle(el);
-      if (cs.display === 'none' || cs.visibility === 'hidden') continue;
-      const r = el.getBoundingClientRect();
-      if (!r.width && !r.height) continue;
-
-      // Обрезанный текст: содержимое шире/выше рамки при скрытом переполнении.
-      const clipsX = cs.overflowX !== 'visible', clipsY = cs.overflowY !== 'visible';
-      if (el.children.length === 0 && el.textContent.trim()) {
-        if (clipsX && el.scrollWidth > el.clientWidth + 1) say(`обрезан текст по ширине: ${name(el)} — «${el.textContent.trim().slice(0, 24)}»`);
-        if (clipsY && el.scrollHeight > el.clientHeight + 1) say(`обрезан текст по высоте: ${name(el)} — «${el.textContent.trim().slice(0, 24)}»`);
-      }
-      // Вылезание за края экрана.
-      if (r.left < -1 || r.right > innerWidth + 1) say(`выходит за край экрана: ${name(el)} (${Math.round(r.left)}…${Math.round(r.right)} при ширине ${innerWidth})`);
-
-      // Размер шрифта и площадь нажатия — жёсткие требования доступности.
-      const fs = parseFloat(cs.fontSize);
-      if (el.textContent.trim() && el.children.length === 0 && fs < 17) say(`мелкий шрифт ${fs}px: ${name(el)}`);
-      if ((el.tagName === 'BUTTON' || el.getAttribute('role') === 'button') && r.height < 44 && r.height > 0) say(`низкая кнопка ${Math.round(r.height)}px: ${name(el)}`);
-    }
-    return out;
-  };
-};
-
 let failures = 0;
 const want = process.argv.slice(2);
 const list = want.length ? want.filter((n) => n in SCREENS) : Object.keys(SCREENS);
@@ -162,7 +129,10 @@ for (const theme of ['light', 'dark']) {
     // Снимаем именно экран телефона, а не всю страницу: fullPage «размазывает» закреплённое
     // нижнее меню и показывает то, чего папа никогда не увидит.
     await page.screenshot({ path: join(OUT, `${name}-${theme}.png`) });
-    const problems = await page.evaluate(() => checkLayout());
+    const problems = [
+      ...await page.evaluate(() => checkLayout()),
+      ...await page.evaluate(() => checkA11y()),
+    ];
     const scrollable = await page.evaluate(() => document.documentElement.scrollHeight > innerHeight + 4);
     if (scrollable) {
       await page.evaluate(() => scrollTo(0, document.documentElement.scrollHeight));

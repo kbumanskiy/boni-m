@@ -62,7 +62,10 @@ function go(tab) {
   // Сначала остановить часы (время войдёт в totalSeconds), потом засчитывать занятие —
   // иначе веха «10 минут в эфире» опоздает на одно занятие.
   if (tab !== 'learn' && tab !== 'key') stopActiveClock();
-  if (currentTab === 'learn' && tab !== 'learn') finalizeLearnSession();
+  if (currentTab === 'learn' && tab !== 'learn') {
+    if (L && L.nextTimer) { clearTimeout(L.nextTimer); L.nextTimer = null; }
+    finalizeLearnSession();
+  }
   if (currentTab === 'key' && tab !== 'key') clearKeyTimers();
   currentTab = tab;
   A.stopAll();
@@ -83,10 +86,12 @@ tabsEl.addEventListener('click', (e) => {
 });
 
 // ——— Оверлей реакции героя ———
+let heroTimer = null;
 function showHero(img, title, sub, ms = 1200) {
   return new Promise((resolve) => {
+    if (heroTimer) clearTimeout(heroTimer); // иначе таймер прошлого оверлея погасит этот
     overlayRoot.innerHTML = `<div class="overlay"><img src="assets/${img}" alt=""><h2>${esc(title)}</h2>${sub ? `<p>${esc(sub)}</p>` : ''}</div>`;
-    setTimeout(() => { overlayRoot.innerHTML = ''; resolve(); }, ms);
+    heroTimer = setTimeout(() => { heroTimer = null; overlayRoot.innerHTML = ''; resolve(); }, ms);
   });
 }
 function milestoneBanner(ids) {
@@ -200,7 +205,7 @@ function renderLearn() {
   P.ensureStarted(t);
   const repetition = learnOpts.repetition;
   L = { target: null, options: [], recentTargets: [], locked: false, answers: 0, correct: 0,
-        repetition, slow: false, awaiting: false };
+        repetition, slow: false, awaiting: false, nextTimer: null };
   // Всё занятие должно помещаться в один экран: во время урока прокручивать нечего и незачем,
   // а «Повторить» и регулятор скорости нужны под рукой, а не за краем экрана.
   screenEl.innerHTML = `
@@ -244,6 +249,7 @@ function settingsForPlay() {
 }
 
 function nextRound() {
+  if (L.nextTimer) { clearTimeout(L.nextTimer); L.nextTimer = null; }
   L.slow = false; L.awaiting = false;
   screenEl.classList.remove('revealing');
   const t = track();
@@ -312,7 +318,10 @@ function answer(ch) {
     $('#fb').textContent = 'Верно!';
     persist();
     L.awaiting = true;
-    setTimeout(() => {
+    // Таймер храним: при выходе из занятия оверлей «Занятие засчитано» держится 1,8 с, и за это
+    // время незакрытый таймер успевал начать новый раунд со звуком за спиной оверлея.
+    L.nextTimer = setTimeout(() => {
+      L.nextTimer = null;
       if (currentTab !== 'learn') return;
       L.awaiting = false;
       if (!afterAnswerProgress(true)) nextRound();
@@ -432,6 +441,7 @@ function finalizeLearnSession() {
 
 function exitLearn() {
   stopActiveClock();
+  if (L && L.nextTimer) { clearTimeout(L.nextTimer); L.nextTimer = null; }
   const counted = finalizeLearnSession();
   if (counted && L) {
     const acc = Math.round(L.correct / L.answers * 100);
@@ -454,7 +464,7 @@ function callsignDrill() {
     <p class="muted">Сейчас позывной прозвучит целиком, как настоящая радиограмма.
        Все эти коды вы уже знаете.</p>
     <div class="card">
-      <div class="callsign">${esc(state.profile.callsign)}</div>
+      <div class="callsign">${esc(DATA.CALLSIGN)}</div>
       ${traceHTML(TR.traceSequence(DATA.CALLSIGN_CODES), 'centered')}
     </div>
     <button class="btn" id="play">${ICON.sound(24)} Прослушать</button>
@@ -464,19 +474,25 @@ function callsignDrill() {
   $('#got').addEventListener('click', () => {
     const newly = G.checkMilestones(state, { callsignReceived: true });
     persist();
-    showHero('hero-radost.webp', 'Позывной принят!', 'Boney M', 2200).then(() => { milestoneBanner(newly); go('home'); });
+    showHero('hero-radost.webp', 'Позывной принят!', DATA.CALLSIGN, 2200)
+      .then(() => milestoneBanner(newly))
+      .then(() => go('home'));
   });
   $('#back').addEventListener('click', () => go('home'));
 }
 
 // ——————————————————————————— Ключ (§7.3) ———————————————————————————
 let K = null;
-function clearKeyTimers() { if (K) { clearTimeout(K.gapTimer); clearTimeout(K.spaceTimer); K.gapTimer = K.spaceTimer = null; } }
+function clearKeyTimers() {
+  if (!K) return;
+  clearTimeout(K.gapTimer); clearTimeout(K.spaceTimer); clearTimeout(K.hintTimer);
+  K.gapTimer = K.spaceTimer = K.hintTimer = null;
+}
 
 function renderKey() {
   clearKeyTimers();
   const mode = state.settings.keyMode === 'free' ? 'free' : 'train';
-  K = { mode, elements: [], holdStart: null, gapTimer: null, spaceTimer: null, target: null, line: KT.emptyLine() };
+  K = { mode, elements: [], holdStart: null, gapTimer: null, spaceTimer: null, hintTimer: null, target: null, line: KT.emptyLine() };
   const toggle = `<div class="seg">
       <button data-m="train" class="${mode === 'train' ? 'active' : ''}">Тренировка</button>
       <button data-m="free" class="${mode === 'free' ? 'active' : ''}">Свободно</button>
@@ -503,7 +519,7 @@ function renderKey() {
         </div>
         <button class="btn secondary" id="sample">${ICON.sound(24)} Образец</button>
       </div>
-      <div class="keypad" id="pad"><span class="keyout" id="keyout" aria-live="polite">Нажимайте и держите</span></div>
+      <button type="button" class="keypad" id="pad" aria-label="Ключ: нажимайте и держите"><span class="keyout" id="keyout" aria-live="polite">Нажимайте и держите</span></button>
       <div class="keyverdict" id="keychar" aria-live="polite"></div>
       <button class="linkbtn" id="newtarget">Другой знак</button>${speedCtl}`;
     $('#sample').addEventListener('click', () => A.playCode(codeOf(K.target), { ...state.settings, charWpm: state.settings.keyWpm, effWpm: state.settings.keyWpm }, {}));
@@ -513,7 +529,7 @@ function renderKey() {
       <div class="screenbar"><h2>Ключ</h2></div>${toggle}
       <p class="muted center hint">Отстукивайте — буквы складываются в строку. Пауза подольше — пробел.</p>
       <div class="keytext" id="text"></div>
-      <div class="keypad" id="pad"><span class="keyout" id="keyout" aria-live="polite">Нажимайте и держите</span></div>
+      <button type="button" class="keypad" id="pad" aria-label="Ключ: нажимайте и держите"><span class="keyout" id="keyout" aria-live="polite">Нажимайте и держите</span></button>
       <div class="btn-row">
         <button class="btn secondary" id="erase">${ICON.erase(24)} Стереть</button>
         <button class="btn secondary" id="clear">${ICON.clear(24)} Очистить</button>
@@ -540,6 +556,14 @@ function renderKey() {
   pad.addEventListener('pointerup', up);
   pad.addEventListener('pointerleave', up);
   pad.addEventListener('pointercancel', up);
+  // С клавиатуры: пробел или Enter работают как нажатие и удержание. e.repeat отсекает
+  // автоповтор, иначе одно удержание превратилось бы в череду точек.
+  pad.addEventListener('keydown', (e) => {
+    if ((e.code === 'Space' || e.code === 'Enter') && !e.repeat) { e.preventDefault(); keyPadDown(); }
+  });
+  pad.addEventListener('keyup', (e) => {
+    if (e.code === 'Space' || e.code === 'Enter') { e.preventDefault(); keyPadUp(); }
+  });
   startActiveClock();
 }
 
@@ -617,7 +641,7 @@ function decodeKey() {
   }
 
   // Свободный режим.
-  if (found === '?') { setKeyout('?'); setTimeout(() => setKeyout('·'), 600); return; }
+  if (found === '?') { setKeyout('?'); K.hintTimer = setTimeout(() => { K.hintTimer = null; setKeyout('·'); }, 600); return; }
   K.line = KT.addChar(K.line, found);
   renderKeyLine();
   A.cue('success'); vibrate(20);
@@ -805,7 +829,16 @@ function doRestore(e) {
 
 // ——————————————————————————— Системное ———————————————————————————
 document.addEventListener('visibilitychange', () => {
-  if (document.hidden) { A.stopAll(); stopActiveClock(); if (currentTab === 'key') { clearKeyTimers(); if (K) { K.holdStart = null; K.elements = []; } } }
+  if (document.hidden) {
+    A.stopAll(); stopActiveClock();
+    if (currentTab === 'key') {
+      clearKeyTimers();
+      if (K) { K.holdStart = null; K.elements = []; }
+      // Иначе площадка остаётся визуально вжатой и «залипшей» после возврата.
+      $('#pad')?.classList.remove('down');
+      setKeyout('·');
+    }
+  }
   else if (currentTab === 'learn' || currentTab === 'key') {
     startActiveClock();
     // Сворачивание во время проигрывания обрывает звук и оставляет кнопки заблокированными —
