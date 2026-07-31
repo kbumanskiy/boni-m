@@ -83,8 +83,26 @@ export function migrate(raw) {
       ? raw.streak.lastActiveDate : null;
   }
   s.totalSeconds = Math.max(0, num(raw.totalSeconds, 0));
-  s.history = Array.isArray(raw.history) ? raw.history.slice(-30) : [];
-  s.milestones = isObj(raw.milestones) ? raw.milestones : {};
+  // Записи журнала приводим к типам поштучно. Раньше массив копировался как есть, а экран
+  // «Журнал» выводит число ответов и точность БЕЗ экранирования. Файл резервной копии
+  // приходит извне («Восстановить из копии»), то есть подсунутый файл мог протащить
+  // произвольную разметку в приложение и остаться там навсегда.
+  s.history = (Array.isArray(raw.history) ? raw.history : [])
+    .filter(isObj)
+    .slice(-30)
+    .map((h) => ({
+      date: typeof h.date === 'string' ? h.date.slice(0, 10) : '',
+      answers: Math.max(0, Math.floor(num(h.answers, 0))),
+      accuracyPct: clampNum(h.accuracyPct, 0, 100, 0),
+    }));
+  // Вехи — только известные ключи со значением «да/нет»: чужой файл не должен заводить
+  // в состоянии посторонние поля.
+  s.milestones = {};
+  if (isObj(raw.milestones)) {
+    for (const [k, v] of Object.entries(raw.milestones)) {
+      if (/^[a-zA-Z0-9]{1,20}$/.test(k) && v === true) s.milestones[k] = true;
+    }
+  }
   s.version = STATE_VERSION;
   return s;
 }

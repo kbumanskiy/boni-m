@@ -87,3 +87,33 @@ test('старое состояние не открывает новый зна�
   assert.equal(shouldOpenNext(t, 'ru'), false,
     'после переноса знак не открывается «сам собой» на первом же ответе');
 });
+
+// ——— Файл резервной копии приходит извне: «Восстановить из копии» открывает системный
+// выбор файла, то есть содержимое может быть каким угодно. Экран «Журнал» выводит число
+// ответов и точность без экранирования, поэтому приводить типы обязан migrate. ———
+
+test('подсунутый файл копии не протаскивает разметку в журнал занятий', () => {
+  const raw = oldSavedState();
+  raw.history = [
+    { date: '2026-07-29', answers: '<img src=x onerror=alert(1)>', accuracyPct: '<script>' },
+    { date: { хитрый: 'объект' }, answers: 5, accuracyPct: 90 },
+    'вообще не объект',
+  ];
+  const s = migrate(raw);
+  for (const h of s.history) {
+    assert.equal(typeof h.date, 'string', 'дата должна быть строкой');
+    assert.equal(typeof h.answers, 'number', 'число ответов должно быть числом');
+    assert.equal(typeof h.accuracyPct, 'number', 'точность должна быть числом');
+    assert.ok(Number.isFinite(h.answers) && Number.isFinite(h.accuracyPct));
+    assert.ok(h.accuracyPct >= 0 && h.accuracyPct <= 100, 'точность в пределах 0–100');
+  }
+  assert.ok(!JSON.stringify(s.history).includes('<'), 'в журнале не осталось разметки');
+});
+
+test('подсунутый файл копии не заводит посторонних вех', () => {
+  const raw = oldSavedState();
+  raw.milestones = { first4: true, '<img src=x>': true, злая: 'строка', вложенная: { a: 1 } };
+  const s = migrate(raw);
+  assert.deepEqual(Object.keys(s.milestones), ['first4'], 'остались только знакомые вехи');
+  assert.equal(s.milestones.first4, true);
+});
