@@ -9,7 +9,11 @@ import { extname, join, normalize } from 'node:path';
 import { CHECK_LAYOUT } from './page-checks.mjs';
 
 const ROOT = new URL('../app/', import.meta.url).pathname;
-const OUT = new URL('./screenshots/', import.meta.url).pathname;
+
+// SCREENS_PUBLIC=1 — кадры для сайта: нейтральный профиль вместо личного позывного папы
+// и отдельная папка, чтобы не затирать эталонные кадры. Обычный запуск не меняется.
+const PUBLIC = !!process.env.SCREENS_PUBLIC;
+const OUT = new URL(PUBLIC ? './screenshots-public/' : './screenshots/', import.meta.url).pathname;
 mkdirSync(OUT, { recursive: true });
 
 const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css',
@@ -52,6 +56,10 @@ const SEED = {
   ],
   milestones: { first4: true, tenMin: true },
 };
+
+// Публичный профиль для сайта. Позывной DEMO выбран намеренно: он не может совпасть
+// с чьим-то настоящим позывным, а личный позывной папы на публичной странице не место.
+if (PUBLIC) SEED.profile = { name: 'Радист', callsign: 'DEMO', points: 148 };
 
 // Как дойти до каждого экрана. Возвращает функцию, которую выполняем на странице.
 const SCREENS = {
