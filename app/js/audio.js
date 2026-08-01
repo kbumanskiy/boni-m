@@ -9,7 +9,13 @@ const RELEASE = 0.005;
 let ctx = null;
 let activeStops = []; // функции остановки текущих звуков
 let rafId = null;
-let resumePromise = null;
+
+// Номер текущего проигрывания. Пока звук ждёт пробуждения контекста, отменить его
+// нечем: остановить ещё нечего, звуков не создано. Поэтому каждое новое проигрывание
+// (и любой stopAll) поднимает номер, а всё отложенное с чужим номером само выходит.
+// Без этого два нажатия подряд накладывали один знак сам на себя вдвое громче,
+// а брошенный цикл ожидания достукивался до экрана, которого уже нет.
+let generation = 0;
 
 // Беззвучный WAV прямо в коде: файлов в проекте нет, офлайн не ломается.
 const SILENT_WAV = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YQQAAAAAAAAA';
@@ -29,6 +35,12 @@ function isIOS() {
 // живая, а морзянки нет. Категория становится «playback» (переключатель игнорируется),
 // если страница заявит об этом явно — либо, на старых iOS, хоть раз проиграет медиа-элемент.
 function unlockSilentSwitch() {
+  // Категория держится, только пока беззвучный элемент играет, а iOS ставит его на паузу
+  // при сворачивании и при входящем звонке. Поэтому проверяем каждый раз, а не однократно:
+  // иначе после первого же звонка переключатель «Без звука» снова глушил бы морзянку.
+  if (silentEl && silentEl.paused) {
+    try { const p = silentEl.play(); if (p && p.catch) p.catch(() => {}); } catch {}
+  }
   if (unlocked) return;
   unlocked = true;
   try {
@@ -60,7 +72,7 @@ export function ensureAudio() {
     // до перезапуска приложения.
     if (ctx.state !== 'running') {
       const p = ctx.resume();
-      resumePromise = (p && p.then) ? p.catch(() => {}) : Promise.resolve();
+      if (p && p.catch) p.catch(() => {});
     }
   } catch {
     ctx = null;
@@ -71,9 +83,23 @@ export function ensureAudio() {
 // resume() асинхронный, а у спящего контекста часы стоят: всё, что запланировано на
 // «сейчас + 0.08 с», уходит в никуда, а ожидание конца знака не наступает никогда.
 // Поэтому планируем звук только когда часы реально пошли.
+//
+// Спрашиваем состояние сами, а не ждём обещания от resume(): старый WebKit вообще
+// ничего не возвращает, а iOS во время звонка может не ответить никогда. Отдельный
+// срок ожидания обязателен — без него занятие замирало с горящей лампой и серыми
+// кнопками до перезапуска приложения.
+const WAKE_LIMIT_MS = 1500;
+const WAKE_STEP_MS = 50;
 function whenRunning(c, fn) {
   if (c.state === 'running') { fn(true); return; }
-  (resumePromise || Promise.resolve()).then(() => fn(c.state === 'running'));
+  let waited = 0;
+  const poll = () => {
+    if (c.state === 'running') { fn(true); return; }
+    waited += WAKE_STEP_MS;
+    if (waited >= WAKE_LIMIT_MS) { fn(false); return; }
+    setTimeout(poll, WAKE_STEP_MS);
+  };
+  setTimeout(poll, WAKE_STEP_MS);
 }
 
 export function audioReady() {
@@ -81,7 +107,9 @@ export function audioReady() {
 }
 
 // Остановить все текущие звуки (например, при уходе со вкладки — §13.8).
+// Поднятый номер гасит и то, что ещё только ждёт пробуждения контекста.
 export function stopAll() {
+  generation++;
   for (const stop of activeStops.splice(0)) {
     try { stop(); } catch {}
   }
@@ -110,12 +138,14 @@ function scheduleTone(startT, dur, toneHz, volume) {
 // 'dit'/'dah' — вспышка началась, null — погасла. onDone — после завершения.
 export function playCode(code, settings, { onFlash, onDone } = {}) {
   const c = ensureAudio();
-  if (!c) { if (onDone) onDone(false); return () => {}; }
+  // Web Audio нет вовсе — случай не про сон, а про браузер без звука. Сообщаем «прозвучало»,
+  // чтобы занятие не встало намертво: подсказка «нажмите ещё раз» тут ничему не поможет.
+  if (!c) { if (onDone) onDone(true); return () => {}; }
   stopAll();
-  let cancelled = false;
+  const mine = ++generation;
 
   whenRunning(c, (awake) => {
-    if (cancelled) return;
+    if (mine !== generation) return; // нас уже сменили другим знаком или уходом с экрана
     // Разбудить контекст не удалось (айфон позволяет это только по касанию). Молчим,
     // но управление возвращаем сразу: иначе занятие зависнет с серыми кнопками.
     if (!awake) { if (onFlash) onFlash(null); if (onDone) onDone(false); return; }
@@ -139,7 +169,7 @@ export function playCode(code, settings, { onFlash, onDone } = {}) {
     // Визуальная синхронизация и onDone — через rAF по часам аудио.
     let idx = 0;
     const tick = () => {
-      if (cancelled) return;
+      if (mine !== generation) return;
       const now = c.currentTime;
       while (idx < flashEvents.length && flashEvents[idx].time <= now) {
         if (onFlash) onFlash(flashEvents[idx].kind);
@@ -155,7 +185,7 @@ export function playCode(code, settings, { onFlash, onDone } = {}) {
     rafId = requestAnimationFrame(tick);
   });
 
-  return () => { cancelled = true; stopAll(); };
+  return () => stopAll();
 }
 
 // Проиграть последовательность знаков как радиограмму (для спецдрилла позывного §9).
@@ -163,10 +193,10 @@ export function playSequence(chars, codeOf, settings, { onDone } = {}) {
   const c = ensureAudio();
   if (!c) { if (onDone) onDone(); return () => {}; }
   stopAll();
-  let cancelled = false;
+  const mine = ++generation;
 
   whenRunning(c, (awake) => {
-    if (cancelled) return;
+    if (mine !== generation) return;
     if (!awake) { if (onDone) onDone(); return; }
 
     const { toneHz = 600, volume = 0.5, charWpm = 18, effWpm = 9 } = settings;
@@ -185,33 +215,41 @@ export function playSequence(chars, codeOf, settings, { onDone } = {}) {
     }
     const endTime = t;
     const check = () => {
-      if (cancelled) return;
+      if (mine !== generation) return;
       if (c.currentTime >= endTime) { if (onDone) onDone(); return; }
       rafId = requestAnimationFrame(check);
     };
     rafId = requestAnimationFrame(check);
   });
 
-  return () => { cancelled = true; stopAll(); };
+  return () => stopAll();
 }
 
 // ——— Режим «Ключ»: тон звучит, пока палец прижат (§7.3) ———
 let keyOsc = null, keyGain = null;
+let keyHeld = false;
 export function keyDown(toneHz, volume) {
   const c = ensureAudio();
   if (!c) return;
   if (keyOsc) return; // уже звучит
-  keyOsc = c.createOscillator();
-  keyGain = c.createGain();
-  keyOsc.type = 'sine';
-  keyOsc.frequency.value = toneHz;
-  const now = c.currentTime;
-  keyGain.gain.setValueAtTime(0, now);
-  keyGain.gain.linearRampToValueAtTime(volume, now + ATTACK);
-  keyOsc.connect(keyGain).connect(c.destination);
-  keyOsc.start(now);
+  keyHeld = true;
+  // На спящих часах тон стартовал в прошлом и не звучал вовсе: площадка выглядела
+  // вжатой, а звука не было. Ждём пробуждения — и начинаем, только если палец ещё держат.
+  whenRunning(c, (awake) => {
+    if (!awake || !keyHeld || keyOsc) return;
+    keyOsc = c.createOscillator();
+    keyGain = c.createGain();
+    keyOsc.type = 'sine';
+    keyOsc.frequency.value = toneHz;
+    const now = c.currentTime;
+    keyGain.gain.setValueAtTime(0, now);
+    keyGain.gain.linearRampToValueAtTime(volume, now + ATTACK);
+    keyOsc.connect(keyGain).connect(c.destination);
+    keyOsc.start(now);
+  });
 }
 export function keyUp() {
+  keyHeld = false;
   if (!keyOsc || !ctx) return;
   const now = ctx.currentTime;
   try {
@@ -227,6 +265,9 @@ export function keyUp() {
 export function cue(kind) {
   const c = ensureAudio();
   if (!c) return;
+  whenRunning(c, (awake) => { if (awake) playCue(c, kind); });
+}
+function playCue(c, kind) {
   const now = c.currentTime;
   const notes = kind === 'success' ? [660, 880] : [440, 392]; // вверх / мягко вниз
   notes.forEach((f, i) => {

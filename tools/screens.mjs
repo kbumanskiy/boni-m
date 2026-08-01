@@ -81,6 +81,22 @@ const SCREENS = {
                                await page.click('[data-a="en"]'); await page.waitForTimeout(250); },
   refcard:   async (page) => { await page.click('[data-tab="ref"]'); await page.waitForTimeout(200);
                                await page.click('.cell'); await page.waitForTimeout(250); },
+  // Звук не проснулся (айфон после возврата в приложение): кнопки с буквами закрыты,
+  // а подпись зовёт нажать «Послушать ещё раз». Состояние недостижимо кликами — контекст
+  // тут обязан НЕ просыпаться, — поэтому ставим подпись напрямую. Проверять надо: длинная
+  // подпись переносится на три строки и выдавливает за экран ту самую кнопку, на которую
+  // она же и показывает.
+  learnsilent: async (page) => {
+    await page.click('[data-tab="learn"]'); await page.waitForTimeout(900);
+    await page.evaluate(() => {
+      const fb = document.querySelector('#fb');
+      fb.textContent = 'Нажмите «Послушать ещё раз»';
+      fb.className = 'feedback center';
+      document.querySelectorAll('#opts .opt').forEach((b) => { b.disabled = true; });
+      document.querySelector('#opts').classList.add('playing');
+    });
+    await page.waitForTimeout(200);
+  },
   // Разбор ошибки: жмём варианты, пока не попадётся неверный — это состояние надо видеть.
   learnwrong: async (page) => {
     await page.click('[data-tab="learn"]'); await page.waitForTimeout(900);
