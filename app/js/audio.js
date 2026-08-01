@@ -9,20 +9,71 @@ const RELEASE = 0.005;
 let ctx = null;
 let activeStops = []; // функции остановки текущих звуков
 let rafId = null;
+let resumePromise = null;
+
+// Беззвучный WAV прямо в коде: файлов в проекте нет, офлайн не ломается.
+const SILENT_WAV = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YQQAAAAAAAAA';
+let unlocked = false;
+let silentEl = null;
+
+// iPadOS притворяется настольным маком, поэтому дополнительно смотрим на касания.
+function isIOS() {
+  try {
+    return /iPad|iPhone|iPod/.test(navigator.userAgent)
+      || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  } catch { return false; }
+}
+
+// На айфоне звук, рождённый только внутри Web Audio, считается фоновым (категория ambient):
+// боковой переключатель «Без звука» глушит его целиком — громкость на максимуме, картинка
+// живая, а морзянки нет. Категория становится «playback» (переключатель игнорируется),
+// если страница заявит об этом явно — либо, на старых iOS, хоть раз проиграет медиа-элемент.
+function unlockSilentSwitch() {
+  if (unlocked) return;
+  unlocked = true;
+  try {
+    if (navigator.audioSession) { navigator.audioSession.type = 'playback'; return; }
+  } catch {}
+  // Запасной путь — только для старых айфонов. На Android беззвучный медиа-элемент не нужен
+  // и вреден: он держит «звук играет» и может приглушить чужую музыку на ровном месте.
+  if (!isIOS()) return;
+  try {
+    silentEl = new Audio(SILENT_WAV);
+    silentEl.loop = true; // категория держится, только пока элемент играет
+    silentEl.setAttribute('playsinline', '');
+    const p = silentEl.play();
+    if (p && p.catch) p.catch(() => {});
+  } catch {}
+}
 
 // §13.1: AudioContext создаётся/возобновляется ТОЛЬКО по жесту пользователя.
 export function ensureAudio() {
   try {
+    unlockSilentSwitch(); // до создания контекста: категория должна быть выбрана заранее
     if (!ctx) {
       const AC = window.AudioContext || window.webkitAudioContext;
       if (!AC) return null;
       ctx = new AC();
     }
-    if (ctx.state === 'suspended') ctx.resume();
+    // Не только 'suspended': у Safari есть ещё состояние 'interrupted' (был звонок,
+    // сработал будильник). Проверка ровно на 'suspended' оставляла бы звук выключенным
+    // до перезапуска приложения.
+    if (ctx.state !== 'running') {
+      const p = ctx.resume();
+      resumePromise = (p && p.then) ? p.catch(() => {}) : Promise.resolve();
+    }
   } catch {
     ctx = null;
   }
   return ctx;
+}
+
+// resume() асинхронный, а у спящего контекста часы стоят: всё, что запланировано на
+// «сейчас + 0.08 с», уходит в никуда, а ожидание конца знака не наступает никогда.
+// Поэтому планируем звук только когда часы реально пошли.
+function whenRunning(c, fn) {
+  if (c.state === 'running') { fn(true); return; }
+  (resumePromise || Promise.resolve()).then(() => fn(c.state === 'running'));
 }
 
 export function audioReady() {
@@ -59,42 +110,50 @@ function scheduleTone(startT, dur, toneHz, volume) {
 // 'dit'/'dah' — вспышка началась, null — погасла. onDone — после завершения.
 export function playCode(code, settings, { onFlash, onDone } = {}) {
   const c = ensureAudio();
-  if (!c) { if (onDone) onDone(); return () => {}; }
+  if (!c) { if (onDone) onDone(false); return () => {}; }
   stopAll();
-  const { toneHz = 600, volume = 0.5, charWpm = 18, effWpm = 9 } = settings;
-  const sched = codeToSchedule(code, charWpm, effWpm);
-  const lead = 0.08;
-  let t = c.currentTime + lead;
-
-  const flashEvents = []; // { time, kind|null }
-  for (const seg of sched) {
-    if (seg.tone) {
-      scheduleTone(t, seg.dur, toneHz, volume);
-      flashEvents.push({ time: t, kind: seg.kind });       // зажечь
-      flashEvents.push({ time: t + seg.dur, kind: null }); // погасить
-    }
-    t += seg.dur;
-  }
-  const endTime = t;
-
-  // Визуальная синхронизация и onDone — через rAF по часам аудио.
-  let idx = 0;
   let cancelled = false;
-  const tick = () => {
+
+  whenRunning(c, (awake) => {
     if (cancelled) return;
-    const now = c.currentTime;
-    while (idx < flashEvents.length && flashEvents[idx].time <= now) {
-      if (onFlash) onFlash(flashEvents[idx].kind);
-      idx++;
+    // Разбудить контекст не удалось (айфон позволяет это только по касанию). Молчим,
+    // но управление возвращаем сразу: иначе занятие зависнет с серыми кнопками.
+    if (!awake) { if (onFlash) onFlash(null); if (onDone) onDone(false); return; }
+
+    const { toneHz = 600, volume = 0.5, charWpm = 18, effWpm = 9 } = settings;
+    const sched = codeToSchedule(code, charWpm, effWpm);
+    const lead = 0.08;
+    let t = c.currentTime + lead;
+
+    const flashEvents = []; // { time, kind|null }
+    for (const seg of sched) {
+      if (seg.tone) {
+        scheduleTone(t, seg.dur, toneHz, volume);
+        flashEvents.push({ time: t, kind: seg.kind });       // зажечь
+        flashEvents.push({ time: t + seg.dur, kind: null }); // погасить
+      }
+      t += seg.dur;
     }
-    if (now >= endTime) {
-      if (onFlash) onFlash(null);
-      if (onDone) onDone();
-      return;
-    }
+    const endTime = t;
+
+    // Визуальная синхронизация и onDone — через rAF по часам аудио.
+    let idx = 0;
+    const tick = () => {
+      if (cancelled) return;
+      const now = c.currentTime;
+      while (idx < flashEvents.length && flashEvents[idx].time <= now) {
+        if (onFlash) onFlash(flashEvents[idx].kind);
+        idx++;
+      }
+      if (now >= endTime) {
+        if (onFlash) onFlash(null);
+        if (onDone) onDone(true);
+        return;
+      }
+      rafId = requestAnimationFrame(tick);
+    };
     rafId = requestAnimationFrame(tick);
-  };
-  rafId = requestAnimationFrame(tick);
+  });
 
   return () => { cancelled = true; stopAll(); };
 }
@@ -104,27 +163,36 @@ export function playSequence(chars, codeOf, settings, { onDone } = {}) {
   const c = ensureAudio();
   if (!c) { if (onDone) onDone(); return () => {}; }
   stopAll();
-  const { toneHz = 600, volume = 0.5, charWpm = 18, effWpm = 9 } = settings;
-  const tmg = charTiming(charWpm, effWpm);
-  let t = c.currentTime + 0.1;
-  for (const ch of chars) {
-    if (ch === ' ') { t += tmg.wordGap; continue; }
-    const code = codeOf(ch);
-    if (!code) continue;
-    const sched = codeToSchedule(code, charWpm, effWpm);
-    for (const seg of sched) {
-      if (seg.tone) scheduleTone(t, seg.dur, toneHz, volume);
-      t += seg.dur;
+  let cancelled = false;
+
+  whenRunning(c, (awake) => {
+    if (cancelled) return;
+    if (!awake) { if (onDone) onDone(); return; }
+
+    const { toneHz = 600, volume = 0.5, charWpm = 18, effWpm = 9 } = settings;
+    const tmg = charTiming(charWpm, effWpm);
+    let t = c.currentTime + 0.1;
+    for (const ch of chars) {
+      if (ch === ' ') { t += tmg.wordGap; continue; }
+      const code = codeOf(ch);
+      if (!code) continue;
+      const sched = codeToSchedule(code, charWpm, effWpm);
+      for (const seg of sched) {
+        if (seg.tone) scheduleTone(t, seg.dur, toneHz, volume);
+        t += seg.dur;
+      }
+      t += tmg.charGap;
     }
-    t += tmg.charGap;
-  }
-  const endTime = t;
-  const check = () => {
-    if (c.currentTime >= endTime) { if (onDone) onDone(); return; }
+    const endTime = t;
+    const check = () => {
+      if (cancelled) return;
+      if (c.currentTime >= endTime) { if (onDone) onDone(); return; }
+      rafId = requestAnimationFrame(check);
+    };
     rafId = requestAnimationFrame(check);
-  };
-  rafId = requestAnimationFrame(check);
-  return () => stopAll();
+  });
+
+  return () => { cancelled = true; stopAll(); };
 }
 
 // ——— Режим «Ключ»: тон звучит, пока палец прижат (§7.3) ———

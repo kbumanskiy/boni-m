@@ -298,10 +298,16 @@ function playTarget() {
   // Ровное свечение оставляет пользу для слабослышащего («сейчас идёт знак») и убирает подсказку.
   flash.classList.add('on');
   A.playCode(codeOf(L.target), settingsForPlay(), {
-    onDone: () => {
+    onDone: (played) => {
       flash.classList.remove('on');
       L.locked = false;
       renderOptions(false);
+      // Айфон будит звук только по касанию: после возврата в приложение сам знак не
+      // прозвучит. Молча оставить «Слушайте знак…» — обман: человек ждёт тишину.
+      if (!played && !L.awaiting) {
+        $('#fb').textContent = 'Звук приостановлен. Нажмите «Послушать ещё раз».';
+        $('#fb').className = 'feedback center';
+      }
     },
   });
 }
