@@ -97,3 +97,34 @@ test('Ы открывается достаточно рано в русском 
   }
   assert.ok(idxY < 24, `Ы на позиции ${idxY + 1} из 32 — достижимо без английского`);
 });
+
+// Напевка — это тот же код словами: слог с удвоенной гласной = тире, обычный = точка.
+// Папа (радиолюбитель) считает знаки именно по напевке, поэтому расхождение между
+// напевкой и кодом для него выглядит как ошибка в коде — и учит не тому.
+test('напевки читаются ровно как коды', () => {
+  const LONG = /(аа|оо|уу|ыы|ии|ээ|юю|яя|ее|ёё)/;
+  let checked = 0;
+  for (const list of [RU_LETTERS, DIGITS]) {
+    for (const { char, code, chant } of list) {
+      if (!chant) continue;
+      checked++;
+      const fromChant = chant.split('-').map((s) => (LONG.test(s) ? '-' : '.')).join('');
+      assert.equal(fromChant, code,
+        `«${char}»: напев «${chant}» читается как ${fromChant}, а код ${code}`);
+    }
+  }
+  assert.ok(checked >= 42, `напевки должны быть у всех букв и цифр, а проверено ${checked}`);
+});
+
+// Что слышно — это то же, что записано в таблице. Между кодом и звуком стоит
+// codeToSchedule: перепутанные там точка и тире не видны глазами вообще никак.
+test('звук знака повторяет его код, точка в точку', async () => {
+  const { codeToSchedule } = await import('../app/js/timing.js');
+  for (const list of [RU_LETTERS, DIGITS, PUNCTUATION]) {
+    for (const { char, code } of list) {
+      const heard = codeToSchedule(code, 18, 9).filter((s) => s.tone).map((s) => s.kind).join('');
+      const want = code.split('').map((c) => (c === '.' ? 'dit' : 'dah')).join('');
+      assert.equal(heard, want, `«${char}» (${code}) звучит не так, как записан`);
+    }
+  }
+});
