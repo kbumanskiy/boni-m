@@ -8,6 +8,7 @@ import * as A from './js/audio.js';
 import * as KT from './js/keytext.js';
 import * as TR from './js/trace.js';
 import { ICON } from './js/icons.js';
+import { donateUrl, feedbackUrl, validateFeedback, MESSAGE_MAX, CONTACT_MAX } from './js/support.js';
 
 let state = load();
 const persist = () => save(state);
@@ -185,7 +186,8 @@ function renderHome() {
     </div>
     ${drill ? `<button class="btn secondary" id="drill">${ICON.inbox(24)} Принять свой позывной</button>` : ''}
     <button class="btn" id="continue">Продолжить обучение</button>
-    <button class="btn secondary" id="review" ${learned < 1 ? 'disabled' : ''}>Повторение пройденного</button>`;
+    <button class="btn secondary" id="review" ${learned < 1 ? 'disabled' : ''}>Повторение пройденного</button>
+    ${supportLine()}`;
   $('#continue').addEventListener('click', () => { learnOpts.repetition = false; go('learn'); });
   $('#review').addEventListener('click', () => { learnOpts.repetition = true; go('learn'); });
   if (drill) $('#drill').addEventListener('click', callsignDrill);
@@ -783,6 +785,85 @@ function refCard(ch) {
 }
 
 // ——————————————————————————— Кабинет «Бортжурнал» (§7.5) ———————————————————————————
+// ——— Поддержать проект и написать автору ———
+// Оба блока показываются, только если задан адрес (app/js/support.js). Пока адреса нет —
+// их нет вовсе: приложение обновляется само, и мёртвая кнопка на телефоне выглядела бы
+// поломкой. Никаких всплывающих окон: это спокойные элементы внутри экранов.
+
+// Тихая строка на главной. Не кнопка-призыв, а ссылка, которую легко пройти мимо.
+function supportLine() {
+  const url = donateUrl();
+  if (!url) return '';
+  return `<a class="linkbtn" id="support-line" href="${esc(url)}" target="_blank" rel="noopener">
+    ${ICON.heart(22)} Поддержать проект</a>`;
+}
+
+// Карточка в «Журнале» — после вех, когда человек только что посмотрел свои успехи.
+function supportCard() {
+  const url = donateUrl();
+  if (!url) return '';
+  return `<div class="card center support">
+    <img class="avatar big" src="assets/hero-radost.webp" alt="">
+    <div class="eyebrow" style="margin-top:8px">Если пригодилось</div>
+    <p>Приложение бесплатное и таким останется: без рекламы, без подписки
+       и без сбора данных. Если оно вам полезно — можно поддержать.</p>
+    <p class="muted hint">Ничего не изменится, если вы этого не сделаете.</p>
+    <a class="btn" href="${esc(url)}" target="_blank" rel="noopener">${ICON.heart(24)} Поддержать</a>
+  </div>`;
+}
+
+// Форма обратной связи. Отправляется на приёмник (см. support.js), а не в телеграм
+// напрямую: токен бота в приложении держать нельзя.
+function feedbackCard() {
+  if (!feedbackUrl()) return '';
+  return `<div class="card" id="feedback">
+    <div class="eyebrow">Написать автору</div>
+    <p class="muted hint">Что удобно, что мешает, чего не хватает — всё пригодится.
+       Отвечает живой человек.</p>
+    <label for="fb-msg">Сообщение</label>
+    <textarea id="fb-msg" maxlength="${MESSAGE_MAX}" rows="4"
+      placeholder="Например: хочу, чтобы буквы можно было повторять по одной"></textarea>
+    <label for="fb-who">Как с вами связаться <span class="muted">— если ждёте ответа</span></label>
+    <input type="text" id="fb-who" maxlength="${CONTACT_MAX}" placeholder="почта или телеграм">
+    <button class="btn secondary" id="fb-send">${ICON.send(24)} Отправить</button>
+    <p class="fb-status" id="fb-status" role="status" aria-live="polite"></p>
+  </div>`;
+}
+
+// Отправка письма. Всё, что уходит наружу, — только то, что человек написал сам:
+// ни прогресса, ни позывного, ни настроек. Текст при неудаче остаётся в поле.
+function wireFeedback() {
+  const url = feedbackUrl();
+  const btn = $('#fb-send');
+  if (!url || !btn) return;
+  const status = $('#fb-status');
+  const say = (text, kind = '') => { status.textContent = text; status.className = `fb-status ${kind}`; };
+
+  btn.addEventListener('click', async () => {
+    const check = validateFeedback({ message: $('#fb-msg').value, contact: $('#fb-who').value });
+    if (!check.ok) { say(check.error, 'no'); return; }
+    if (navigator.onLine === false) {
+      say('Нет интернета. Текст никуда не денется — отправьте, когда появится связь.', 'no');
+      return;
+    }
+    btn.disabled = true;
+    say('Отправляю…');
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ message: check.message, contact: check.contact, from: 'app' }),
+      });
+      if (!res.ok) throw new Error(String(res.status));
+      $('#feedback').innerHTML = `<div class="eyebrow">Написать автору</div>
+        <p class="fb-status ok">${ICON.check(24)} Письмо ушло. Спасибо — это правда помогает.</p>`;
+    } catch {
+      btn.disabled = false;
+      say('Не получилось отправить. Проверьте связь и попробуйте ещё раз — текст сохранён.', 'no');
+    }
+  });
+}
+
 function renderCabinet() {
   const t = track();
   const rank = G.rankFor(t.learnedCount, G.avgAccuracy(t));
@@ -819,6 +900,7 @@ function renderCabinet() {
     </div>
     <div class="card"><div class="eyebrow">Занятия</div><ul class="list">${hist}</ul></div>
     <div class="card"><div class="eyebrow">Вехи</div><ul class="list milestones">${ms}</ul></div>
+    ${supportCard()}
     <div class="card">
       <div class="eyebrow">Кто вы в эфире</div>
       <label for="name">Имя</label><input type="text" id="name" value="${esc(state.profile.name)}">
@@ -872,7 +954,9 @@ function renderCabinet() {
       <button class="btn secondary" id="restore">${ICON.restore(24)} Восстановить из копии</button>
       <input type="file" id="file" accept="application/json" class="hidden">
     </div>
+    ${feedbackCard()}
     <button class="linkbtn danger" id="reset">Начать обучение заново</button>`;
+  wireFeedback();
   ['auto', 'light', 'dark'].forEach((mode) => {
     $(`#theme-${mode}`).addEventListener('click', () => {
       s.theme = mode; persist(); applyTheme(); renderCabinet();

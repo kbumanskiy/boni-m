@@ -131,6 +131,7 @@ img{max-width:100%; height:auto;}
   min-height:var(--tap); padding:14px 22px; border:1px solid transparent; border-radius:var(--r);
   background:var(--accent); color:var(--on-accent); font-weight:650; letter-spacing:-.01em;
   box-shadow:var(--shadow); width:100%; margin:8px 0;
+  text-decoration:none;   /* кнопкой бывает и ссылка — подчёркивание ей не нужно */
   transition:transform .1s ease, filter .15s ease, background .15s ease;
 }
 .btn:active{transform:translateY(1px) scale(.995); filter:brightness(.95);}
@@ -436,6 +437,25 @@ input[type=range]{width:100%; height:44px; accent-color:var(--accent);}
 .avatar.big{width:88px; height:88px;}
 .intro .card{text-align:left;}
 .intro .callsign{font-size:30px; text-align:center; margin-bottom:10px;}
+
+/* ——— Поддержать проект и написать автору ———
+   Оба блока намеренно тихие: тон приложения не допускает ни давления, ни ярких
+   призывов. Кнопка доната — обычная кнопка внутри карточки, а не плашка поверх экрана. */
+/* Портрет и шильдик по центру, а текст — слева: шесть строк по центру читаются тяжело. */
+.support p{margin:6px 0 0; text-align:left;}
+.support .btn{margin-top:14px;}
+/* Пояснение в подписи поля не должно быть таким же жирным, как сама подпись. */
+label .muted{font-weight:400;}
+
+textarea{
+  width:100%; font-family:inherit; font-size:20px; line-height:1.4; padding:14px;
+  border-radius:var(--r-sm); border:1px solid var(--line-strong);
+  background:var(--surface); color:var(--text); resize:vertical; min-height:120px;
+}
+.fb-status{min-height:1.4em; margin:10px 0 0; font-size:19px; color:var(--text-dim);}
+.fb-status.no{color:var(--bad); font-weight:650;}
+.fb-status.ok{color:var(--ok); font-weight:650; display:flex; align-items:center; gap:8px;
+  justify-content:center; text-align:left;}
 
 /* ——— Доступность: уважать prefers-reduced-motion (§11) ——— */
 @media (prefers-reduced-motion: reduce){

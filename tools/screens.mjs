@@ -19,11 +19,27 @@ mkdirSync(OUT, { recursive: true });
 const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css',
   '.webp': 'image/webp', '.png': 'image/png', '.webmanifest': 'application/manifest+json' };
 
+// Блоки «Поддержать» и «Написать автору» показываются, только если в support.js задан
+// адрес. В поставке он пуст, поэтому увидеть их иначе нельзя — а непроверенная вёрстка
+// доедет до телефона папы. Подставляем адреса на лету, отдавая файл: правим не проект,
+// а то, что видит браузер в конкретном кадре.
+let INJECT_LINKS = false;
+const DEMO_DONATE = 'https://example.org/donate';
+const DEMO_FEEDBACK = 'https://example.org/feedback';
+// Экраны, которые снимаются с подставленными адресами. Остальные — как в поставке,
+// то есть без этих блоков вовсе.
+const WITH_LINKS = new Set(['homesupport', 'cabinetsupport', 'cabinetfeedback']);
+
 const server = createServer(async (req, res) => {
   const path = req.url.split('?')[0];
   const file = join(ROOT, normalize(path === '/' ? '/index.html' : path));
   try {
-    const body = await readFile(file);
+    let body = await readFile(file);
+    if (INJECT_LINKS && path.endsWith('/js/support.js')) {
+      body = Buffer.from(String(body)
+        .replace("export const DONATE_URL = '';", `export const DONATE_URL = '${DEMO_DONATE}';`)
+        .replace("export const FEEDBACK_URL = '';", `export const FEEDBACK_URL = '${DEMO_FEEDBACK}';`));
+    }
     res.writeHead(200, { 'content-type': MIME[extname(file)] || 'application/octet-stream' });
     res.end(body);
   } catch { res.writeHead(404); res.end('нет файла'); }
@@ -115,6 +131,18 @@ const SCREENS = {
     await pad.dispatchEvent('pointerdown'); await page.waitForTimeout(70);
     await pad.dispatchEvent('pointerup');   await page.waitForTimeout(700);
   },
+  // Блоки поддержки и обратной связи — видны только с заданными адресами (см. WITH_LINKS).
+  homesupport: async () => {},
+  cabinetsupport: async (page) => {
+    await page.click('[data-tab="cabinet"]'); await page.waitForTimeout(300);
+    await page.evaluate(() => document.querySelector('.support')?.scrollIntoView({ block: 'center' }));
+    await page.waitForTimeout(250);
+  },
+  cabinetfeedback: async (page) => {
+    await page.click('[data-tab="cabinet"]'); await page.waitForTimeout(300);
+    await page.evaluate(() => document.querySelector('#feedback')?.scrollIntoView({ block: 'center' }));
+    await page.waitForTimeout(250);
+  },
   // Подсказка с кодами активного набора.
   learnhelp: async (page) => {
     await page.click('[data-tab="learn"]'); await page.waitForTimeout(900);
@@ -155,6 +183,7 @@ for (const theme of ['light', 'dark']) {
       }, SEED);
     }
     await ctx.addInitScript(CHECK_LAYOUT);
+    INJECT_LINKS = WITH_LINKS.has(name);
     await page.goto(base, { waitUntil: 'networkidle' });
     await page.waitForTimeout(250);
     await SCREENS[name](page);

@@ -246,5 +246,13 @@ click('#vib'); // тумблер вибрации не падает
 click('#chants');
 ok(true, 'журнал: тумблеры настроек работают');
 
+// Пока адрес не задан (а в поставке он пуст), блоков «Поддержать» и «Написать автору»
+// быть не должно вообще. Иначе приложение обновится само и папа получит мёртвую кнопку.
+ok(!document.querySelector('.support'), 'журнал: без адреса карточки доната нет');
+ok(!document.querySelector('#feedback'), 'журнал: без адреса формы обратной связи нет');
+click('[data-tab="home"]');
+await sleep(10);
+ok(!document.querySelector('#support-line'), 'главная: без адреса строки доната нет');
+
 assert.equal(errors.length, 0, 'необработанные ошибки: ' + errors.map(String).join(' | '));
 console.log(`\nДымовой тест пройден: ${pass} проверок, ошибок ${errors.length}`);
