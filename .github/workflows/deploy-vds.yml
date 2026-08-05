@@ -1,0 +1,57 @@
+name: Deploy to app.morse73.ru
+
+# Второй адрес приложения — на своём сервере. Выкладка на GitHub Pages
+# (соседний файл deploy.yml) НЕ отключается намеренно: по старому адресу
+# лежит ярлык на телефоне папы и весь его прогресс. Пока он не перенесёт
+# прогресс файлом, старый адрес обязан работать.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Настроен ли доступ к серверу
+        id: gate
+        env:
+          KEY: ${{ secrets.VDS_SSH_KEY }}
+        run: |
+          if [ -z "$KEY" ]; then
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Выкладка на app.morse73.ru пропущена — не задан секрет VDS_SSH_KEY."
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Подготовить ключ
+        if: steps.gate.outputs.ready == 'true'
+        env:
+          KEY: ${{ secrets.VDS_SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$KEY" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          ssh-keyscan -H 89.124.71.12 >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Выложить приложение
+        if: steps.gate.outputs.ready == 'true'
+        run: |
+          # --delete убирает с сервера файлы, удалённые из проекта: иначе там
+          # накапливались бы старые версии, которые service worker может подхватить.
+          rsync -az --delete -e "ssh -i ~/.ssh/id_deploy" app/ root@89.124.71.12:/var/www/morse-app/
+          ssh -i ~/.ssh/id_deploy root@89.124.71.12 'chown -R www-data:www-data /var/www/morse-app'
+
+      - name: Проверить, что отдаётся
+        if: steps.gate.outputs.ready == 'true'
+        run: |
+          ssh -i ~/.ssh/id_deploy root@89.124.71.12 \
+            'test -f /var/www/morse-app/index.html && test -f /var/www/morse-app/js/support.js && echo "файлы на месте"'
+
+      - name: Убрать ключ
+        if: always()
+        run: rm -f ~/.ssh/id_deploy
