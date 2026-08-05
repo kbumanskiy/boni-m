@@ -848,11 +848,17 @@ function wireFeedback() {
     }
     btn.disabled = true;
     say('Отправляю…');
+    // Срок ожидания обязателен: без него зависший сервер оставит кнопку навсегда
+    // выключенной с надписью «Отправляю…», и человек решит, что приложение сломалось.
+    // AbortController, а не AbortSignal.timeout — он работает и на старых айфонах.
+    const stop = new AbortController();
+    const timer = setTimeout(() => stop.abort(), 15000);
     try {
       const res = await fetch(url, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ message: check.message, contact: check.contact, from: 'app' }),
+        signal: stop.signal,
       });
       if (!res.ok) throw new Error(String(res.status));
       $('#feedback').innerHTML = `<div class="eyebrow">Написать автору</div>
@@ -860,6 +866,8 @@ function wireFeedback() {
     } catch {
       btn.disabled = false;
       say('Не получилось отправить. Проверьте связь и попробуйте ещё раз — текст сохранён.', 'no');
+    } finally {
+      clearTimeout(timer);
     }
   });
 }
