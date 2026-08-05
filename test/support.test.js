@@ -31,11 +31,25 @@ test('адрес с пробелом внутри отвергается — э�
   assert.equal(externalUrl('https://example.org/a b'), null);
 });
 
-test('в поставке адреса пустые: приложение выкладывается без мёртвых кнопок', () => {
-  assert.equal(DONATE_URL, '');
-  assert.equal(FEEDBACK_URL, '');
-  assert.equal(donateUrl(), null);
-  assert.equal(feedbackUrl(), null);
+// Настроенные адреса обязаны быть годными. Правило важнее текущего значения:
+// пустой адрес прячет блок, заполненный — обязан пройти проверку, иначе блока
+// не будет там, где его ждут, и никто этого не заметит.
+test('заданный адрес доната годен, незаданный прячет блок', () => {
+  if (DONATE_URL === '') {
+    assert.equal(donateUrl(), null, 'пустой адрес не должен давать ссылку');
+  } else {
+    assert.equal(donateUrl(), DONATE_URL, 'заданный адрес обязан пройти проверку');
+    assert.match(DONATE_URL, /^https:\/\//, 'только https: иначе браузер заблокирует переход');
+  }
+});
+
+test('то же правило для адреса обратной связи', () => {
+  if (FEEDBACK_URL === '') {
+    assert.equal(feedbackUrl(), null);
+  } else {
+    assert.equal(feedbackUrl(), FEEDBACK_URL);
+    assert.match(FEEDBACK_URL, /^https:\/\//);
+  }
 });
 
 test('письмо без текста не отправляется', () => {

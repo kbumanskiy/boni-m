@@ -246,13 +246,29 @@ click('#vib'); // тумблер вибрации не падает
 click('#chants');
 ok(true, 'журнал: тумблеры настроек работают');
 
-// Пока адрес не задан (а в поставке он пуст), блоков «Поддержать» и «Написать автору»
-// быть не должно вообще. Иначе приложение обновится само и папа получит мёртвую кнопку.
-ok(!document.querySelector('.support'), 'журнал: без адреса карточки доната нет');
-ok(!document.querySelector('#feedback'), 'журнал: без адреса формы обратной связи нет');
+// Блок появляется РОВНО тогда, когда задан адрес. Оба направления важны: мёртвая
+// кнопка на телефоне выглядит поломкой, а пропавшая кнопка теряет донаты молча.
+const { DONATE_URL, FEEDBACK_URL } = await import('../app/js/support.js');
+const donateOn = DONATE_URL !== '';
+const feedbackOn = FEEDBACK_URL !== '';
+
+ok(!!document.querySelector('.support') === donateOn,
+  donateOn ? 'журнал: карточка доната на месте' : 'журнал: без адреса карточки доната нет');
+ok(!!document.querySelector('#feedback') === feedbackOn,
+  feedbackOn ? 'журнал: форма обратной связи на месте' : 'журнал: без адреса формы обратной связи нет');
+
+if (donateOn) {
+  const card = document.querySelector('.support a.btn');
+  ok(card && card.getAttribute('href') === DONATE_URL, 'журнал: кнопка доната ведёт на заданный адрес');
+  ok(card && card.getAttribute('rel') === 'noopener', 'журнал: ссылка доната открывается безопасно');
+}
+
 click('[data-tab="home"]');
 await sleep(10);
-ok(!document.querySelector('#support-line'), 'главная: без адреса строки доната нет');
+const line = document.querySelector('#support-line');
+ok(!!line === donateOn,
+  donateOn ? 'главная: строка доната на месте' : 'главная: без адреса строки доната нет');
+if (donateOn) ok(line.getAttribute('href') === DONATE_URL, 'главная: строка доната ведёт на заданный адрес');
 
 assert.equal(errors.length, 0, 'необработанные ошибки: ' + errors.map(String).join(' | '));
 console.log(`\nДымовой тест пройден: ${pass} проверок, ошибок ${errors.length}`);
