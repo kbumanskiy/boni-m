@@ -22,6 +22,7 @@ export const FEEDBACK_URL = 'https://api.morse73.ru/feedback';
 // а пользователю нужно сказать про предел до отправки, а не после.
 export const MESSAGE_MAX = 2000;
 export const CONTACT_MAX = 100;
+export const NAME_MAX = 60;
 
 // Внешний адрес принимаем только по https. Причина не в педантизме: страница сайта
 // открыта по https, и запрос на http браузер молча заблокирует — кнопка будет

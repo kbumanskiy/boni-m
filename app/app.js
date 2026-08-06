@@ -8,7 +8,7 @@ import * as A from './js/audio.js';
 import * as KT from './js/keytext.js';
 import * as TR from './js/trace.js';
 import { ICON } from './js/icons.js';
-import { donateUrl, feedbackUrl, validateFeedback, MESSAGE_MAX, CONTACT_MAX } from './js/support.js';
+import { donateUrl, feedbackUrl, validateFeedback, MESSAGE_MAX, CONTACT_MAX, NAME_MAX } from './js/support.js';
 
 let state = load();
 const persist = () => save(state);
@@ -823,6 +823,8 @@ function feedbackCard() {
     <label for="fb-msg">Сообщение</label>
     <textarea id="fb-msg" maxlength="${MESSAGE_MAX}" rows="4"
       placeholder="Например: хочу, чтобы буквы можно было повторять по одной"></textarea>
+    <label for="fb-name">Как вас зовут <span class="muted">— необязательно</span></label>
+    <input type="text" id="fb-name" maxlength="${NAME_MAX}" placeholder="чтобы ответить по имени">
     <label for="fb-who">Как с вами связаться <span class="muted">— если ждёте ответа</span></label>
     <input type="text" id="fb-who" maxlength="${CONTACT_MAX}" placeholder="почта или телеграм">
     <button class="btn secondary" id="fb-send">${ICON.send(24)} Отправить</button>
@@ -841,6 +843,7 @@ function wireFeedback() {
 
   btn.addEventListener('click', async () => {
     const check = validateFeedback({ message: $('#fb-msg').value, contact: $('#fb-who').value });
+    const name = $('#fb-name').value.trim().slice(0, NAME_MAX);
     if (!check.ok) { say(check.error, 'no'); return; }
     if (navigator.onLine === false) {
       say('Нет интернета. Текст никуда не денется — отправьте, когда появится связь.', 'no');
@@ -857,7 +860,7 @@ function wireFeedback() {
       const res = await fetch(url, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ message: check.message, contact: check.contact, from: 'app' }),
+        body: JSON.stringify({ message: check.message, name, contact: check.contact, from: 'app' }),
         signal: stop.signal,
       });
       if (!res.ok) throw new Error(String(res.status));
