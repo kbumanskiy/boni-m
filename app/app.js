@@ -806,9 +806,12 @@ function supportCard() {
     <img class="avatar big" src="assets/hero-radost.webp" alt="">
     <div class="eyebrow" style="margin-top:8px">Если пригодилось</div>
     <p>Приложение бесплатное и таким останется: без рекламы, без подписки
-       и без сбора данных. Если оно вам полезно — можно поддержать.</p>
+       и без сбора данных. Если оно вам полезно — можно сказать спасибо
+       переводом на любую сумму, которая вам удобна.</p>
     <p class="muted hint">Ничего не изменится, если вы этого не сделаете.</p>
     <a class="btn" href="${esc(url)}" target="_blank" rel="noopener">${ICON.heart(24)} Поддержать</a>
+    <p class="muted hint" style="margin:12px 0 0">Откроется страница перевода:
+       карта или СБП, сумму вы вписываете сами.</p>
   </div>`;
 }
 
