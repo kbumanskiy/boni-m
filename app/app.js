@@ -8,6 +8,7 @@ import * as A from './js/audio.js';
 import * as KT from './js/keytext.js';
 import * as TR from './js/trace.js';
 import { ICON } from './js/icons.js';
+import { glyphKind } from './js/glyph.js';
 import { donateUrl, feedbackUrl, validateFeedback, MESSAGE_MAX, CONTACT_MAX, NAME_MAX } from './js/support.js';
 
 let state = load();
@@ -332,7 +333,12 @@ function renderOptions(disabled) {
   const wide = L.options.length <= 4;
   // disabled здесь = идёт проигрывание знака → мягко гасим кнопки (класс playing).
   box.className = 'options' + (wide ? ' wide' : '') + (disabled ? ' playing' : '');
-  box.innerHTML = L.options.map((c) => `<button class="opt" data-c="${esc(c)}" ${disabled ? 'disabled' : ''}>${esc(c)}</button>`).join('');
+  // Под спорными знаками (З и 3, О и 0 и им подобными) подписываем, буква это
+  // или цифра: в шрифте они почти одинаковы, а коды у них разные.
+  box.innerHTML = L.options.map((c) => {
+    const kind = glyphKind(c);
+    return `<button class="opt" data-c="${esc(c)}" ${disabled ? 'disabled' : ''}>${esc(c)}${kind ? `<small class="kind">${kind}</small>` : ''}</button>`;
+  }).join('');
   [...box.children].forEach((b) => b.addEventListener('click', () => answer(b.dataset.c)));
 }
 
@@ -382,7 +388,7 @@ function answer(ch) {
     // повторное касание пролистывали разбор, не дав его прочитать.
     $('#reveal').innerHTML = `
       <div class="card reveal">
-        <div class="reveal-char">Это «${esc(L.target)}»</div>
+        <div class="reveal-char">Это «${esc(L.target)}»${glyphKind(L.target) ? ` — ${glyphKind(L.target)}` : ''}</div>
         <div class="codeline">${visualCode(codeOf(L.target))}</div>${chant}
         <div class="reveal-actions">
           <button class="btn secondary" id="relisten">${ICON.sound(24)} Послушать</button>
@@ -772,6 +778,7 @@ function refCard(ch) {
   overlayRoot.innerHTML = `<div class="overlay">
     <button class="closebtn" id="x" aria-label="Закрыть">✕</button>
     <div class="bigchar">${esc(ch)}</div>
+    ${glyphKind(ch) ? `<div class="bigkind">${glyphKind(ch)}</div>` : ''}
     ${info.name ? `<div class="cardname">${esc(info.name)}</div>` : ''}
     ${traceOfCode(code, 'big centered')}
     <div class="codeline">${visualCode(code)}</div>
