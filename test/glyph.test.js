@@ -3,16 +3,19 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { glyphKind, isAmbiguous } from '../app/js/glyph.js';
-import { RU_LETTERS, DIGITS, EN_LETTERS } from '../app/js/data.js';
+import { RU_LETTERS, DIGITS } from '../app/js/data.js';
 
 test('та самая пара из отзыва подписана', () => {
   assert.equal(glyphKind('3'), 'цифра');
   assert.equal(glyphKind('З'), 'буква');
 });
 
-test('остальные похожие пары тоже подписаны', () => {
-  for (const d of ['0', '1', '2', '4', '5', '8']) assert.equal(glyphKind(d), 'цифра');
-  for (const l of ['О', 'O', 'I', 'Z', 'Ч', 'S', 'B']) assert.equal(glyphKind(l), 'буква');
+// Решение Кости 17 августа 2026: подписывается ТОЛЬКО пара З и 3. Остальное — шум,
+// и в английском режиме оно даже вредило: под латинской «S» стояло слово «буква».
+test('другие похожие знаки НЕ подписываются', () => {
+  for (const ch of ['0', 'О', 'O', '1', 'I', '2', 'Z', '4', 'Ч', '5', 'S', '8', 'B']) {
+    assert.equal(glyphKind(ch), '', `${ch} подписывать не надо`);
+  }
 });
 
 test('обычные знаки не подписываются — иначе подпись станет шумом', () => {
@@ -25,7 +28,6 @@ test('подписанная буква и её цифра-двойник — р
   const code = (arr, ch) => arr.find((x) => x.char === ch)?.code;
   assert.notEqual(code(RU_LETTERS, 'З'), code(DIGITS, '3'));
   assert.notEqual(code(RU_LETTERS, 'О'), code(DIGITS, '0'));
-  assert.notEqual(code(EN_LETTERS, 'S'), code(DIGITS, '5'));
 });
 
 test('пустые и странные значения не роняют подпись', () => {
