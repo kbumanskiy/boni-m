@@ -236,15 +236,49 @@ await sleep(10);
 ok(text().includes('Мои успехи'), 'журнал: открылся со вкладки');
 ok(!text().includes('Бортжурнал'), 'журнал: вкладка и заголовок называются одинаково');
 ok(document.querySelector('#name').value === 'Бонислав', 'журнал: имя подставлено');
-ok(document.querySelector('#lang-ru') && document.querySelector('#lang-en'), 'журнал: курс — кнопки «Русская/Латинская»');
+// Настройки уехали из «Журнала» на свой экран (отзыв R7CL с форума: выбор языка
+// искали и не нашли). В журнале на их месте — пункт, ведущий туда же, куда шестерёнка.
+ok(!document.querySelector('#lang-ru'), 'журнал: настроек курса здесь больше нет');
+ok(document.querySelector('#tosettings'), 'журнал: есть пункт «Открыть настройки»');
+ok(document.querySelector('#gear'), 'журнал: шестерёнка в шапке');
+click('#tosettings');
+await sleep(10);
+ok(text().includes('Настройки'), 'настройки: экран открылся из журнала');
+ok(document.querySelector('#lang-ru') && document.querySelector('#lang-en'), 'настройки: курс — кнопки «Русская/Латинская»');
 click('#lang-en'); // переключение языка не падает
 await sleep(10);
-ok(JSON.parse(localStorage.getItem('boni_m_state')).settings.alphabet === 'en', 'журнал: курс переключился на латинский');
+ok(JSON.parse(localStorage.getItem('boni_m_state')).settings.alphabet === 'en', 'настройки: курс переключился на латинский');
 click('#lang-ru');
 await sleep(10);
 click('#vib'); // тумблер вибрации не падает
 click('#chants');
-ok(true, 'журнал: тумблеры настроек работают');
+ok(true, 'настройки: тумблеры работают');
+
+// Главная жалоба с форума: скорость знака была зашита намертво и не менялась.
+const charSlider = document.querySelector('#lchar');
+ok(charSlider, 'настройки: есть ползунок скорости знака');
+ok(+charSlider.max === 30, 'настройки: скорость знака доходит до 30 WPM = 150 зн/мин');
+charSlider.value = '30';
+charSlider.dispatchEvent(new window.Event('input', { bubbles: true }));
+await sleep(10);
+ok(JSON.parse(localStorage.getItem('boni_m_state')).settings.charWpm === 30, 'настройки: скорость знака сохраняется');
+ok(text().includes('150 зн/мин'), 'настройки: скорость показана в знаках в минуту');
+const toneSlider = document.querySelector('#tone');
+ok(+toneSlider.min === 400 && +toneSlider.max === 1000, 'настройки: тон настраивается от 400 до 1000 Гц');
+// Паузы не могут быть короче знака — иначе получится скорость выше заявленной.
+const pauseSlider = document.querySelector('#lspeed');
+pauseSlider.value = '30';
+pauseSlider.dispatchEvent(new window.Event('input', { bubbles: true }));
+await sleep(10);
+const speedState = JSON.parse(localStorage.getItem('boni_m_state')).settings;
+ok(speedState.effWpm <= speedState.charWpm, 'настройки: паузы не короче самого знака');
+// Вернуть спокойные значения, чтобы дальнейшие проверки шли на обычных настройках.
+charSlider.value = '18'; charSlider.dispatchEvent(new window.Event('input', { bubbles: true }));
+pauseSlider.value = '9'; pauseSlider.dispatchEvent(new window.Event('input', { bubbles: true }));
+await sleep(10);
+click('#back');
+await sleep(10);
+ok(text().includes('Мои успехи'), 'настройки: «Назад» вернуло в журнал');
 
 // Блок появляется РОВНО тогда, когда задан адрес. Оба направления важны: мёртвая
 // кнопка на телефоне выглядит поломкой, а пропавшая кнопка теряет донаты молча.

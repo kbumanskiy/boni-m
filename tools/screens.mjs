@@ -86,6 +86,10 @@ const SCREENS = {
                              await page.click('.seg [data-m="free"]'); await page.waitForTimeout(300); },
   ref:     async (page) => { await page.click('[data-tab="ref"]'); await page.waitForTimeout(300); },
   cabinet: async (page) => { await page.click('[data-tab="cabinet"]'); await page.waitForTimeout(300); },
+  // Настройки уехали из «Журнала» на свой экран — снимать обязательно: именно там
+  // теперь живут выбор азбуки, скорость знака в зн/мин, тон и резервная копия.
+  settings: async (page) => { await page.click('[data-tab="cabinet"]'); await page.waitForTimeout(200);
+                              await page.click('#gear'); await page.waitForTimeout(300); },
   onboarding: async () => {},
   // Вкладки «Азбуки»: цифры и знаки препинания. Их отсутствие здесь и было дырой в проверке —
   // обрезанный столбец жил на экранах, которые ни разу не снимались.

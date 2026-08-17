@@ -394,6 +394,14 @@ input[type=range]{width:100%; height:44px; accent-color:var(--accent);}
 .counter.done{color:var(--ok); font-weight:650;}
 .screenbar > div:first-child{min-width:0;}
 
+/* Пара кнопок в правом углу шапки: шестерёнка и, где есть, выход. */
+.screenbar-actions{display:flex; align-items:center; gap:8px; flex:none;}
+/* На главной шапки как таковой нет — только шестерёнка, прижатая вправо. */
+.screenbar.bare{min-height:44px; margin-bottom:-8px;}
+/* Значение ползунка: крупная цифра в привычной шкале, под ней мелко WPM. */
+.slider-head .num small,
+label .num small{display:block; font-size:17px; font-weight:600; color:var(--text-dim); letter-spacing:0;}
+
 /* Разбор ошибки — карточкой ПОД сеткой букв. */
 .card.reveal{margin-top:12px; text-align:center;}
 

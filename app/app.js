@@ -1,7 +1,7 @@
 // Школа Морзе 73 — контроллер интерфейса. Чистая логика — в js/*, здесь только экраны и события.
 import * as DATA from './js/data.js';
 import { load, save, needsOnboarding } from './js/state.js';
-import { clampEff, charTiming, classifyHold, keyThresholds } from './js/timing.js';
+import { clampEff, charTiming, classifyHold, keyThresholds, cpm } from './js/timing.js';
 import * as P from './js/progress.js';
 import * as G from './js/gamify.js';
 import * as A from './js/audio.js';
@@ -62,7 +62,10 @@ function stopActiveClock() {
 }
 
 let currentTab = 'home';
+// Откуда вошли в настройки — чтобы кнопка «Назад» вернула туда же, а не на главную.
+let settingsFrom = 'home';
 function go(tab) {
+  if (tab === 'settings' && currentTab !== 'settings') settingsFrom = currentTab;
   // Уход из «Учиться» любым путём (нижнее меню, кнопка) фиксирует сессию — иначе серия
   // дней и журнал не запишутся, когда папа просто тапнет «Главная».
   // Сначала остановить часы (время войдёт в totalSeconds), потом засчитывать занятие —
@@ -83,6 +86,7 @@ function go(tab) {
   else if (tab === 'key') renderKey();
   else if (tab === 'ref') renderReference();
   else if (tab === 'cabinet') renderCabinet();
+  else if (tab === 'settings') renderSettings();
   window.scrollTo(0, 0);
 }
 tabsEl.addEventListener('click', (e) => {
@@ -91,6 +95,83 @@ tabsEl.addEventListener('click', (e) => {
   if (b.dataset.tab === 'learn') learnOpts.repetition = false; // обычный вход — не «Повторение»
   go(b.dataset.tab);
 });
+
+// ——— Шапка экрана ———
+// Шестерёнка стоит на КАЖДОМ экране, а не только в «Журнале»: скорость и тон крутят
+// во время занятия, а не когда вернулись домой. Замечание с форума (R7CL): выбор
+// языка искали и не нашли, потому что он лежал в «Журнале».
+function screenbar(title, extra = '') {
+  return `<div class="screenbar">
+    <div><h2>${esc(title)}</h2></div>
+    <div class="screenbar-actions">${extra}
+      <button class="iconbtn" id="gear" aria-label="Настройки">${ICON.gear(22)}</button>
+    </div>
+  </div>`;
+}
+// Вешается после отрисовки любого экрана, где есть шапка.
+function wireGear() {
+  const g = $('#gear');
+  if (g) g.addEventListener('click', () => go('settings'));
+}
+
+// ——— Регуляторы скорости ———
+// Скоростей ДВЕ, и до 17 августа 2026 крутилась только одна — паузы. Скорость самого
+// знака была зашита 18 WPM, поэтому радиолюбитель с форума QRZ.RU справедливо написал:
+// «у меня скорость вообще не регулируется». Он слышал именно знак, а знак не менялся.
+//
+// Шкала — знаки в минуту: в них считают наши радисты и в них меряют разряды.
+// WPM оставлен мелким шрифтом рядом, для международной привычки.
+const SPEED = { charMin: 8, charMax: 30, effMin: 5 };
+
+function speedSliders(s) {
+  return `
+    <div class="slider">
+      <div class="slider-head">
+        <label for="lchar">Скорость знака</label>
+        <output class="num" id="lchar-val">${cpm(s.charWpm)} зн/мин<small>${s.charWpm} WPM</small></output>
+      </div>
+      <input type="range" id="lchar" min="${SPEED.charMin}" max="${SPEED.charMax}" value="${s.charWpm}">
+      <div class="slider-ends"><span>${cpm(SPEED.charMin)} зн/мин</span><span>${cpm(SPEED.charMax)} зн/мин</span></div>
+    </div>
+    <div class="slider">
+      <div class="slider-head">
+        <label for="lspeed">Паузы между знаками</label>
+        <output class="num" id="lspeed-val">${pauseLabel(s)}</output>
+      </div>
+      <input type="range" id="lspeed" min="${SPEED.effMin}" max="${SPEED.charMax}" value="${clampEff(s.effWpm, s.charWpm)}">
+      <div class="slider-ends"><span>длиннее</span><span>как в эфире</span></div>
+    </div>`;
+}
+
+// Паузы показываем словами, а не числом: «12 WPM» ничего не говорит о том,
+// сколько у тебя времени на раздумье, а «вдвое длиннее» — говорит.
+function pauseLabel(s) {
+  const eff = clampEff(s.effWpm, s.charWpm);
+  if (eff >= s.charWpm) return 'как в эфире';
+  const times = Math.round((s.charWpm / eff) * 10) / 10;
+  return `длиннее в ${String(times).replace('.', ',')} раза`;
+}
+
+function wireSpeedSliders(onDone) {
+  const ch = $('#lchar'), sp = $('#lspeed');
+  if (!ch || !sp) return;
+  const redraw = () => {
+    $('#lchar-val').innerHTML = `${cpm(state.settings.charWpm)} зн/мин<small>${state.settings.charWpm} WPM</small>`;
+    $('#lspeed-val').textContent = pauseLabel(state.settings);
+    // Паузы не бывают короче самого знака: ползунок пауз не должен уезжать выше знака.
+    sp.value = clampEff(state.settings.effWpm, state.settings.charWpm);
+  };
+  ch.addEventListener('input', (e) => {
+    state.settings.charWpm = +e.target.value;
+    state.settings.effWpm = clampEff(state.settings.effWpm, state.settings.charWpm);
+    persist(); redraw();
+  });
+  sp.addEventListener('input', (e) => {
+    state.settings.effWpm = clampEff(+e.target.value, state.settings.charWpm);
+    persist(); redraw();
+  });
+  if (onDone) { ch.addEventListener('change', onDone); sp.addEventListener('change', onDone); }
+}
 
 // ——— Оверлей реакции героя ———
 let heroTimer = null;
@@ -171,6 +252,10 @@ function renderHome() {
   // Шапки «Станция Boney M» здесь нет намеренно: на главной уже есть портрет Бони и
   // приветствие по имени, а нажимаемый портрет-аватар дублировал вкладку «Журнал».
   screenEl.innerHTML = `
+    <div class="screenbar bare">
+      <div></div>
+      <button class="iconbtn" id="gear" aria-label="Настройки">${ICON.gear(22)}</button>
+    </div>
     <div class="heroblock">
       <img class="hero" src="assets/hero-zastavka.webp" alt="">
     </div>
@@ -192,6 +277,7 @@ function renderHome() {
   $('#continue').addEventListener('click', () => { learnOpts.repetition = false; go('learn'); });
   $('#review').addEventListener('click', () => { learnOpts.repetition = true; go('learn'); });
   if (drill) $('#drill').addEventListener('click', callsignDrill);
+  wireGear();
 }
 
 // ——————————————————————————— Учиться (§7.2) ———————————————————————————
@@ -204,42 +290,37 @@ function renderLearn() {
   const repetition = learnOpts.repetition;
   L = { target: null, options: [], recentTargets: [], locked: false, answers: 0, correct: 0,
         repetition, slow: false, awaiting: false, nextTimer: null, revealTimer: null };
-  // Всё занятие должно помещаться в один экран: во время урока прокручивать нечего и незачем,
-  // а «Повторить» и регулятор скорости нужны под рукой, а не за краем экрана.
+  // Главное занятие — кнопки ответа и «Послушать ещё раз» — остаётся в первом экране,
+  // прокручивать во время ответа нечего. Ниже идут два регулятора скорости: они нужны
+  // под рукой (радист крутит их на ходу), но не в каждом раунде, поэтому им можно
+  // жить под сгибом. Шестерёнка рядом с «Выходом» ведёт в настройки — и, как выход,
+  // засчитывает текущее занятие: иначе журнал и серия дней потеряют ответы.
   screenEl.innerHTML = `
     <div class="screenbar">
       <div>
         <h2>${repetition ? 'Повторение' : 'Учиться'}</h2>
         <div class="counter" id="counter"></div>
       </div>
-      <button class="iconbtn" id="exit" aria-label="Выйти из занятия">${ICON.exit(22)}<span>Выход</span></button>
+      <div class="screenbar-actions">
+        <button class="iconbtn" id="gear" aria-label="Настройки">${ICON.gear(22)}</button>
+        <button class="iconbtn" id="exit" aria-label="Выйти из занятия">${ICON.exit(22)}<span>Выход</span></button>
+      </div>
     </div>
     <div class="lamp" id="flash" aria-hidden="true"></div>
     <div class="feedback center" id="fb">Слушайте знак…</div>
     <div class="options" id="opts"></div>
     <div id="reveal"></div>
     <button class="btn secondary" id="again">${ICON.replay(24)} Послушать ещё раз</button>
-    <div class="slider">
-      <div class="slider-head">
-        <label for="lspeed">Скорость морзянки</label>
-        <output class="num" id="lspeed-val">${state.settings.effWpm}</output>
-      </div>
-      <input type="range" id="lspeed" min="5" max="15" value="${Math.min(15, state.settings.effWpm)}">
-      <div class="slider-ends"><span>медленнее</span><span>быстрее</span></div>
-    </div>
+    ${speedSliders(state.settings)}
     <button class="linkbtn" id="help">${ICON.help(22)} Показать коды знаков</button>
     <div id="help-box"></div>`;
   $('#exit').addEventListener('click', exitLearn);
   $('#again').addEventListener('click', () => playTarget());
+  wireGear();
   renderCounter();
-  // Живой регулятор скорости: меняем при перетаскивании, переигрываем на отпускании (без «спама» звуком).
-  const lspeed = $('#lspeed');
-  lspeed.addEventListener('input', (e) => {
-    state.settings.effWpm = clampEff(+e.target.value, state.settings.charWpm);
-    persist();
-    $('#lspeed-val').textContent = state.settings.effWpm;
-  });
-  lspeed.addEventListener('change', () => { if (!L.locked && !L.awaiting) playTarget(); });
+  // Живые регуляторы: значение меняем при перетаскивании, переигрываем знак на отпускании
+  // (иначе звук «спамит» на каждое движение пальца).
+  wireSpeedSliders(() => { if (!L.locked && !L.awaiting) playTarget(); });
   $('#help').addEventListener('click', toggleHelp);
   startActiveClock();
   nextRound();
@@ -568,7 +649,8 @@ function renderKey() {
     const order = P.activeSet(track(), state.settings.alphabet);
     K.target = order[Math.floor(Math.random() * order.length)];
     screenEl.innerHTML = `
-      <div class="screenbar"><h2>Ключ</h2></div>${toggle}
+      <div class="screenbar"><div><h2>Ключ</h2></div>
+        <button class="iconbtn" id="gear" aria-label="Настройки">${ICON.gear(22)}</button></div>${toggle}
       <div class="card task">
         <div>
           <div class="eyebrow">Отстучите</div>
@@ -583,7 +665,8 @@ function renderKey() {
     $('#newtarget').addEventListener('click', renderKey);
   } else {
     screenEl.innerHTML = `
-      <div class="screenbar"><h2>Ключ</h2></div>${toggle}
+      <div class="screenbar"><div><h2>Ключ</h2></div>
+        <button class="iconbtn" id="gear" aria-label="Настройки">${ICON.gear(22)}</button></div>${toggle}
       <p class="muted center hint">Отстукивайте — буквы складываются в строку. Пауза подольше — пробел.</p>
       <div class="keytext" id="text"></div>
       <button type="button" class="keypad" id="pad" aria-label="Ключ: нажимайте и держите"><span class="keyout" id="keyout" aria-live="polite">Нажимайте и держите</span></button>
@@ -598,6 +681,7 @@ function renderKey() {
 
   screenEl.querySelectorAll('.seg [data-m]').forEach((b) =>
     b.addEventListener('click', () => { state.settings.keyMode = b.dataset.m; persist(); renderKey(); }));
+  wireGear();
 
   const kspeed = $('#kspeed');
   if (kspeed) kspeed.addEventListener('input', (e) => {
@@ -749,7 +833,8 @@ function renderReference() {
   if (refSection === 'digits') items = DATA.DIGITS;
   else if (refSection === 'punct') items = DATA.PUNCTUATION;
   screenEl.innerHTML = `
-    <div class="screenbar"><h2>Азбука</h2></div>
+    <div class="screenbar"><div><h2>Азбука</h2></div>
+      <button class="iconbtn" id="gear" aria-label="Настройки">${ICON.gear(22)}</button></div>
     <p class="muted hint">Нажмите на знак, чтобы послушать его.</p>
     <div class="seg">
       <button data-a="ru" class="${refAlpha === 'ru' ? 'active' : ''}">Русская</button>
@@ -770,6 +855,7 @@ function renderReference() {
   screenEl.querySelectorAll('.seg [data-a]').forEach((b) => b.addEventListener('click', () => { refAlpha = b.dataset.a; renderReference(); }));
   screenEl.querySelectorAll('.seg [data-s]').forEach((b) => b.addEventListener('click', () => { refSection = b.dataset.s; renderReference(); }));
   screenEl.querySelectorAll('.cell').forEach((b) => b.addEventListener('click', () => refCard(b.dataset.c)));
+  wireGear();
 }
 function refCard(ch) {
   const info = DATA.charInfo(ch);
@@ -900,7 +986,8 @@ function renderCabinet() {
   const themeBtn = (id, mode, icon, label) =>
     `<button id="${id}" class="${s.theme === mode ? 'active' : ''}">${icon}<span>${label}</span></button>`;
   screenEl.innerHTML = `
-    <div class="screenbar"><h2>Журнал</h2></div>
+    <div class="screenbar"><div><h2>Журнал</h2></div>
+      <button class="iconbtn" id="gear" aria-label="Настройки">${ICON.gear(22)}</button></div>
     <div class="card center">
       <img class="avatar big" src="assets/hero-portret.webp" alt="">
       <div class="odometer">${state.profile.points}</div>
@@ -928,12 +1015,32 @@ function renderCabinet() {
       <label for="callsign">Позывной</label><input type="text" id="callsign" value="${esc(state.profile.callsign)}">
     </div>
     <div class="card">
-      <div class="eyebrow">Оформление</div>
-      <div class="seg icons" style="margin-bottom:0">
-        ${themeBtn('theme-auto', 'auto', ICON.auto(22), 'Как в телефоне')}
-        ${themeBtn('theme-light', 'light', ICON.sun(22), 'Светлое')}
-        ${themeBtn('theme-dark', 'dark', ICON.moon(22), 'Тёмное')}
-      </div>
+      <div class="eyebrow">Настройки</div>
+      <p class="muted hint">Азбука, скорость, тон, оформление и резервная копия — всё там.
+         Шестерёнка есть на каждом экране.</p>
+      <button class="btn secondary" id="tosettings">${ICON.gear(24)} Открыть настройки</button>
+    </div>
+    ${feedbackCard()}`;
+  wireFeedback();
+  wireGear();
+  const saveProfile = () => { state.profile.name = $('#name').value.trim() || state.profile.name; state.profile.callsign = $('#callsign').value.trim() || 'Boney M'; persist(); };
+  $('#name').addEventListener('change', saveProfile);
+  $('#callsign').addEventListener('change', saveProfile);
+  $('#tosettings').addEventListener('click', () => go('settings'));
+}
+
+// ——————————————————————————— Настройки ———————————————————————————
+// Отдельный экран, а не раздел «Журнала»: с форума написали, что выбор языка искали
+// и не нашли — он лежал в журнале успехов. Не всплывающее окно (его нужно закрывать)
+// и не шестая вкладка внизу (пять — предел для крупных кнопок).
+function renderSettings() {
+  const s = state.settings;
+  const themeBtn = (id, mode, icon, label) =>
+    `<button id="${id}" class="${s.theme === mode ? 'active' : ''}">${icon}<span>${label}</span></button>`;
+  screenEl.innerHTML = `
+    <div class="screenbar">
+      <div><h2>Настройки</h2></div>
+      <button class="iconbtn" id="back" aria-label="Назад">${ICON.exit(22)}<span>Назад</span></button>
     </div>
     <div class="card">
       <div class="eyebrow">Чему учимся</div>
@@ -945,15 +1052,20 @@ function renderCabinet() {
       </div>
     </div>
     <div class="card">
+      <div class="eyebrow">Скорость</div>
+      <p class="muted hint">Скорость знака — как быстро звучит сама буква; её и слышит радист.
+         Паузы — сколько времени даётся на раздумье между знаками. Новичку удобны длинные паузы
+         при обычной скорости знака.</p>
+      ${speedSliders(s)}
+      <label for="key">Скорость ключа <output class="num">${cpm(s.keyWpm)} зн/мин<small>${s.keyWpm} WPM</small></output></label>
+      <input type="range" id="key" min="5" max="25" value="${s.keyWpm}">
+    </div>
+    <div class="card">
       <div class="eyebrow">Звук</div>
-      <label for="eff">Скорость морзянки <output class="num">${s.effWpm}</output></label>
-      <input type="range" id="eff" min="5" max="15" value="${Math.min(15, s.effWpm)}">
-      <label for="tone">Высота тона <output class="num">${s.toneHz} Гц</output></label>
-      <input type="range" id="tone" min="500" max="800" step="10" value="${s.toneHz}">
+      <label for="tone">Высота тона <output class="num" id="tone-val">${s.toneHz} Гц</output></label>
+      <input type="range" id="tone" min="400" max="1000" step="10" value="${s.toneHz}">
       <label for="vol">Громкость</label>
       <input type="range" id="vol" min="0.15" max="1" step="0.05" value="${Math.max(0.15, s.volume)}">
-      <label for="key">Скорость ключа <output class="num">${s.keyWpm}</output></label>
-      <input type="range" id="key" min="8" max="18" value="${s.keyWpm}">
     </div>
     <div class="card">
       <div class="eyebrow">Помощь при обучении</div>
@@ -967,6 +1079,14 @@ function renderCabinet() {
       </div>
     </div>
     <div class="card">
+      <div class="eyebrow">Оформление</div>
+      <div class="seg icons" style="margin-bottom:0">
+        ${themeBtn('theme-auto', 'auto', ICON.auto(22), 'Как в телефоне')}
+        ${themeBtn('theme-light', 'light', ICON.sun(22), 'Светлое')}
+        ${themeBtn('theme-dark', 'dark', ICON.moon(22), 'Тёмное')}
+      </div>
+    </div>
+    <div class="card">
       <div class="eyebrow">Резервная копия</div>
       <p class="muted hint">Прогресс хранится в самом телефоне. «Сохранить копию» скачает файл
          в папку загрузок — его стоит переслать себе на почту. Если телефон сменится,
@@ -975,27 +1095,22 @@ function renderCabinet() {
       <button class="btn secondary" id="restore">${ICON.restore(24)} Восстановить из копии</button>
       <input type="file" id="file" accept="application/json" class="hidden">
     </div>
-    ${feedbackCard()}
     <button class="linkbtn danger" id="reset">Начать обучение заново</button>`;
-  wireFeedback();
-  ['auto', 'light', 'dark'].forEach((mode) => {
-    $(`#theme-${mode}`).addEventListener('click', () => {
-      s.theme = mode; persist(); applyTheme(); renderCabinet();
-    });
-  });
-  const saveProfile = () => { state.profile.name = $('#name').value.trim() || state.profile.name; state.profile.callsign = $('#callsign').value.trim() || 'Boney M'; persist(); };
-  $('#name').addEventListener('change', saveProfile);
-  $('#callsign').addEventListener('change', saveProfile);
-  $('#eff').addEventListener('input', (e) => { s.effWpm = clampEff(+e.target.value, s.charWpm); persist(); });
-  $('#tone').addEventListener('input', (e) => { s.toneHz = +e.target.value; persist(); });
+  $('#back').addEventListener('click', () => go(settingsFrom));
+  // Звук пробуем сразу: настройка, которую не слышно, настраивается вслепую.
+  wireSpeedSliders(() => A.playCode('-.-', state.settings, {}));
+  $('#key').addEventListener('input', (e) => { s.keyWpm = +e.target.value; persist(); renderSettings(); });
+  $('#tone').addEventListener('input', (e) => { s.toneHz = +e.target.value; $('#tone-val').textContent = `${s.toneHz} Гц`; persist(); });
   $('#vol').addEventListener('input', (e) => { s.volume = +e.target.value; persist(); });
-  $('#key').addEventListener('input', (e) => { s.keyWpm = +e.target.value; persist(); });
   $('#tone').addEventListener('change', () => A.playCode('-.-', state.settings, {}));
   $('#vol').addEventListener('change', () => A.playCode('-.-', state.settings, {}));
-  $('#chants').addEventListener('click', () => { s.showChants = !s.showChants; persist(); renderCabinet(); });
-  $('#vib').addEventListener('click', () => { s.vibration = !s.vibration; persist(); renderCabinet(); });
-  $('#lang-ru').addEventListener('click', () => { s.alphabet = 'ru'; persist(); renderCabinet(); });
-  $('#lang-en').addEventListener('click', () => { s.alphabet = 'en'; persist(); renderCabinet(); });
+  $('#chants').addEventListener('click', () => { s.showChants = !s.showChants; persist(); renderSettings(); });
+  $('#vib').addEventListener('click', () => { s.vibration = !s.vibration; persist(); renderSettings(); });
+  $('#lang-ru').addEventListener('click', () => { s.alphabet = 'ru'; persist(); renderSettings(); });
+  $('#lang-en').addEventListener('click', () => { s.alphabet = 'en'; persist(); renderSettings(); });
+  ['auto', 'light', 'dark'].forEach((mode) => {
+    $(`#theme-${mode}`).addEventListener('click', () => { s.theme = mode; persist(); applyTheme(); renderSettings(); });
+  });
   $('#backup').addEventListener('click', doBackup);
   $('#restore').addEventListener('click', () => $('#file').click());
   $('#file').addEventListener('change', doRestore);

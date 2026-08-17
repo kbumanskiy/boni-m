@@ -15,6 +15,15 @@ export function clampEff(effWpm, charWpm) {
   return Math.min(effWpm, charWpm);
 }
 
+// ——— Шкала скорости ———
+// Радисты считают скорость в ЗНАКАХ В МИНУТУ, а международная привычка — в словах
+// в минуту (WPM). Пересчёт стандартный, по эталонному слову PARIS: в нём пять знаков,
+// значит знаков в минуту ровно впятеро больше. 30 WPM = 150 зн/мин — та самая цифра,
+// которую просили на форуме QRZ.RU.
+export function cpm(wpm) {
+  return Math.round(wpm * 5);
+}
+
 // Длительность точки (сек) на скорости знаков C.
 export function ditSeconds(charWpm) {
   return 1.2 / charWpm;
