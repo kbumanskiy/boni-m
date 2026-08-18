@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
   defaultState, migrate, load, save, needsOnboarding, STORAGE_KEY,
 } from '../app/js/state.js';
+import { LIMITS } from '../app/js/timing.js';
 
 // Мок localStorage.
 function mockStore(initial = null) {
@@ -58,7 +59,7 @@ test('миграция сохраняет накопленный прогрес�
 test('миграция зажимает настройки и держит инвариант E <= C', () => {
   const s = migrate({ settings: { charWpm: 18, effWpm: 30, toneHz: 9999, volume: 5 } });
   assert.ok(s.settings.effWpm <= s.settings.charWpm, 'E не больше C');
-  assert.ok(s.settings.toneHz <= 800 && s.settings.toneHz >= 500);
+  assert.ok(s.settings.toneHz <= LIMITS.toneHz.max && s.settings.toneHz >= LIMITS.toneHz.min);
   assert.ok(s.settings.volume <= 1);
 });
 
@@ -83,4 +84,30 @@ test('сохранение и загрузка делают круг без по
 
 test('переполнение квоты при сохранении не роняет приложение', () => {
   assert.equal(save(defaultState(), brokenStore()), false);
+});
+
+// ——— Настройка обязана дожить до следующего запуска ———
+// 17 августа скорость знака сделали регулируемой до 150 зн/мин — и в тот же день
+// сломали: миграция состояния зажимала её своим, более узким диапазоном. Человек
+// выставлял быструю скорость, закрывал приложение, открывал — и она молча
+// возвращалась к прежней. Внешне это ровно та жалоба с форума, ради которой всё
+// и делалось. Тест проверяет край каждого регулятора: что предложено на экране,
+// то и должно сохраниться.
+test('края всех регуляторов переживают сохранение (границы UI = границы миграции)', () => {
+  for (const [key, { min, max }] of Object.entries(LIMITS)) {
+    for (const edge of [min, max]) {
+      // effWpm сверху зажимается скоростью знака — даём ей потолок.
+      const raw = { settings: { charWpm: LIMITS.charWpm.max, [key]: edge } };
+      const got = migrate(raw).settings[key];
+      assert.equal(got, edge, `настройка ${key}: выставили ${edge}, после перезапуска ${got}`);
+    }
+  }
+});
+
+test('выход за края всё ещё зажимается', () => {
+  const s = migrate({ settings: { charWpm: 999, toneHz: 5, keyWpm: -3, volume: 42 } });
+  assert.equal(s.settings.charWpm, LIMITS.charWpm.max);
+  assert.equal(s.settings.toneHz, LIMITS.toneHz.min);
+  assert.equal(s.settings.keyWpm, LIMITS.keyWpm.min);
+  assert.equal(s.settings.volume, LIMITS.volume.max);
 });

@@ -1,6 +1,6 @@
 // Service worker (ТЗ §1.5, §13.3): полностью офлайн, cache-first, версионируемое имя кэша.
 // При обновлении версии — поднять CACHE и старые кэши удалятся в activate.
-const CACHE = 'morse-v15';
+const CACHE = 'morse-v16';
 
 const ASSETS = [
   './',
@@ -18,6 +18,7 @@ const ASSETS = [
   './js/trace.js',
   './js/icons.js',
   './js/glyph.js',
+  './js/callsign.js',
   './js/support.js',
   './assets/hero-zastavka.webp',
   './assets/hero-portret.webp',

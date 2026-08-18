@@ -104,7 +104,20 @@ for (let i = 0; i < 6; i++) {
 }
 ok(true, 'ответы на занятии не приносят поздравлений за прошлые заслуги');
 
-// 5) Первый знак занятия записан — значит в следующий раз начнём с другого.
+// 5) Позывной с телефона папы («Boney M») никуда не делся: он и звучит в упражнении.
+// 18 августа позывной стали брать из профиля — старое значение обязано пережить это,
+// иначе у папы вместо своего позывного зазвучал бы чужой.
+ok(saved().profile.callsign === 'Boney M', 'позывной из прежней сборки сохранён как есть');
+{
+  const { callsignDrillAvailable } = await import('../app/js/gamify.js');
+  const t = saved().progress.ru;
+  ok(callsignDrillAvailable(t, 'ru', saved().profile.callsign) === false,
+    'до буквы Ы упражнение с позывным ещё закрыто (освоено 20 знаков)');
+  ok(callsignDrillAvailable({ ...t, learnedCount: 21 }, 'ru', saved().profile.callsign) === true,
+    'после Ы упражнение открывается — как и было до переделки');
+}
+
+// 6) Первый знак занятия записан — значит в следующий раз начнём с другого.
 ok(typeof saved().progress.ru.lastFirst === 'string',
   `знак начала занятия сохранён («${saved().progress.ru.lastFirst}»)`);
 

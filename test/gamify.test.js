@@ -39,12 +39,26 @@ test('§8: пропуск дня сбрасывает серию без нака
   assert.equal(s.longest, 5, 'лучшая серия сохранена');
 });
 
-test('§9: спецдрилл позывного доступен после освоения Б,О,Н,Е,Ы,М', () => {
+test('§9: упражнение с позывным «Boney M» открыто после освоения Б,О,Н,Е,Ы,М', () => {
   const t = defaultState().progress.ru;
   t.learnedCount = 20; // Ы ещё не открыт (Ы на 21-й позиции)
-  assert.equal(callsignDrillAvailable(t), false);
+  assert.equal(callsignDrillAvailable(t, 'ru', 'Boney M'), false);
   t.learnedCount = 21; // Ы открыт → все коды позывного освоены
-  assert.equal(callsignDrillAvailable(t), true);
+  assert.equal(callsignDrillAvailable(t, 'ru', 'Boney M'), true);
+});
+
+// 18 августа 2026: позывной берётся из профиля. Сравнение идёт по кодам — иначе
+// латинский позывной на русском курсе не открылся бы никогда, хотя коды те же.
+test('§9: позывной берётся настоящий, а латиница на русском курсе считается по кодам', () => {
+  const t = defaultState().progress.ru;
+  t.learnedCount = 33; // весь русский алфавит
+  t.digitsLearned = 10;
+  assert.equal(callsignDrillAvailable(t, 'ru', 'RA9FLC'), true, 'русский курс, латинский позывной');
+  assert.equal(callsignDrillAvailable(t, 'ru', 'ra9flc'), true, 'регистр не важен');
+  const half = defaultState().progress.ru;
+  half.learnedCount = 5; // Е,Т,И,М,А — цифр нет вовсе
+  assert.equal(callsignDrillAvailable(half, 'ru', 'RA9FLC'), false, 'цифра 9 ещё не освоена');
+  assert.equal(callsignDrillAvailable(half, 'ru', ''), false, 'пустой позывной ничего не открывает');
 });
 
 test('§8: вехи начисляются один раз и дают +10 очков', () => {

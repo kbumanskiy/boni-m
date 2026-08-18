@@ -4,6 +4,8 @@
 import { JSDOM } from 'jsdom';
 import { readFileSync } from 'node:fs';
 import assert from 'node:assert/strict';
+import { LIMITS } from '../app/js/timing.js';
+import { migrate } from '../app/js/state.js';
 
 const html = readFileSync(new URL('../app/index.html', import.meta.url), 'utf8');
 const dom = new JSDOM(html, { url: 'https://example.com/', pretendToBeVisual: true });
@@ -235,7 +237,7 @@ await sleep(10);
 // Одно место — одно имя: вкладка «Журнал» и заголовок «Журнал» (было «Бортжурнал»).
 ok(text().includes('Мои успехи'), 'журнал: открылся со вкладки');
 ok(!text().includes('Бортжурнал'), 'журнал: вкладка и заголовок называются одинаково');
-ok(document.querySelector('#name').value === 'Бонислав', 'журнал: имя подставлено');
+ok(!document.querySelector('#callsign'), 'журнал: поля профиля переехали в настройки');
 // Настройки уехали из «Журнала» на свой экран (отзыв R7CL с форума: выбор языка
 // искали и не нашли). В журнале на их месте — пункт, ведущий туда же, куда шестерёнка.
 ok(!document.querySelector('#lang-ru'), 'журнал: настроек курса здесь больше нет');
@@ -245,6 +247,24 @@ click('#tosettings');
 await sleep(10);
 ok(text().includes('Настройки'), 'настройки: экран открылся из журнала');
 ok(document.querySelector('#lang-ru') && document.querySelector('#lang-en'), 'настройки: курс — кнопки «Русская/Латинская»');
+// Позывной звучит в упражнении «Принять свой позывной», поэтому его должно быть где менять:
+// с форума спросили, почему у всех звучит «Boney M».
+ok(document.querySelector('#s-name')?.value === 'Бонислав', 'настройки: имя подставлено');
+const callField = document.querySelector('#s-call');
+ok(callField, 'настройки: есть поле позывного');
+callField.value = 'ra9flc';
+callField.dispatchEvent(new window.Event('input', { bubbles: true }));
+await sleep(10);
+ok(JSON.parse(localStorage.getItem('boni_m_state')).profile.callsign === 'RA9FLC',
+  'настройки: позывной сохранён заглавными');
+const sndBtn = document.querySelector('#ansnd');
+ok(sndBtn, 'настройки: есть тумблер звука после ответа');
+sndBtn.click();
+await sleep(10);
+ok(JSON.parse(localStorage.getItem('boni_m_state')).settings.answerSound === false,
+  'настройки: звук после ответа выключается');
+document.querySelector('#ansnd').click();
+await sleep(10);
 click('#lang-en'); // переключение языка не падает
 await sleep(10);
 ok(JSON.parse(localStorage.getItem('boni_m_state')).settings.alphabet === 'en', 'настройки: курс переключился на латинский');
@@ -257,17 +277,23 @@ ok(true, 'настройки: тумблеры работают');
 // Главная жалоба с форума: скорость знака была зашита намертво и не менялась.
 const charSlider = document.querySelector('#lchar');
 ok(charSlider, 'настройки: есть ползунок скорости знака');
-ok(+charSlider.max === 30, 'настройки: скорость знака доходит до 30 WPM = 150 зн/мин');
-charSlider.value = '30';
+ok(+charSlider.max === LIMITS.charWpm.max, 'настройки: скорость знака доходит до 45 WPM = 225 зн/мин');
+charSlider.value = String(LIMITS.charWpm.max);
 charSlider.dispatchEvent(new window.Event('input', { bubbles: true }));
 await sleep(10);
-ok(JSON.parse(localStorage.getItem('boni_m_state')).settings.charWpm === 30, 'настройки: скорость знака сохраняется');
-ok(text().includes('150 зн/мин'), 'настройки: скорость показана в знаках в минуту');
+const savedSpeed = JSON.parse(localStorage.getItem('boni_m_state')).settings.charWpm;
+ok(savedSpeed === LIMITS.charWpm.max, 'настройки: скорость знака сохраняется');
+ok(text().includes('225 зн/мин'), 'настройки: скорость показана в знаках в минуту');
+// Настройка обязана дожить до следующего запуска: миграция когда-то молча
+// возвращала её обратно, и «скорость не регулируется» повторялось назавтра.
+ok(migrate(JSON.parse(localStorage.getItem('boni_m_state'))).settings.charWpm === LIMITS.charWpm.max,
+  'настройки: быстрая скорость переживает перезапуск');
 const toneSlider = document.querySelector('#tone');
-ok(+toneSlider.min === 400 && +toneSlider.max === 1000, 'настройки: тон настраивается от 400 до 1000 Гц');
+ok(+toneSlider.min === LIMITS.toneHz.min && +toneSlider.max === LIMITS.toneHz.max,
+  'настройки: тон настраивается от 400 до 1000 Гц');
 // Паузы не могут быть короче знака — иначе получится скорость выше заявленной.
 const pauseSlider = document.querySelector('#lspeed');
-pauseSlider.value = '30';
+pauseSlider.value = String(LIMITS.charWpm.max);
 pauseSlider.dispatchEvent(new window.Event('input', { bubbles: true }));
 await sleep(10);
 const speedState = JSON.parse(localStorage.getItem('boni_m_state')).settings;

@@ -39,6 +39,9 @@ for (const [label, inject] of cases) {
   await page.reload({waitUntil:'networkidle'}); await page.waitForTimeout(250);
   const before = await page.evaluate(()=>[...checkLayout(),...checkA11y()]);
   await page.evaluate(inject);
+  // Подсадная картинка попадает под проверку, только когда у неё появились размеры:
+  // до загрузки файла она ничем не отличается от невидимой, и «нет alt» проходит мимо.
+  await page.waitForTimeout(150);
   const after = await page.evaluate(()=>[...checkLayout(),...checkA11y()]);
   const found = after.length > before.length;
   console.log(`${found?'✓':'✗'} ловится: ${label}${found?'  → «'+after.filter(x=>!before.includes(x))[0]+'»':'  — НЕ ПОЙМАНО'}`);

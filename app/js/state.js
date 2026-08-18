@@ -1,6 +1,6 @@
 // Состояние и сохранность (ТЗ §2, §13). Ключ localStorage — boni_m_state.
 // Всё чтение/запись в try/catch; битый/отсутствующий state → дефолт; квота → работаем в памяти.
-import { clampEff } from './timing.js';
+import { clampEff, LIMITS } from './timing.js';
 
 export const STORAGE_KEY = 'boni_m_state';
 export const STATE_VERSION = 2;
@@ -17,6 +17,10 @@ export function defaultState() {
     settings: {
       alphabet: 'ru', charWpm: 18, effWpm: 9, keyWpm: 12,
       toneHz: 600, volume: 0.5, showChants: true, vibration: true,
+      // Короткий отклик после ответа («верно» / «мимо»). Радиолюбителю с форума он мешает:
+      // «очень раздражает звук подтверждения, достаточно того, что символ подсвечивается».
+      // По умолчанию включён: у папы приложение уже так звучит, и менять это молча нельзя.
+      answerSound: true,
       keyMode: 'train', // режим «Ключа»: 'train' (с подсказкой) | 'free' (свободный набор)
       theme: 'auto',    // оформление: 'auto' (как в телефоне) | 'light' | 'dark'
     },
@@ -65,12 +69,17 @@ export function migrate(raw) {
   if (isObj(raw.settings)) {
     const r = raw.settings;
     s.settings.alphabet = r.alphabet === 'en' ? 'en' : 'ru';
-    s.settings.charWpm = clampNum(r.charWpm, 15, 22, 18);
-    s.settings.effWpm = clampEff(clampNum(r.effWpm, 5, 22, 9), s.settings.charWpm);
-    s.settings.keyWpm = clampNum(r.keyWpm, 8, 18, 12);
-    s.settings.toneHz = clampNum(r.toneHz, 500, 800, 600);
-    s.settings.volume = clampNum(r.volume, 0, 1, 0.5);
+    // Границы берём из timing.js — те же самые, что предлагает экран настроек.
+    // Своих чисел здесь быть не должно: разойдутся — настройка перестанет доживать
+    // до следующего запуска, а человек этого даже не заметит.
+    s.settings.charWpm = clampNum(r.charWpm, LIMITS.charWpm.min, LIMITS.charWpm.max, 18);
+    s.settings.effWpm = clampEff(
+      clampNum(r.effWpm, LIMITS.effWpm.min, LIMITS.effWpm.max, 9), s.settings.charWpm);
+    s.settings.keyWpm = clampNum(r.keyWpm, LIMITS.keyWpm.min, LIMITS.keyWpm.max, 12);
+    s.settings.toneHz = clampNum(r.toneHz, LIMITS.toneHz.min, LIMITS.toneHz.max, 600);
+    s.settings.volume = clampNum(r.volume, LIMITS.volume.min, LIMITS.volume.max, 0.5);
     s.settings.showChants = r.showChants !== false;
+    s.settings.answerSound = r.answerSound !== false;
     s.settings.vibration = r.vibration !== false;
     s.settings.keyMode = r.keyMode === 'free' ? 'free' : 'train';
     s.settings.theme = ['light', 'dark'].includes(r.theme) ? r.theme : 'auto';

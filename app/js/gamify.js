@@ -1,6 +1,7 @@
 // Геймификация: ранги, серия дней, вехи, очки, сессии (ТЗ §8, §7.2, §9).
 // Только неконкурентные поощрения. Никаких «жизней», таймеров, рейтингов.
-import { CALLSIGN_RU_CHARS, KOCH_ORDER_RU, RU_LETTERS } from './data.js';
+import { KOCH_ORDER_RU, KOCH_ORDER_EN, DIGIT_ORDER, CODE_BY_CHAR, RU_LETTERS } from './data.js';
+import { callsignAvailable } from './callsign.js';
 
 // §8: ранги по числу освоенных букв (learnedCount из 32).
 // «Юный радист» убран намеренно: первое, что видел под шильдиком «ЗВАНИЕ» человек 73 лет
@@ -69,10 +70,19 @@ export function updateStreak(streak, todayStr) {
   return s;
 }
 
-// §9: спецдрилл «Boney M» доступен, когда освоены коды Б,О,Н,Е,Ы,М (русский трек).
-export function callsignDrillAvailable(track) {
-  const learned = KOCH_ORDER_RU.slice(0, track.learnedCount || 0);
-  return CALLSIGN_RU_CHARS.every((c) => learned.includes(c));
+// §9: упражнение «свой позывной» открыто, когда освоены все коды, из которых он состоит.
+// Считаем по КОДАМ: позывной пишется латиницей, а курс чаще русский, и код у Б и B общий.
+// Раньше здесь был жёстко зашит «Boney M» — позывной папы; с форума справедливо
+// заметили, что у них он другой.
+export function callsignDrillAvailable(track, alphabet, callsign) {
+  const order = alphabet === 'en' ? KOCH_ORDER_EN : KOCH_ORDER_RU;
+  const learnedChars = [
+    ...order.slice(0, track.learnedCount || 0),
+    ...DIGIT_ORDER.slice(0, track.digitsLearned || 0),
+  ];
+  const lookup = (ch) => CODE_BY_CHAR.en.get(ch) || CODE_BY_CHAR.ru.get(ch);
+  const learnedCodes = new Set(learnedChars.map(lookup).filter(Boolean));
+  return callsignAvailable(callsign, lookup, learnedCodes);
 }
 
 // §8: список вех. У каждой указан источник (trigger) — от чего она зависит:
