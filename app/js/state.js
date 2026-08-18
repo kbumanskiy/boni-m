@@ -8,7 +8,9 @@ export const STATE_VERSION = 2;
 export function defaultState() {
   return {
     version: STATE_VERSION,
-    profile: { name: '', callsign: 'Boney M', points: 0 },
+    // Позывной по умолчанию пустой: подставлять сюда чужой (а «Boney M» — позывной папы)
+    // значит показывать его каждому, кто поставит приложение, и проигрывать в упражнении.
+    profile: { name: '', callsign: '', points: 0 },
     progress: {
       // lastFirst — знак, с которого началось прошлое занятие (чтобы не начинать с него снова).
       ru: { learnedCount: 0, digitsLearned: 0, perChar: {}, recent: [], parked: [], lastFirst: null },
@@ -56,8 +58,9 @@ export function migrate(raw) {
   // Профиль
   if (isObj(raw.profile)) {
     s.profile.name = typeof raw.profile.name === 'string' ? raw.profile.name : '';
-    s.profile.callsign = typeof raw.profile.callsign === 'string' && raw.profile.callsign
-      ? raw.profile.callsign : 'Boney M';
+    // Уже записанный позывной не трогаем ни в коем случае: на телефоне папы лежит
+    // «Boney M», и упражнение должно звучать ровно так, как он привык.
+    s.profile.callsign = typeof raw.profile.callsign === 'string' ? raw.profile.callsign : '';
     s.profile.points = Math.max(0, Math.floor(num(raw.profile.points, 0)));
   }
   // Прогресс — раздельно по алфавитам

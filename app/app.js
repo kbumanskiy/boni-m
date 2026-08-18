@@ -220,8 +220,9 @@ function renderOnboarding() {
       <div class="card" style="text-align:left">
         <label for="name">Как вас зовут?</label>
         <input type="text" id="name" placeholder="Ваше имя" autocomplete="off">
-        <label for="callsign">Ваш позывной</label>
-        <input type="text" id="callsign" value="${esc(state.profile.callsign)}">
+        <label for="callsign">Ваш позывной <span class="muted">— если есть</span></label>
+        <input type="text" id="callsign" placeholder="например, RA9FLC" autocomplete="off"
+               autocapitalize="characters" spellcheck="false" value="${esc(state.profile.callsign)}">
       </div>
       <button class="btn" id="next" disabled>Дальше</button>
     </div>`;
@@ -229,7 +230,11 @@ function renderOnboarding() {
   name.addEventListener('input', () => { next.disabled = !name.value.trim(); });
   next.addEventListener('click', () => {
     state.profile.name = name.value.trim();
-    state.profile.callsign = normalizeCallsign($('#callsign').value) || 'BONEY M';
+    // Пусто — значит пусто. Раньше здесь стоял «Boney M» (позывной папы), и любой,
+    // кто ставил приложение, первым делом видел в поле чужой позывной — а потом слышал
+    // его в упражнении. Об этом и спросили с форума. Без позывного упражнение
+    // «Принять свой позывной» просто не появляется, пока его не впишут в настройках.
+    state.profile.callsign = normalizeCallsign($('#callsign').value);
     persist();
     onboardingStep2();
   });
@@ -621,7 +626,7 @@ function exitLearn() {
 // Позывной берём из профиля: он спрашивается при первом запуске и меняется в настройках.
 // Код ищем сперва в латинской таблице — позывные пишут латиницей, а цифры в обеих одинаковы.
 function myCallsign() {
-  return normalizeCallsign(state.profile.callsign) || 'BONEY M';
+  return normalizeCallsign(state.profile.callsign);
 }
 const codeAnywhere = (ch) => DATA.CODE_BY_CHAR.en.get(ch) || DATA.CODE_BY_CHAR.ru.get(ch);
 
@@ -1071,7 +1076,8 @@ function renderSettings() {
     <div class="card">
       <div class="eyebrow">Кто в эфире</div>
       <p class="muted hint">Имя — для приветствия на главной. Позывной звучит в упражнении
-         «Принять свой позывной»: он проигрывается целиком, как настоящая радиограмма.</p>
+         «Принять свой позывной»: он проигрывается целиком, как настоящая радиограмма.
+         Позывного нет — оставьте поле пустым, упражнение просто не появится.</p>
       <label for="s-name">Как к вам обращаться</label>
       <input type="text" id="s-name" maxlength="20" value="${esc(state.profile.name)}" autocomplete="off">
       <label for="s-call">Ваш позывной</label>

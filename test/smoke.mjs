@@ -53,6 +53,10 @@ ok(text().includes('Как вас зовут'), 'онбординг: вопро�
 const name = document.querySelector('#name');
 name.value = 'Бонислав'; fire(name, 'input');
 ok(!document.querySelector('#next').disabled, 'кнопка «Дальше» разблокирована после ввода имени');
+// Позывной при первом запуске пуст: раньше здесь стоял чужой («Boney M», позывной папы),
+// и человек первым делом видел в поле не своё, а потом слышал это в упражнении.
+ok(document.querySelector('#callsign').value === '', 'онбординг: поле позывного пустое');
+ok(!!document.querySelector('#callsign').placeholder, 'онбординг: у позывного есть подсказка');
 click('#next');
 ok(text().includes('Рады знакомству, Бонислав'), 'онбординг: шаг 2 с именем');
 click('#start');
@@ -257,6 +261,13 @@ callField.dispatchEvent(new window.Event('input', { bubbles: true }));
 await sleep(10);
 ok(JSON.parse(localStorage.getItem('boni_m_state')).profile.callsign === 'RA9FLC',
   'настройки: позывной сохранён заглавными');
+// Без позывного упражнение принимать нечего — и кнопки быть не должно.
+{
+  const { callsignDrillAvailable } = await import('../app/js/gamify.js');
+  const full = { learnedCount: 33, digitsLearned: 10 };
+  ok(callsignDrillAvailable(full, 'ru', '') === false, 'без позывного упражнение не появляется');
+  ok(callsignDrillAvailable(full, 'ru', 'RA9FLC') === true, 'с позывным — появляется');
+}
 const sndBtn = document.querySelector('#ansnd');
 ok(sndBtn, 'настройки: есть тумблер звука после ответа');
 sndBtn.click();

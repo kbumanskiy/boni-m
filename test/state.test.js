@@ -26,7 +26,11 @@ function brokenStore() {
 test('дефолт: корректная структура и нужен онбординг', () => {
   const s = defaultState();
   assert.equal(s.version, 2);
-  assert.equal(s.profile.callsign, 'Boney M');
+  // Позывной по умолчанию пустой: чужой в поле у нового человека — это ровно та жалоба
+  // с форума, что упражнение звучит «Boney M». Уже записанный при этом обязан уцелеть.
+  assert.equal(s.profile.callsign, '');
+  assert.equal(migrate({ profile: { callsign: 'Boney M' } }).profile.callsign, 'Boney M');
+  assert.equal(migrate({ profile: { callsign: 'RA9FLC' } }).profile.callsign, 'RA9FLC');
   assert.equal(s.settings.alphabet, 'ru');
   assert.ok(needsOnboarding(s), 'пустое имя → онбординг');
 });
