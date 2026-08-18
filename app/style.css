@@ -329,6 +329,17 @@ input[type=range]{width:100%; height:44px; accent-color:var(--accent);}
 .rowflex{display:flex; align-items:center; justify-content:space-between; gap:10px;}
 .switch{min-width:104px;}
 
+/* Тумблер: состояние видно без слов, ширина у всех одинаковая. Высота 44px — это
+   минимальная зона нажатия, ниже неё промахивается даже уверенная рука. */
+.toggle{flex:0 0 auto; width:76px; height:44px; padding:4px; border-radius:22px;
+  border:1px solid var(--line-strong); background:var(--surface-2, var(--bg));
+  display:flex; align-items:center; cursor:pointer; transition:background .18s ease;}
+.toggle i{display:block; width:34px; height:34px; border-radius:50%;
+  background:var(--text-dim); box-shadow:var(--shadow); transition:transform .18s ease, background .18s ease;}
+.toggle[aria-checked="true"]{background:var(--accent); border-color:var(--accent);}
+.toggle[aria-checked="true"] i{transform:translateX(32px); background:#fff;}
+.toggle:focus-visible{outline:3px solid var(--accent); outline-offset:3px;}
+
 .list{list-style:none; padding:0; margin:0;}
 .list li{display:flex; justify-content:space-between; gap:10px; padding:12px 0; border-bottom:1px solid var(--line);}
 .list li:last-child{border-bottom:none;}
@@ -475,6 +486,41 @@ textarea{
 .fb-status.no{color:var(--bad); font-weight:650;}
 .fb-status.ok{color:var(--ok); font-weight:650; display:flex; align-items:center; gap:8px;
   justify-content:center; text-align:left;}
+
+
+/* ——— Контрольная радиограмма ——— */
+/* Крупное число скорости: его выставляют кнопками ±10, поэтому оно и есть главный
+   элемент карточки. */
+.bigspeed{font-size:44px; font-weight:800; text-align:center; letter-spacing:.02em;
+  font-variant-numeric:tabular-nums; margin:6px 0 12px;}
+.bigspeed small{font-size:20px; font-weight:650; color:var(--text-dim); margin-left:6px;}
+
+/* Поле приёма. Моноширинный шрифт с крупными знаками: принятое сверяют глазами
+   по группам, и «зебра» из разной ширины букв тут мешает. */
+.rg-input{font-family:ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+  font-size:22px; letter-spacing:.08em; text-transform:uppercase; min-height:110px;}
+
+/* Разбор: тем же моноширинным, чтобы группы стояли столбиками. */
+.rg-review{font-family:ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+  font-size:22px; line-height:1.7; letter-spacing:.1em; word-break:break-word;}
+.rg-review.plain{color:var(--text-dim);}
+.rg-wrong{color:var(--bad); font-weight:700; text-decoration:underline wavy;}
+.rg-missed{color:var(--bad); opacity:.75; text-decoration:line-through;}
+/* Лишний знак: тем же кеглем, что и остальные (мелкий надстрочный не прочесть),
+   но на плашке — видно, что его в передаче не было. */
+.rg-extra{color:var(--bad); font-weight:700; background:var(--bad-soft, rgba(200,60,50,.12));
+  border-radius:4px; padding:0 3px;}
+
+/* Полоса передачи: спокойная, без цифр — сколько ещё будут передавать. */
+.rg-bar{height:6px; border-radius:3px; background:var(--line); overflow:hidden; margin:10px 0 6px;}
+.rg-bar i{display:block; height:100%; width:0; background:var(--accent); border-radius:3px;}
+
+/* Приговор радиограмме — крупно и однозначно. */
+.card .verdict{font-size:24px; font-weight:750; display:flex; align-items:center;
+  justify-content:center; gap:8px; margin-bottom:8px;}
+.card .verdict.ok{color:var(--ok);}
+.card .verdict.no{color:var(--bad);}
+.hint.done{color:var(--ok); font-weight:650;}
 
 /* ——— Доступность: уважать prefers-reduced-motion (§11) ——— */
 @media (prefers-reduced-motion: reduce){

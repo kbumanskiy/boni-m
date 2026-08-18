@@ -121,5 +121,30 @@ ok(saved().profile.callsign === 'Boney M', 'позывной из прежней
 ok(typeof saved().progress.ru.lastFirst === 'string',
   `знак начала занятия сохранён («${saved().progress.ru.lastFirst}»)`);
 
+// 7) Контрольная радиограмма: она открывается ровно на двадцати знаках — а в состоянии
+// с телефона папы их ровно двадцать. Проверяем весь путь: кнопка → приём → разбор.
+document.querySelector('[data-tab="home"]').click();
+await sleep(30);
+ok(document.querySelector('#radiogram'), 'главная: кнопка «Контрольная радиограмма» на месте');
+document.querySelector('#radiogram').click();
+await sleep(30);
+ok(text().includes('группами по пять знаков'), 'радиограмма: экран подготовки открылся');
+document.querySelector('#start').click();
+await sleep(60);
+const rgField = document.querySelector('#rg-input');
+ok(rgField, 'радиограмма: поле для записи принятого');
+const sentText = window.__rgText || '';
+ok(sentText.split(' ').every((g) => g.length === 5), `радиограмма: группы по пять знаков («${sentText}»)`);
+// Пишем принятое верно, но с одной опиской: разбор обязан показать ровно одну ошибку,
+// а не лавину из-за сдвига.
+const plain = sentText.replace(/\s+/g, '');
+rgField.value = plain.slice(0, 2) + plain.slice(3);   // один знак пропущен
+document.querySelector('#rg-done').click();
+await sleep(40);
+ok(text().includes('Радиограмма принята'), 'радиограмма: с одной опиской — принята');
+ok(text().includes('Ошибок: 1') || text().includes('Ошибок:  1'), `радиограмма: ровно одна ошибка (${text().match(/Ошибок:\s*\d+/)?.[0]})`);
+ok(saved().records.radiogramCpm > 0, 'радиограмма: рекорд скорости записан');
+ok(saved().milestones.radiogram === true, 'радиограмма: веха за принятую радиограмму');
+
 assert.equal(errors.length, 0, 'необработанные ошибки: ' + errors.map(String).join(' | '));
 console.log(`\nДымовой тест обновления пройден: ${pass} проверок, ошибок ${errors.length}`);

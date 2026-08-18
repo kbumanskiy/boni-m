@@ -80,6 +80,11 @@ if (PUBLIC) SEED.profile = { name: 'Радист', callsign: 'DEMO', points: 148
 // Отдельным экранам нужно своё состояние. Менять его на странице бесполезно: при каждой
 // навигации initScript кладёт исходное обратно, — поэтому правим сам посев до запуска.
 const SEED_PATCH = {
+  // Контрольная радиограмма открывается после двадцати знаков. Даём весь алфавит
+  // и цифры: иначе не снять ни выбор «Цифры», ни смешанный текст.
+  radiogram: (s) => { s.progress.ru.learnedCount = 33; s.progress.ru.digitsLearned = 10; return s; },
+  radiogramwork: (s) => SEED_PATCH.radiogram(s),
+  radiogramresult: (s) => SEED_PATCH.radiogram(s),
   callsign: (s) => {
     s.progress.ru.learnedCount = 33;   // весь алфавит
     s.progress.ru.digitsLearned = 10;  // и цифры — иначе упражнение закрыто
@@ -147,6 +152,31 @@ const SCREENS = {
   callsign: async (page) => {
     await page.click('#drill');
     await page.waitForTimeout(300);
+  },
+  // Контрольная радиограмма: три состояния — подготовка, приём и разбор. Разбор
+  // снимаем с заведомо испорченным ответом: именно там цветные пометки, длинная
+  // строка групп и риск вылезти за край экрана.
+  radiogram: async (page) => {
+    await page.click('#radiogram'); await page.waitForTimeout(300);
+  },
+  radiogramwork: async (page) => {
+    await page.click('#radiogram'); await page.waitForTimeout(250);
+    await page.click('#start'); await page.waitForTimeout(400);
+    await page.fill('#rg-input', 'ЖЕЛЕЗ ОКНАМ');
+    await page.waitForTimeout(200);
+  },
+  radiogramresult: async (page) => {
+    await page.click('#radiogram'); await page.waitForTimeout(250);
+    await page.click('#start'); await page.waitForTimeout(400);
+    // Отвечаем «почти правильно»: берём переданный текст и портим его — одна замена,
+    // один пропуск, один лишний знак. Так на снимке видны все три вида пометок.
+    await page.evaluate(() => {
+      const sent = window.__rgText || '';
+      const plain = sent.replace(/\s+/g, '');
+      const spoiled = plain.slice(0, 3) + 'Щ' + plain.slice(5, 12) + 'Ж' + plain.slice(13);
+      document.querySelector('#rg-input').value = spoiled;
+    });
+    await page.click('#rg-done'); await page.waitForTimeout(400);
   },
   // Вердикт на «Ключе»: отстукиваем одну точку и ждём разбора.
   keyverdict: async (page) => {

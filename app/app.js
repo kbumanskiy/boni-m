@@ -10,6 +10,7 @@ import * as TR from './js/trace.js';
 import { ICON } from './js/icons.js';
 import { glyphKind, glyphText, glyphName } from './js/glyph.js';
 import { normalizeCallsign, callsignParts } from './js/callsign.js';
+import * as RG from './js/radiogram.js';
 import { donateUrl, feedbackUrl, validateFeedback, MESSAGE_MAX, CONTACT_MAX, NAME_MAX } from './js/support.js';
 
 let state = load();
@@ -129,11 +130,23 @@ const SPEED = { charMin: LIMITS.charWpm.min, charMax: LIMITS.charWpm.max, effMin
 // Подпись под обоими ползунками. Костя, глядя на них, спросил: «это не про одно и то же?» —
 // значит и радист спросит. Названия «скорость» и «паузы» рядом читаются как две шкалы одного,
 // поэтому объясняем прямо тут, а не только на экране настроек.
-const SPEED_HINT = `<p class="muted hint">Знак — как быстро звучит сама буква. Пауза — сколько
-   времени на раздумье, пока не пришла следующая. Медленные паузы при обычной скорости знака —
-   это и есть метод Коха: ухо сразу привыкает к настоящему звучанию.</p>`;
+const SPEED_HINT = `<p class="muted hint">Буква всегда звучит по-настоящему быстро, а времени на
+   раздумье добавляет пауза — в этом и есть метод Коха.</p>`;
 
-function speedSliders(s) {
+// В занятии нужен ОДИН регулятор — скорость знака: его крутят на ходу. Пауза на раздумье
+// и объяснение живут в настройках. Пока они стояли прямо в занятии, экран оброс текстом,
+// и Костя сказал прямо: «столько текста лишнего стало». Он прав — на экране занятия
+// человек слушает, а не читает.
+function speedSliders(s, { full = true } = {}) {
+  if (!full) return `
+    <div class="slider">
+      <div class="slider-head">
+        <label for="lchar">Скорость знака</label>
+        <output class="num" id="lchar-val">${cpm(s.charWpm)} зн/мин<small>${s.charWpm} WPM</small></output>
+      </div>
+      <input type="range" id="lchar" min="${SPEED.charMin}" max="${SPEED.charMax}" value="${s.charWpm}">
+      <div class="slider-ends"><span>${cpm(SPEED.charMin)} зн/мин</span><span>${cpm(SPEED.charMax)} зн/мин</span></div>
+    </div>`;
   return `
     <div class="slider">
       <div class="slider-head">
@@ -145,12 +158,38 @@ function speedSliders(s) {
     </div>
     <div class="slider">
       <div class="slider-head">
-        <label for="lspeed">Пауза на раздумье</label>
+        <label for="lspeed">Пауза между знаками</label>
         <output class="num" id="lspeed-val">${pauseLabel(s)}</output>
       </div>
-      <input type="range" id="lspeed" min="${SPEED.effMin}" max="${SPEED.charMax}" value="${clampEff(s.effWpm, s.charWpm)}">
-      <div class="slider-ends"><span>подлиннее</span><span>как в эфире</span></div>
+      <input type="range" id="lspeed" min="0" max="${PAUSE_STEPS.length - 1}" step="1" value="${pauseIndex(s)}">
+      <div class="slider-ends"><span>как в эфире</span><span>вчетверо длиннее</span></div>
     </div>${SPEED_HINT}`;
+}
+
+// ——— Пауза между знаками ———
+// Ползунок ходит по ГОТОВЫМ ступеням кратности, а не по WPM. Раньше он был размечен
+// в словах в минуту от 5 до 45, а фактически зажимался скоростью знака — и бегунок
+// упирался в середину, дальше не двигаясь. Костя сказал прямо: «ползунок только
+// до середины, и непонятно зачем эта шкала». Шкала нужна (это метод Фарнсуорта:
+// знак звучит по-настоящему, а думать дают дольше), но говорить она должна
+// по-человечески: во сколько раз пауза длиннее эфирной.
+const PAUSE_STEPS = [1, 1.5, 2, 3, 4];
+
+function pauseIndex(s) {
+  const eff = clampEff(s.effWpm, s.charWpm);
+  const k = s.charWpm / Math.max(1, eff);
+  // Берём ближайшую ступень: значение могло прийти из прежней сборки любым.
+  let best = 0;
+  PAUSE_STEPS.forEach((step, i) => {
+    if (Math.abs(step - k) < Math.abs(PAUSE_STEPS[best] - k)) best = i;
+  });
+  return best;
+}
+
+// Кратность → скорость пауз. Ниже нижней границы не опускаемся, выше знака не поднимаемся.
+function effForIndex(i, charWpm) {
+  const k = PAUSE_STEPS[Math.min(PAUSE_STEPS.length - 1, Math.max(0, i))];
+  return clampEff(Math.max(SPEED.effMin, Math.round(charWpm / k)), charWpm);
 }
 
 // Паузы показываем словами, а не числом: «12 WPM» ничего не говорит о том,
@@ -172,25 +211,31 @@ function timesWord(times) {
   return last >= 2 && last <= 4 ? 'раза' : 'раз';
 }
 
+// Ползунок пауз есть только в настройках: в занятии стоит один — скорость знака.
+// Поэтому всё, что касается пауз, включается, только если ползунок на экране есть.
 function wireSpeedSliders(onDone) {
   const ch = $('#lchar'), sp = $('#lspeed');
-  if (!ch || !sp) return;
+  if (!ch) return;
   const redraw = () => {
     $('#lchar-val').innerHTML = `${cpm(state.settings.charWpm)} зн/мин<small>${state.settings.charWpm} WPM</small>`;
+    if (!sp) return;
     $('#lspeed-val').textContent = pauseLabel(state.settings);
-    // Паузы не бывают короче самого знака: ползунок пауз не должен уезжать выше знака.
-    sp.value = clampEff(state.settings.effWpm, state.settings.charWpm);
+    // Скорость знака могла измениться — пересчитываем, на какой ступени стоит бегунок.
+    sp.value = pauseIndex(state.settings);
   };
   ch.addEventListener('input', (e) => {
     state.settings.charWpm = +e.target.value;
     state.settings.effWpm = clampEff(state.settings.effWpm, state.settings.charWpm);
     persist(); redraw();
   });
-  sp.addEventListener('input', (e) => {
-    state.settings.effWpm = clampEff(+e.target.value, state.settings.charWpm);
+  if (sp) sp.addEventListener('input', (e) => {
+    state.settings.effWpm = effForIndex(+e.target.value, state.settings.charWpm);
     persist(); redraw();
   });
-  if (onDone) { ch.addEventListener('change', onDone); sp.addEventListener('change', onDone); }
+  if (onDone) {
+    ch.addEventListener('change', onDone);
+    if (sp) sp.addEventListener('change', onDone);
+  }
 }
 
 // ——— Оверлей реакции героя ———
@@ -296,12 +341,14 @@ function renderHome() {
       </div>
     </div>
     ${drill ? `<button class="btn secondary" id="drill">${ICON.inbox(24)} Принять свой позывной</button>` : ''}
+    ${radiogramOpen() ? `<button class="btn secondary" id="radiogram">${ICON.inbox(24)} Контрольная радиограмма</button>` : ''}
     <button class="btn" id="continue">Продолжить обучение</button>
     <button class="btn secondary" id="review" ${learned < 1 ? 'disabled' : ''}>Повторение пройденного</button>
     ${supportLine()}`;
   $('#continue').addEventListener('click', () => { learnOpts.repetition = false; go('learn'); });
   $('#review').addEventListener('click', () => { learnOpts.repetition = true; go('learn'); });
   if (drill) $('#drill').addEventListener('click', callsignDrill);
+  if (radiogramOpen()) $('#radiogram').addEventListener('click', renderRadiogram);
   wireGear();
 }
 
@@ -336,7 +383,7 @@ function renderLearn() {
     <div class="options" id="opts"></div>
     <div id="reveal"></div>
     <button class="btn secondary" id="again">${ICON.replay(24)} Послушать ещё раз</button>
-    ${speedSliders(state.settings)}
+    ${speedSliders(state.settings, { full: false })}
     <button class="linkbtn" id="help">${ICON.help(22)} Показать коды знаков</button>
     <div id="help-box"></div>`;
   $('#exit').addEventListener('click', exitLearn);
@@ -655,6 +702,276 @@ function callsignDrill() {
       .then(() => go('home'));
   });
   $('#back').addEventListener('click', () => go('home'));
+}
+
+// ————————————————— Контрольная радиограмма (приём групп по пять) —————————————————
+//
+// Упражнение, по которому радисты сдают на разряд. Сделано по официальным правилам
+// (приказ Минспорта России от 28.03.2022 № 230, ст. 18) — вся арифметика в отдельном
+// модуле `js/radiogram.js`, здесь только экран. Просили и на форуме, и письмом (UA5B):
+// «принимать на клавиатуре несмысловые тексты в течение минуты и затем видеть свой
+// результат и ошибки».
+//
+// Начинающему упражнение не мешает: кнопка появляется, только когда освоено
+// не меньше двадцати знаков.
+const RADIOGRAM_MIN_LEARNED = 20;
+
+function radiogramOpen() {
+  return (track().learnedCount || 0) >= RADIOGRAM_MIN_LEARNED;
+}
+
+// Из чего составляем текст. Берём ТОЛЬКО освоенные знаки: радиограмма из букв,
+// которых человек ещё не проходил, — не проверка, а издевательство. Знаки препинания
+// в курсе не изучаются, поэтому в смешанном тексте о них предупреждаем отдельно.
+function radiogramSet(kind) {
+  const t = track(), alpha = state.settings.alphabet;
+  const order = alpha === 'en' ? DATA.KOCH_ORDER_EN : DATA.KOCH_ORDER_RU;
+  const letters = order.slice(0, t.learnedCount || 0);
+  const digits = DATA.DIGIT_ORDER.slice(0, t.digitsLearned || 0);
+  if (kind === 'digits') return digits;
+  if (kind === 'mixed') return [...letters, ...digits, ...RG.MIXED_PUNCT];
+  return letters;
+}
+
+let R = null; // состояние упражнения
+
+function renderRadiogram() {
+  currentTab = 'radiogram';
+  tabsEl.classList.add('hidden');
+  const s = state.settings;
+  R = { phase: 'setup', text: '', stop: null, startedAt: 0 };
+  drawRadiogramSetup();
+}
+
+function radiogramExit() {
+  if (R && R.stop) R.stop();
+  A.stopAll();
+  stopActiveClock();
+  R = null;
+  go('home');
+}
+
+function drawRadiogramSetup() {
+  const s = state.settings;
+  const kinds = [
+    ['letters', 'Буквы'],
+    ['digits', 'Цифры'],
+    ['mixed', 'Смесь'],
+  ];
+  const digitsReady = radiogramSet('digits').length > 0;
+  if (s.radiogramKind === 'digits' && !digitsReady) s.radiogramKind = 'letters';
+  const groups = RG.groupsFor(s.radiogramCpm, s.radiogramFull ? RG.MINUTE : 20);
+
+  screenEl.innerHTML = `
+    <div class="screenbar">
+      <div><h2>Контрольная радиограмма</h2></div>
+      <button class="iconbtn" id="back" aria-label="Назад">${ICON.exit(22)}<span>Назад</span></button>
+    </div>
+    <p class="muted hint">Прозвучит несмысловой текст группами по пять знаков — как на
+       соревнованиях. Записывайте, что услышали. До пяти ошибок радиограмма считается
+       принятой (правила радиоспорта, статья 18).</p>
+    <div class="card">
+      <div class="eyebrow">Что передавать</div>
+      <div class="seg">${kinds.map(([k, label]) => `
+        <button data-kind="${k}" class="${s.radiogramKind === k ? 'active' : ''}"
+          ${k === 'digits' && !digitsReady ? 'disabled' : ''}>${label}</button>`).join('')}</div>
+      ${!digitsReady ? '<p class="muted hint">Цифры откроются, когда вы начнёте их проходить в занятиях.</p>' : ''}
+      ${s.radiogramKind === 'mixed' ? '<p class="muted hint">В смеси встречаются знаки препинания . , / ? = — их коды есть в разделе «Азбука».</p>' : ''}
+    </div>
+    <div class="card">
+      <div class="eyebrow">Скорость</div>
+      <div class="bigspeed" id="cpm">${s.radiogramCpm} <small>зн/мин</small></div>
+      <div class="btn-row">
+        <button class="btn secondary" id="slower" ${s.radiogramCpm <= LIMITS.radiogramCpm.min ? 'disabled' : ''}>− 10</button>
+        <button class="btn secondary" id="faster" ${s.radiogramCpm >= LIMITS.radiogramCpm.max ? 'disabled' : ''}>+ 10</button>
+      </div>
+      <p class="muted hint">Шаг десять знаков в минуту — как на соревнованиях.
+         Паузы здесь обычные, без растяжки: это проверка, а не занятие.</p>
+    </div>
+    <div class="card">
+      <div class="eyebrow">Длительность</div>
+      <div class="seg">
+        <button data-full="0" class="${s.radiogramFull ? '' : 'active'}">Короткая</button>
+        <button data-full="1" class="${s.radiogramFull ? 'active' : ''}">Минута</button>
+      </div>
+      <p class="muted hint">${s.radiogramFull ? 'Полная радиограмма' : 'Короткий заход'} —
+         ${groups} ${plural(groups, 'группа', 'группы', 'групп')} по пять знаков.</p>
+    </div>
+    ${state.records.radiogramCpm ? `<p class="muted center">Лучшая принятая радиограмма: <b>${state.records.radiogramCpm} зн/мин</b></p>` : ''}
+    <button class="btn" id="start">${ICON.sound(24)} Начать приём</button>`;
+
+  $('#back').addEventListener('click', radiogramExit);
+  screenEl.querySelectorAll('[data-kind]').forEach((b) => b.addEventListener('click', () => {
+    state.settings.radiogramKind = b.dataset.kind; persist(); drawRadiogramSetup();
+  }));
+  screenEl.querySelectorAll('[data-full]').forEach((b) => b.addEventListener('click', () => {
+    state.settings.radiogramFull = b.dataset.full === '1'; persist(); drawRadiogramSetup();
+  }));
+  $('#slower').addEventListener('click', () => changeRadiogramSpeed(-RG.SPEED_STEP));
+  $('#faster').addEventListener('click', () => changeRadiogramSpeed(+RG.SPEED_STEP));
+  $('#start').addEventListener('click', startRadiogram);
+}
+
+function changeRadiogramSpeed(delta) {
+  const L2 = LIMITS.radiogramCpm;
+  state.settings.radiogramCpm = Math.min(L2.max, Math.max(L2.min, state.settings.radiogramCpm + delta));
+  persist();
+  drawRadiogramSetup();
+}
+
+// Склонение числительных: «12 групп», но «2 группы». Нужно ровно здесь и в разборе.
+function plural(n, one, few, many) {
+  const last = n % 10, tens = n % 100;
+  if (tens >= 11 && tens <= 14) return many;
+  if (last === 1) return one;
+  if (last >= 2 && last <= 4) return few;
+  return many;
+}
+
+function startRadiogram() {
+  const s = state.settings;
+  const set = radiogramSet(s.radiogramKind);
+  const seconds = s.radiogramFull ? RG.MINUTE : 20;
+  const text = RG.makeRadiogram(set, RG.groupsFor(s.radiogramCpm, seconds));
+  if (!text) { drawRadiogramSetup(); return; }
+  // Сколько примерно продлится передача: знаки плюс паузы между группами.
+  const chars = RG.normalize(text).length;
+  const gaps = text.split(' ').length - 1;
+  R = { phase: 'receive', text, stop: null, startedAt: Date.now(),
+        seconds: Math.max(2, (chars * RG.MINUTE) / s.radiogramCpm + gaps * 0.4) };
+  // Переданный текст открыт наружу только для проверок вёрстки (tools/screens.mjs):
+  // подсмотреть его в занятии невозможно — экран приёма ничего не показывает.
+  try { window.__rgText = text; } catch {}
+  startActiveClock();
+  requestWake();
+  drawRadiogramReceive();
+
+  // Скорость радиограммы — в знаках в минуту; звук считает в WPM (пять знаков = слово).
+  // Растяжки Фарнсуорта здесь нет намеренно: паузы стандартные, 1:3:7, как в эфире.
+  const wpm = s.radiogramCpm / 5;
+  R.stop = A.playSequence([...text], (ch) => codeAnywhere(ch) || DATA.CODE_BY_CHAR[s.alphabet]?.get(ch), 
+    { ...s, charWpm: wpm, effWpm: wpm }, {
+      onDone: () => {
+        if (!R || R.phase !== 'receive') return;
+        const note = $('#rg-note');
+        if (note) { note.textContent = 'Передача окончена. Проверьте написанное и нажмите «Готово».'; note.className = 'muted center hint done'; }
+      },
+    });
+}
+
+function drawRadiogramReceive() {
+  const s = state.settings;
+  screenEl.innerHTML = `
+    <div class="screenbar">
+      <div><h2>Приём</h2><div class="counter">${s.radiogramCpm} зн/мин</div></div>
+      <button class="iconbtn" id="abort" aria-label="Прервать">${ICON.exit(22)}<span>Прервать</span></button>
+    </div>
+    <label for="rg-input">Записывайте принятое</label>
+    <textarea id="rg-input" class="rg-input" rows="4" autocomplete="off" autocapitalize="characters"
+      autocorrect="off" spellcheck="false" placeholder="например, ЖЕЛЕЗ ОКНАМ ..."></textarea>
+    <div class="rg-bar" aria-hidden="true"><i id="rg-progress"></i></div>
+    <p class="muted center hint" id="rg-note">Идёт передача… Пишите сплошь или пробелами — как удобнее.</p>
+    <button class="btn" id="rg-done">${ICON.check(24)} Готово</button>
+    <p class="muted center hint">На компьютере можно набирать с клавиатуры, а закончить —
+       клавишей Enter.</p>`;
+  const bar = $('#rg-progress');
+  if (bar && R && R.seconds) {
+    // Полоса — единственная подсказка во время приёма: сколько ещё будут передавать.
+    // Число принятых групп не показываем: это подсказывало бы, сколько знаков записать.
+    bar.style.transition = `width ${R.seconds}s linear`;
+    requestAnimationFrame(() => { bar.style.width = '100%'; });
+  }
+  const input = $('#rg-input');
+  input.focus();
+  // Enter заканчивает приём: радист привык завершать строкой, а не искать кнопку.
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); finishRadiogram(); }
+  });
+  $('#rg-done').addEventListener('click', finishRadiogram);
+  $('#abort').addEventListener('click', radiogramExit);
+}
+
+function finishRadiogram() {
+  if (!R || R.phase !== 'receive') return;
+  const written = $('#rg-input') ? $('#rg-input').value : '';
+  if (R.stop) R.stop();
+  A.stopAll();
+  const cpm = state.settings.radiogramCpm;
+  const result = RG.compare(R.text, written);
+  const ok = RG.accepted(result.errors);
+  R = { ...R, phase: 'result', result, ok, cpm, written };
+  stopActiveClock();
+
+  // Рекорд — только за ПРИНЯТУЮ радиограмму: иначе он означал бы «включил быструю
+  // передачу и ничего не разобрал».
+  if (ok && cpm > (state.records.radiogramCpm || 0)) state.records.radiogramCpm = cpm;
+  if (ok) {
+    state.profile.points += 10;
+    G.checkMilestones(state, { radiogramAccepted: true });
+  }
+  persist();
+  drawRadiogramResult();
+}
+
+// Разбор: показываем переданный текст группами по пять и помечаем, что случилось
+// с каждым знаком. Лишние знаки показываем на их месте — иначе непонятно, откуда
+// взялся сдвиг.
+function radiogramMarkup(cells) {
+  let out = '', shown = 0;
+  for (const c of cells) {
+    if (c.type === 'extra') {
+      out += `<span class="rg-extra" title="лишний знак">${esc(glyphText(c.got))}</span>`;
+      continue;
+    }
+    if (shown > 0 && shown % RG.GROUP_SIZE === 0) out += ' ';
+    shown++;
+    const cls = c.type === 'ok' ? '' : (c.type === 'wrong' ? 'rg-wrong' : 'rg-missed');
+    const title = c.type === 'wrong' ? ` title="вы написали ${esc(c.got)}"`
+      : (c.type === 'missed' ? ' title="пропущен"' : '');
+    out += `<span class="${cls}"${title}>${esc(glyphText(c.expected))}</span>`;
+  }
+  return out;
+}
+
+function drawRadiogramResult() {
+  const { result, ok, cpm } = R;
+  const points = RG.score(cpm, result.errors);
+  const maxSpeed = LIMITS.radiogramCpm.max;
+  screenEl.innerHTML = `
+    <div class="screenbar">
+      <div><h2>Разбор</h2><div class="counter">${cpm} зн/мин</div></div>
+      <button class="iconbtn" id="back" aria-label="Назад">${ICON.exit(22)}<span>Назад</span></button>
+    </div>
+    <div class="card center">
+      <div class="verdict ${ok ? 'ok' : 'no'}">${ok ? `${ICON.check(26)} Радиограмма принята` : 'Радиограмма не принята'}</div>
+      <p class="muted">Ошибок: <b>${result.errors}</b> из ${result.total} ${plural(result.total, 'знака', 'знаков', 'знаков')}.
+         ${ok ? 'По правилам допускается до пяти.' : 'По правилам допускается не больше пяти.'}</p>
+      <p class="muted">Результат: <b>${points}</b> — скорость минус ошибки.</p>
+      ${ok && cpm >= (state.records.radiogramCpm || 0) ? '<p class="muted">Это ваш лучший результат.</p>' : ''}
+    </div>
+    <div class="card">
+      <div class="eyebrow">Что было передано</div>
+      <div class="rg-review">${radiogramMarkup(result.cells)}</div>
+      <p class="muted hint"><span class="rg-wrong">так</span> — принято неверно,
+        <span class="rg-missed">так</span> — пропущено,
+        <span class="rg-extra">так</span> — лишнее.</p>
+    </div>
+    <div class="card">
+      <div class="eyebrow">Как записали вы</div>
+      <div class="rg-review plain">${esc(R.written.trim()) || '<span class="muted">пусто</span>'}</div>
+    </div>
+    ${ok && cpm < maxSpeed ? `<button class="btn" id="faster">Быстрее на 10 — ${RG.nextSpeed(cpm, maxSpeed)} зн/мин</button>` : ''}
+    <button class="btn secondary" id="again">Ещё раз на этой скорости</button>
+    <button class="linkbtn" id="leave">Выйти</button>`;
+  $('#back').addEventListener('click', radiogramExit);
+  $('#leave').addEventListener('click', radiogramExit);
+  $('#again').addEventListener('click', startRadiogram);
+  const f = $('#faster');
+  if (f) f.addEventListener('click', () => {
+    state.settings.radiogramCpm = RG.nextSpeed(cpm, maxSpeed);
+    persist();
+    startRadiogram();
+  });
 }
 
 // ——————————————————————————— Ключ (§7.3) ———————————————————————————
@@ -1043,6 +1360,7 @@ function renderCabinet() {
         <li><span>Дней подряд сейчас</span><span class="num">${state.streak.current}</span></li>
         <li><span>Лучший результат</span><span class="num">${state.streak.longest} дн.</span></li>
         <li><span>Всего в эфире</span><span class="num">${Math.round(state.totalSeconds / 60)} мин</span></li>
+        ${state.records.radiogramCpm ? `<li><span>Лучшая радиограмма</span><span class="num">${state.records.radiogramCpm} зн/мин</span></li>` : ''}
       </ul>
     </div>
     <div class="card"><div class="eyebrow">Занятия</div><ul class="list">${hist}</ul></div>
@@ -1060,6 +1378,18 @@ function renderCabinet() {
   $('#tosettings').addEventListener('click', () => go('settings'));
 }
 
+// Переключатель «включено/выключено». Раньше здесь стояли кнопки «Включить»/«Выключить»:
+// слова разной длины давали кнопки разной ширины, и колонка выглядела неровной. Тумблер
+// показывает состояние сам, читается с одного взгляда и не прыгает при переключении.
+// Зона нажатия крупная — это настройки для рук, которым за семьдесят.
+function toggleRow(id, label, on) {
+  return `<div class="rowflex">
+    <span id="${id}-label">${esc(label)}</span>
+    <button class="toggle" id="${id}" role="switch" aria-checked="${on ? 'true' : 'false'}"
+      aria-labelledby="${id}-label"><i></i></button>
+  </div>`;
+}
+
 // ——————————————————————————— Настройки ———————————————————————————
 // Отдельный экран, а не раздел «Журнала»: с форума написали, что выбор языка искали
 // и не нашли — он лежал в журнале успехов. Не всплывающее окно (его нужно закрывать)
@@ -1075,9 +1405,7 @@ function renderSettings() {
     </div>
     <div class="card">
       <div class="eyebrow">Кто в эфире</div>
-      <p class="muted hint">Имя — для приветствия на главной. Позывной звучит в упражнении
-         «Принять свой позывной»: он проигрывается целиком, как настоящая радиограмма.
-         Позывного нет — оставьте поле пустым, упражнение просто не появится.</p>
+      <p class="muted hint">Позывной звучит в упражнении «Принять свой позывной». Нет позывного — оставьте пустым.</p>
       <label for="s-name">Как к вам обращаться</label>
       <input type="text" id="s-name" maxlength="20" value="${esc(state.profile.name)}" autocomplete="off">
       <label for="s-call">Ваш позывной</label>
@@ -1086,8 +1414,7 @@ function renderSettings() {
     </div>
     <div class="card">
       <div class="eyebrow">Чему учимся</div>
-      <p class="muted hint">Это меняет сам курс: прогресс по русской и латинской азбуке
-         считается отдельно. В «Азбуке» переключатель показывает лишь таблицу и на курс не влияет.</p>
+      <p class="muted hint">Прогресс по каждой азбуке считается отдельно.</p>
       <div class="seg" style="margin-bottom:0">
         <button id="lang-ru" class="${s.alphabet === 'ru' ? 'active' : ''}">Русская азбука</button>
         <button id="lang-en" class="${s.alphabet === 'en' ? 'active' : ''}">Латинская (English)</button>
@@ -1108,20 +1435,10 @@ function renderSettings() {
     </div>
     <div class="card">
       <div class="eyebrow">Помощь при обучении</div>
-      <div class="rowflex">
-        <span>Напевы букв: <b>${s.showChants ? 'включены' : 'выключены'}</b></span>
-        <button class="btn secondary switch" id="chants">${s.showChants ? 'Выключить' : 'Включить'}</button>
-      </div>
-      <div class="rowflex">
-        <span>Вибрация при нажатии: <b>${s.vibration ? 'включена' : 'выключена'}</b></span>
-        <button class="btn secondary switch" id="vib">${s.vibration ? 'Выключить' : 'Включить'}</button>
-      </div>
-      <div class="rowflex">
-        <span>Звук после ответа: <b>${s.answerSound !== false ? 'включён' : 'выключен'}</b></span>
-        <button class="btn secondary switch" id="ansnd">${s.answerSound !== false ? 'Выключить' : 'Включить'}</button>
-      </div>
-      <p class="muted hint">Короткая трель «верно» и «мимо». Если она мешает слушать морзянку —
-         выключите: верный ответ всё равно подсвечивается зелёным.</p>
+      ${toggleRow('chants', 'Напевы букв', s.showChants)}
+      ${toggleRow('vib', 'Вибрация при нажатии', s.vibration)}
+      ${toggleRow('ansnd', 'Звук после ответа', s.answerSound !== false)}
+
     </div>
     <div class="card">
       <div class="eyebrow">Оформление</div>
@@ -1133,9 +1450,8 @@ function renderSettings() {
     </div>
     <div class="card">
       <div class="eyebrow">Резервная копия</div>
-      <p class="muted hint">Прогресс хранится в самом телефоне. «Сохранить копию» скачает файл
-         в папку загрузок — его стоит переслать себе на почту. Если телефон сменится,
-         этим файлом прогресс возвращается.</p>
+      <p class="muted hint">Прогресс хранится в телефоне. Копию стоит переслать себе на почту:
+         этим файлом он вернётся на новом телефоне.</p>
       <button class="btn secondary" id="backup">${ICON.save(24)} Сохранить копию</button>
       <button class="btn secondary" id="restore">${ICON.restore(24)} Восстановить из копии</button>
       <input type="file" id="file" accept="application/json" class="hidden">
@@ -1198,6 +1514,15 @@ function doRestore(e) {
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) {
     A.stopAll(); stopActiveClock();
+    // Передача прерывается вместе со звуком. Молчаливо оборванная радиограмма выглядела бы
+    // как «дальше ничего не передали» — а человек потом считал бы это своими ошибками.
+    if (currentTab === 'radiogram' && R && R.phase === 'receive') {
+      const note = $('#rg-note');
+      if (note) { note.textContent = 'Передача прервана: приложение сворачивали. Начните заново.'; note.className = 'muted center hint'; }
+      const bar = $('#rg-progress');
+      if (bar) { bar.style.transition = 'none'; bar.style.width = '0%'; }
+      if (R.stop) R.stop();
+    }
     if (currentTab === 'key') {
       clearKeyTimers();
       if (K) { K.holdStart = null; K.elements = []; K.holds = []; }

@@ -93,6 +93,7 @@ export const MILESTONES = {
   first4:    { id: 'first4',    title: 'Освоены первые 4 знака',         trigger: 'chars' },
   tenMin:    { id: 'tenMin',    title: '10 минут в эфире',               trigger: 'time' },
   callsign:  { id: 'callsign',  title: 'Принят на слух свой позывной',   trigger: 'event' },
+  radiogram: { id: 'radiogram', title: 'Принята контрольная радиограмма',  trigger: 'event' },
   allDigits: { id: 'allDigits', title: 'Освоены все цифры',              trigger: 'chars' },
   half:      { id: 'half',      title: 'Освоена половина алфавита',      trigger: 'chars' },
   full:      { id: 'full',      title: 'Освоен весь алфавит',            trigger: 'chars' },
@@ -116,6 +117,7 @@ export function checkMilestones(state, ctx = {}) {
   if ((track.learnedCount || 0) >= 16) grant('half');
   if ((track.learnedCount || 0) >= 32) grant('full');
   if (ctx.callsignReceived) grant('callsign');
+  if (ctx.radiogramAccepted) grant('radiogram');
   return newly;
 }
 

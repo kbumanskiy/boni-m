@@ -45,6 +45,11 @@ const CHECK_LAYOUT = () => {
     const named = (el) => {
       const aria = (el.getAttribute('aria-label') || '').trim();
       const title = (el.getAttribute('title') || '').trim();
+      // aria-labelledby — законный способ назвать элемент: имя берётся из чужого текста.
+      // Так подписаны тумблеры в настройках: подпись слева, сам переключатель справа.
+      const by = (el.getAttribute('aria-labelledby') || '').split(/\s+/).filter(Boolean)
+        .map((id) => document.getElementById(id)?.textContent.trim() || '').join(' ').trim();
+      if (by) return by;
       // Текст без учёта скрытого от диктора (aria-hidden) содержимого — иконки им помечены.
       const clone = el.cloneNode(true);
       clone.querySelectorAll('[aria-hidden="true"]').forEach((n) => n.remove());

@@ -24,9 +24,15 @@ export function defaultState() {
       // По умолчанию включён: у папы приложение уже так звучит, и менять это молча нельзя.
       answerSound: true,
       keyMode: 'train', // режим «Ключа»: 'train' (с подсказкой) | 'free' (свободный набор)
+      // Контрольная радиограмма: своя скорость (её крутят отдельно от учебной),
+      // вид текста и длительность захода.
+      radiogramCpm: 60, radiogramKind: 'letters', radiogramFull: false,
       theme: 'auto',    // оформление: 'auto' (как в телефоне) | 'light' | 'dark'
     },
     streak: { current: 0, longest: 0, lastActiveDate: null },
+    // Личные рекорды. Пока один: самая быстрая ПРИНЯТАЯ контрольная радиограмма —
+    // единственная величина, которую радист сравнивает с разрядными нормами.
+    records: { radiogramCpm: 0 },
     totalSeconds: 0,
     history: [],
     milestones: {},
@@ -85,7 +91,13 @@ export function migrate(raw) {
     s.settings.answerSound = r.answerSound !== false;
     s.settings.vibration = r.vibration !== false;
     s.settings.keyMode = r.keyMode === 'free' ? 'free' : 'train';
+    s.settings.radiogramCpm = clampNum(r.radiogramCpm, LIMITS.radiogramCpm.min, LIMITS.radiogramCpm.max, 60);
+    s.settings.radiogramKind = ['letters', 'digits', 'mixed'].includes(r.radiogramKind) ? r.radiogramKind : 'letters';
+    s.settings.radiogramFull = r.radiogramFull === true;
     s.settings.theme = ['light', 'dark'].includes(r.theme) ? r.theme : 'auto';
+  }
+  if (isObj(raw.records)) {
+    s.records.radiogramCpm = clampNum(raw.records.radiogramCpm, 0, LIMITS.radiogramCpm.max, 0);
   }
   // Серия дней
   if (isObj(raw.streak)) {
