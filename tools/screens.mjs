@@ -77,6 +77,18 @@ const SEED = {
 // с чьим-то настоящим позывным, а личный позывной папы на публичной странице не место.
 if (PUBLIC) SEED.profile = { name: 'Радист', callsign: 'DEMO', points: 148 };
 
+// Отдельным экранам нужно своё состояние. Менять его на странице бесполезно: при каждой
+// навигации initScript кладёт исходное обратно, — поэтому правим сам посев до запуска.
+const SEED_PATCH = {
+  callsign: (s) => {
+    s.progress.ru.learnedCount = 33;   // весь алфавит
+    s.progress.ru.digitsLearned = 10;  // и цифры — иначе упражнение закрыто
+    s.profile.callsign = PUBLIC ? 'DEMO/P' : 'RA9FLC/P';
+    delete s.milestones.callsign;      // веха ещё не получена — кнопка на главной видна
+    return s;
+  },
+};
+
 // Как дойти до каждого экрана. Возвращает функцию, которую выполняем на странице.
 const SCREENS = {
   home:    async () => {},
@@ -127,6 +139,14 @@ const SCREENS = {
       if (await page.locator('#nextbtn').count()) return;
       await page.waitForTimeout(500);
     }
+  },
+  // Упражнение «Свой позывной». Снимать обязательно: позывной берётся из профиля,
+  // и длина у него любая. Берём заведомо трудный — RA9FLC/P: восемь знаков, цифра
+  // и дробная черта (её проиграть нечем, она должна молча выпасть из радиограммы),
+  // а под ним — дорожка из восьми кодов, которой очень легко вылезти за край экрана.
+  callsign: async (page) => {
+    await page.click('#drill');
+    await page.waitForTimeout(300);
   },
   // Вердикт на «Ключе»: отстукиваем одну точку и ждём разбора.
   keyverdict: async (page) => {
@@ -182,9 +202,10 @@ for (const theme of ['light', 'dark']) {
     page.on('pageerror', (e) => errors.push(String(e)));
     // Онбординг показываем «чистому» состоянию, остальные экраны — с прогрессом.
     if (name !== 'onboarding') {
-      await ctx.addInitScript((seed) => {
-        localStorage.setItem('boni_m_state', JSON.stringify(seed));
-      }, SEED);
+      const seed = SEED_PATCH[name] ? SEED_PATCH[name](structuredClone(SEED)) : SEED;
+      await ctx.addInitScript((s) => {
+        localStorage.setItem('boni_m_state', JSON.stringify(s));
+      }, seed);
     }
     await ctx.addInitScript(CHECK_LAYOUT);
     INJECT_LINKS = WITH_LINKS.has(name);

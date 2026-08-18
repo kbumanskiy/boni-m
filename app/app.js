@@ -159,7 +159,17 @@ function pauseLabel(s) {
   const eff = clampEff(s.effWpm, s.charWpm);
   if (eff >= s.charWpm) return 'как в эфире';
   const times = Math.round((s.charWpm / eff) * 10) / 10;
-  return `длиннее в ${String(times).replace('.', ',')} раза`;
+  return `длиннее в ${String(times).replace('.', ',')} ${timesWord(times)}`;
+}
+
+// «в 2 раза», но «в 9 раз». После подъёма верхней скорости до 45 WPM отношение
+// доходит до девяти, и прежнее жёсткое «раза» стало бы читаться безграмотно —
+// как раз перед теми, кого мы зовём в тренажёр. Дробное всегда «раза» (в 7,5 раза).
+function timesWord(times) {
+  if (!Number.isInteger(times)) return 'раза';
+  const last = times % 10, tens = times % 100;
+  if (tens >= 11 && tens <= 14) return 'раз';
+  return last >= 2 && last <= 4 ? 'раза' : 'раз';
 }
 
 function wireSpeedSliders(onDone) {
@@ -1088,7 +1098,7 @@ function renderSettings() {
       <label for="tone">Высота тона <output class="num" id="tone-val">${s.toneHz} Гц</output></label>
       <input type="range" id="tone" min="${LIMITS.toneHz.min}" max="${LIMITS.toneHz.max}" step="10" value="${s.toneHz}">
       <label for="vol">Громкость</label>
-      <input type="range" id="vol" min="0.15" max="1" step="0.05" value="${Math.max(0.15, s.volume)}">
+      <input type="range" id="vol" min="${LIMITS.volume.min}" max="${LIMITS.volume.max}" step="0.05" value="${s.volume}">
     </div>
     <div class="card">
       <div class="eyebrow">Помощь при обучении</div>
