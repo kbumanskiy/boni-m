@@ -982,6 +982,17 @@ function clearKeyTimers() {
   K.gapTimer = K.spaceTimer = K.hintTimer = null;
 }
 
+// На телефоне ключ — это палец по площадке, и строка про клавиши там только мешает.
+// За компьютером наоборот: пробелом отстукивать удобнее, чем мышью, но сам собой он
+// не угадывается. matchMedia может отсутствовать (тесты, старые движки) — тогда просто молчим.
+// Показываем только в «Тренировке»: в «Свободно» уже есть подсказка «Пауза подольше — пробел»,
+// где то же слово значит другое — знак в строке, а не клавишу. Два смысла рядом сбивают.
+function spaceHintMarkup() {
+  let desktop = false;
+  try { desktop = !!globalThis.matchMedia?.('(hover: hover) and (pointer: fine)')?.matches; } catch {}
+  return desktop ? '<p class="muted center hint">Можно отбивать и клавишей Пробел</p>' : '';
+}
+
 function renderKey() {
   clearKeyTimers();
   if (K && K.detach) K.detach();
@@ -1014,7 +1025,7 @@ function renderKey() {
         </div>
         <button class="btn secondary" id="sample">${ICON.sound(24)} Послушать</button>
       </div>
-      <button type="button" class="keypad" id="pad" aria-label="Ключ: нажимайте и держите"><span class="keyout" id="keyout" aria-live="polite">Нажимайте и держите</span></button>
+      <button type="button" class="keypad" id="pad" aria-label="Ключ: нажимайте и держите"><span class="keyout" id="keyout" aria-live="polite">Нажимайте и держите</span></button>${spaceHintMarkup()}
       <div class="keyverdict" id="keychar" aria-live="polite"><div class="muted">Отстучите знак — разберём, что получилось</div></div>
       <button class="linkbtn" id="newtarget">Другой знак</button>${speedCtl}`;
     $('#sample').addEventListener('click', () => A.playCode(codeOf(K.target), { ...state.settings, charWpm: state.settings.keyWpm, effWpm: state.settings.keyWpm }, {}));
@@ -1064,12 +1075,49 @@ function renderKey() {
   const windowUp = () => { if (K && K.holdStart !== null) keyPadUp(); };
   window.addEventListener('pointerup', windowUp);
   window.addEventListener('pointercancel', windowUp);
+  // Пробел ловим на всём документе, а не только на площадке: после перехода на экран фокус
+  // на компьютере остаётся на кнопке нижнего меню, и до площадки нажатие не доходило — человек
+  // стучал в пустоту. Enter глобально НЕ перехватываем: им нажимают кнопки («Стереть»,
+  // «Послушать»), и отнять его — сломать управление с клавиатуры.
+  // «Полем ввода» считаем только то, где пробел набирает текст. Ползунок скорости —
+  // тоже INPUT, но пробел ему не нужен, а человек после подкрутки скорости сразу
+  // стучит дальше — отняв у него пробел «до клика мимо», мы бы сломали занятие.
+  const inField = (t) => !!t && (t.tagName === 'TEXTAREA' || t.isContentEditable
+    || (t.tagName === 'INPUT' && !['range', 'checkbox', 'radio', 'button'].includes(t.type)));
+  const spaceDown = (e) => {
+    if (e.code !== 'Space') return;
+    if (currentTab !== 'key' || !K || !$('#pad')) return; // страховка от гонки при уходе с экрана
+    if (inField(e.target)) return;                        // в поле ввода пробел остаётся пробелом
+    // preventDefault обязателен и при автоповторе: иначе страница прокручивается, а
+    // сфокусированная кнопка меню считается нажатой прямо во время передачи знака.
+    e.preventDefault();
+    if (!e.repeat) keyPadDown();
+  };
+  const spaceUp = (e) => {
+    if (e.code !== 'Space') return;
+    if (currentTab !== 'key' || !K || !$('#pad')) return;
+    if (inField(e.target)) return;
+    // Кнопку пробел активирует именно на keyup — без preventDefault «Стереть» стёрло бы строку,
+    // а «Другой знак» перерисовал бы экран посреди тире.
+    e.preventDefault();
+    keyPadUp();
+  };
+  document.addEventListener('keydown', spaceDown);
+  document.addEventListener('keyup', spaceUp);
+  // Зажатый пробел плюс Alt-Tab: keyup уходит уже в другое окно, и без этого тон звучал бы
+  // дальше, а площадка осталась бы вжатой.
+  window.addEventListener('blur', resetKeyHold);
   K.detach = () => {
     window.removeEventListener('pointerup', windowUp);
     window.removeEventListener('pointercancel', windowUp);
+    document.removeEventListener('keydown', spaceDown);
+    document.removeEventListener('keyup', spaceUp);
+    window.removeEventListener('blur', resetKeyHold);
   };
-  // С клавиатуры: пробел или Enter работают как нажатие и удержание. e.repeat отсекает
-  // автоповтор, иначе одно удержание превратилось бы в череду точек.
+  // С клавиатуры на самой площадке: пробел или Enter работают как нажатие и удержание.
+  // Вызов продублируется с глобальным слушателем — это безопасно, keyPadDown/keyPadUp
+  // идемпотентны. e.repeat отсекает автоповтор, иначе одно удержание превратилось бы
+  // в череду точек.
   pad.addEventListener('keydown', (e) => {
     if ((e.code === 'Space' || e.code === 'Enter') && !e.repeat) { e.preventDefault(); keyPadDown(); }
   });
@@ -1094,6 +1142,18 @@ function renderKeyLine() {
   el.innerHTML = K.line.text
     ? `${esc([...K.line.text].map(glyphText).join(''))}<span style="color:var(--accent)">▌</span>`
     : '<span class="muted">отстукивайте слово…</span>';
+}
+
+// Общий сброс зажатого ключа: и когда вкладку свернули, и когда окно потеряло фокус.
+// В обоих случаях отпускание клавиши до нас уже не дойдёт, а незакрытое нажатие — это
+// бесконечный тон и залипшая площадка.
+function resetKeyHold() {
+  if (currentTab !== 'key') return;
+  clearKeyTimers();
+  if (K) { K.holdStart = null; K.elements = []; K.holds = []; }
+  A.keyUp();
+  $('#pad')?.classList.remove('down');
+  setKeyout('·');
 }
 
 function keyPadDown() {
@@ -1523,13 +1583,8 @@ document.addEventListener('visibilitychange', () => {
       if (bar) { bar.style.transition = 'none'; bar.style.width = '0%'; }
       if (R.stop) R.stop();
     }
-    if (currentTab === 'key') {
-      clearKeyTimers();
-      if (K) { K.holdStart = null; K.elements = []; K.holds = []; }
-      // Иначе площадка остаётся визуально вжатой и «залипшей» после возврата.
-      $('#pad')?.classList.remove('down');
-      setKeyout('·');
-    }
+    // Иначе площадка остаётся визуально вжатой и «залипшей» после возврата.
+    resetKeyHold();
   }
   else if (currentTab === 'learn' || currentTab === 'key') {
     startActiveClock();

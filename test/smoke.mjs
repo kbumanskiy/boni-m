@@ -197,6 +197,49 @@ await sleep(750); // дождаться разбора знака (пауза к
 ok(document.querySelector('#keychar').textContent.trim().length > 0,
   'ключ: набор с клавиатуры разобран (автоповтор не сломал знак)');
 
+// 5в) Пробел должен работать СРАЗУ после перехода на экран: на компьютере фокус остаётся
+// на кнопке нижнего меню, до площадки нажатие не доходит. Поэтому диспатчим в document.body.
+const docKey = (type, code, repeat = false) =>
+  document.body.dispatchEvent(new window.KeyboardEvent(type, { code, repeat, bubbles: true, cancelable: true }));
+docKey('keydown', 'Space');
+ok(padTrain.classList.contains('down'), 'ключ: пробел работает без фокуса на площадке');
+docKey('keydown', 'Space', true); // автоповтор системы
+docKey('keydown', 'Space', true);
+await sleep(60);
+docKey('keyup', 'Space');
+ok(!padTrain.classList.contains('down'), 'ключ: пробел мимо площадки отпускает нажатие');
+await sleep(750);
+ok(document.querySelector('#keychar').textContent.trim().length > 0,
+  'ключ: знак с пробела мимо площадки разобран');
+
+// Пробел, набранный в ТЕКСТОВОМ поле, — это пробел, а не удар ключом. На «Ключе» таких
+// полей нет, поэтому для проверки поле создаётся на время. Ползунок скорости — не текстовое
+// поле: после подкрутки скорости пробел обязан бить по ключу дальше (см. ниже).
+const tmpField = document.createElement('input');
+tmpField.type = 'text';
+document.body.appendChild(tmpField);
+tmpField.dispatchEvent(new window.KeyboardEvent('keydown', { code: 'Space', bubbles: true, cancelable: true }));
+ok(!padTrain.classList.contains('down'), 'ключ: пробел в текстовом поле не бьёт по площадке');
+tmpField.dispatchEvent(new window.KeyboardEvent('keyup', { code: 'Space', bubbles: true, cancelable: true }));
+tmpField.remove();
+
+// А с фокусом на ползунке скорости пробел ключом БЫТЬ обязан: человек подкрутил
+// скорость и сразу стучит дальше — отнять у него пробел значит сломать занятие.
+const kspeedField = document.querySelector('#kspeed');
+kspeedField.dispatchEvent(new window.KeyboardEvent('keydown', { code: 'Space', bubbles: true, cancelable: true }));
+ok(padTrain.classList.contains('down'), 'ключ: пробел с фокусом на ползунке бьёт по площадке');
+kspeedField.dispatchEvent(new window.KeyboardEvent('keyup', { code: 'Space', bubbles: true, cancelable: true }));
+await sleep(750);
+
+// Потеря фокуса окном при зажатом пробеле (Alt-Tab): keyup уйдёт в чужое окно, поэтому
+// нажатие обязано сброситься само — иначе тон звучит бесконечно.
+docKey('keydown', 'Space');
+ok(padTrain.classList.contains('down'), 'ключ: пробел зажат перед потерей фокуса');
+window.dispatchEvent(new window.Event('blur'));
+ok(!padTrain.classList.contains('down'), 'ключ: уход из окна снимает залипшее нажатие');
+docKey('keyup', 'Space'); // «отпускание» после возврата уже ничего не ломает
+await sleep(750);
+
 // 5б) Ключ — режим «Свободно»: переключение, реальное отстукивание, авто-пробел, стирание
 click('.seg [data-m="free"]');
 await sleep(10);
@@ -221,6 +264,21 @@ ok(!document.querySelector('#text').textContent.includes('Е'), 'ключ: «С�
 document.querySelector('#clear').click();
 ok(true, 'ключ: «Очистить» отработало без ошибок');
 click('.seg [data-m="train"]');             // вернуть тренировочный режим
+
+// 5г) Уйдя с «Ключа», глобальный пробел обязан отцепиться: иначе он молча ломал бы
+// прокрутку и нажатие кнопок на всех остальных экранах.
+click('[data-tab="home"]');
+await sleep(10);
+const errorsBeforeSpace = errors.length;
+docKey('keydown', 'Space');
+docKey('keyup', 'Space');
+await sleep(10);
+ok(!document.querySelector('#pad'), 'ключ: экран покинут, площадки нет');
+ok(errors.length === errorsBeforeSpace,
+  'ключ: пробел вне экрана «Ключ» ничего не ломает');
+click('[data-tab="key"]'); await sleep(10);
+click('.seg [data-m="train"]');
+await sleep(10);
 
 // 6) Справочник + карточка знака + переключение алфавита
 click('[data-tab="ref"]');
