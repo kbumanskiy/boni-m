@@ -394,6 +394,10 @@ if (donateOn) {
   const card = document.querySelector('.support a.btn');
   ok(card && card.getAttribute('href') === DONATE_URL, 'журнал: кнопка доната ведёт на заданный адрес');
   ok(card && card.getAttribute('rel') === 'noopener', 'журнал: ссылка доната открывается безопасно');
+  // Подсказка ведёт к СБП, а не к карте: карта на телефоне из установленного приложения
+  // срывается на коде из СМС (письмо 11 сентября 2026, F7 в ДОРАБОТКИ.md).
+  const how = document.querySelector('.support .hint:last-child')?.textContent || '';
+  ok(/СБП/.test(how) && !/карта или СБП/.test(how), 'журнал: подсказка под кнопкой доната ведёт к СБП');
 }
 
 click('[data-tab="home"]');
