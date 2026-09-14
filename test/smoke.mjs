@@ -40,6 +40,14 @@ const click = (sel) => { const el = document.querySelector(sel); assert.ok(el, `
 const text = () => document.querySelector('#screen').textContent;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// Сеть заглушена: в JSDOM настоящий fetch Node ушёл бы на живой приёмник. Запоминаем,
+// что приложение пыталось отправить, — на этом держится проверка «наружу ничего лишнего».
+const sentOut = [];
+global.fetch = async (url, opts = {}) => {
+  sentOut.push({ url: String(url), body: String(opts.body || ''), keepalive: !!opts.keepalive });
+  return { ok: true, status: 200, json: async () => ({ ok: true }) };
+};
+
 await import('../app/app.js');
 await sleep(10);
 
@@ -346,6 +354,15 @@ await sleep(10);
 click('#vib'); // тумблер вибрации не падает
 click('#chants');
 ok(true, 'настройки: тумблеры работают');
+// Анонимная статистика: тумблер есть, по умолчанию включён, выключается и это запоминается.
+const statsBtn = document.querySelector('#stats');
+ok(statsBtn && statsBtn.getAttribute('aria-checked') === 'true', 'настройки: статистика по умолчанию включена');
+ok(text().includes('Без имени, позывного и прогресса'), 'настройки: сказано, что именно уходит');
+click('#stats');
+await sleep(10);
+ok(JSON.parse(localStorage.getItem('boni_m_state')).settings.metrics === false, 'настройки: статистику можно выключить');
+click('#stats');
+await sleep(10);
 
 // Главная жалоба с форума: скорость знака была зашита намертво и не менялась.
 const charSlider = document.querySelector('#lchar');
@@ -406,6 +423,36 @@ const line = document.querySelector('#support-line');
 ok(!!line === donateOn,
   donateOn ? 'главная: строка доната на месте' : 'главная: без адреса строки доната нет');
 if (donateOn) ok(line.getAttribute('href') === DONATE_URL, 'главная: строка доната ведёт на заданный адрес');
+
+// Анонимная статистика: сворачивание завершает занятие и шлёт событие; в нём нет ничего личного.
+const { METRICS_KEY } = await import('../app/js/metrics.js');
+const { PINGS_URL } = await import('../app/js/support.js');
+sentOut.length = 0;
+Object.defineProperty(document, 'hidden', { configurable: true, get: () => true });
+document.dispatchEvent(new window.Event('visibilitychange'));
+await sleep(20);
+const ping = sentOut.find((r) => r.url === PINGS_URL);
+ok(ping, 'статистика: при сворачивании уходит событие занятия');
+ok(ping.keepalive, 'статистика: запрос переживает выгрузку приложения (keepalive)');
+const pingBody = JSON.parse(ping.body);
+ok(Object.keys(pingBody).sort().join() === 'events,from,id', 'статистика: в отправке только номер, источник и события');
+ok(!ping.body.includes('Бонислав') && !ping.body.includes('callsign') && !ping.body.includes('progress'),
+  'статистика: ни имени, ни позывного, ни прогресса наружу не уходит');
+ok(JSON.parse(localStorage.getItem(METRICS_KEY)).queue.length === 0, 'статистика: после ответа сервера очередь пуста');
+Object.defineProperty(document, 'hidden', { configurable: true, get: () => false });
+document.dispatchEvent(new window.Event('visibilitychange'));
+await sleep(10);
+// Выключили — ничего не копится и не уходит.
+click('[data-tab="cabinet"]'); await sleep(10);
+click('#gear'); await sleep(10);
+click('#stats'); await sleep(10);
+sentOut.length = 0;
+Object.defineProperty(document, 'hidden', { configurable: true, get: () => true });
+document.dispatchEvent(new window.Event('visibilitychange'));
+await sleep(20);
+ok(!sentOut.some((r) => r.url === PINGS_URL), 'статистика: выключена — ничего не отправляется');
+ok(JSON.parse(localStorage.getItem(METRICS_KEY)).queue.length === 0, 'статистика: выключена — ничего не копится');
+Object.defineProperty(document, 'hidden', { configurable: true, get: () => false });
 
 assert.equal(errors.length, 0, 'необработанные ошибки: ' + errors.map(String).join(' | '));
 console.log(`\nДымовой тест пройден: ${pass} проверок, ошибок ${errors.length}`);

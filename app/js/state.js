@@ -28,6 +28,9 @@ export function defaultState() {
       // вид текста и длительность захода.
       radiogramCpm: 60, radiogramKind: 'letters', radiogramFull: false,
       theme: 'auto',    // оформление: 'auto' (как в телефоне) | 'light' | 'dark'
+      // Анонимная статистика (минуты занятия и номер установки, см. js/metrics.js).
+      // Включена по умолчанию, выключается одним касанием в настройках.
+      metrics: true,
     },
     streak: { current: 0, longest: 0, lastActiveDate: null },
     // Личные рекорды. Пока один: самая быстрая ПРИНЯТАЯ контрольная радиограмма —
@@ -95,6 +98,7 @@ export function migrate(raw) {
     s.settings.radiogramKind = ['letters', 'digits', 'mixed'].includes(r.radiogramKind) ? r.radiogramKind : 'letters';
     s.settings.radiogramFull = r.radiogramFull === true;
     s.settings.theme = ['light', 'dark'].includes(r.theme) ? r.theme : 'auto';
+    s.settings.metrics = r.metrics !== false;
   }
   if (isObj(raw.records)) {
     s.records.radiogramCpm = clampNum(raw.records.radiogramCpm, 0, LIMITS.radiogramCpm.max, 0);

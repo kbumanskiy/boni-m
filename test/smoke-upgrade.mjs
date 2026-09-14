@@ -62,6 +62,14 @@ const text = () => document.querySelector('#screen').textContent;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const saved = () => JSON.parse(window.localStorage.getItem('boni_m_state'));
 
+// Сеть заглушена: в JSDOM настоящий fetch Node ушёл бы на живой приёмник. Запоминаем,
+// что приложение пыталось отправить, — на этом держится проверка «наружу ничего лишнего».
+const sentOut = [];
+global.fetch = async (url, opts = {}) => {
+  sentOut.push({ url: String(url), body: String(opts.body || ''), keepalive: !!opts.keepalive });
+  return { ok: true, status: 200, json: async () => ({ ok: true }) };
+};
+
 await import('../app/app.js');
 await sleep(20);
 
@@ -81,6 +89,7 @@ const afterStart = saved();
 ok(afterStart.milestones.first4 === true, 'веха «первые 4 знака» доначислена при запуске');
 ok(afterStart.milestones.half === true, 'веха «половина алфавита» доначислена при запуске');
 ok(afterStart.settings.theme === 'auto', 'тема получила значение «как в телефоне»');
+ok(afterStart.settings.metrics === true, 'статистика: у старого состояния настройка появилась и включена');
 
 // 4) Первый ответ на занятии не приносит поздравлений за прошлые заслуги.
 document.querySelector('[data-tab="learn"]').click();

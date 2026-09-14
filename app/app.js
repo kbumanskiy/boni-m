@@ -11,7 +11,9 @@ import { ICON } from './js/icons.js';
 import { glyphKind, glyphText, glyphName } from './js/glyph.js';
 import { normalizeCallsign, callsignParts } from './js/callsign.js';
 import * as RG from './js/radiogram.js';
-import { donateUrl, feedbackUrl, validateFeedback, MESSAGE_MAX, CONTACT_MAX, NAME_MAX } from './js/support.js';
+import { donateUrl, feedbackUrl, pingUrl, validateFeedback, MESSAGE_MAX, CONTACT_MAX, NAME_MAX } from './js/support.js';
+import * as M from './js/metrics.js';
+import { APP_VERSION } from './js/version.js';
 
 let state = load();
 const persist = () => save(state);
@@ -1315,7 +1317,7 @@ function supportCard() {
     <img class="avatar big" src="assets/hero-radost.webp" alt="">
     <div class="eyebrow" style="margin-top:8px">Если пригодилось</div>
     <p>Приложение бесплатное и таким останется: без рекламы, без подписки
-       и без сбора данных. Если оно вам полезно — можно сказать спасибо
+       и без сбора личных данных. Если оно вам полезно — можно сказать спасибо
        переводом на любую сумму, которая вам удобна.</p>
     <p class="muted hint">Ничего не изменится, если вы этого не сделаете.</p>
     <a class="btn" href="${esc(url)}" target="_blank" rel="noopener">${ICON.heart(24)} Поддержать</a>
@@ -1499,7 +1501,12 @@ function renderSettings() {
       ${toggleRow('chants', 'Напевы букв', s.showChants)}
       ${toggleRow('vib', 'Вибрация при нажатии', s.vibration)}
       ${toggleRow('ansnd', 'Звук после ответа', s.answerSound !== false)}
-
+    </div>
+    <div class="card">
+      <div class="eyebrow">Анонимная статистика</div>
+      <p class="muted hint">Приложение сообщает автору только то, что его открывали и сколько
+         минут занимались. Без имени, позывного и прогресса.</p>
+      ${toggleRow('stats', 'Отправлять статистику', s.metrics !== false)}
     </div>
     <div class="card">
       <div class="eyebrow">Оформление</div>
@@ -1534,6 +1541,7 @@ function renderSettings() {
   $('#chants').addEventListener('click', () => { s.showChants = !s.showChants; persist(); renderSettings(); });
   $('#vib').addEventListener('click', () => { s.vibration = !s.vibration; persist(); renderSettings(); });
   $('#ansnd').addEventListener('click', () => { s.answerSound = s.answerSound === false; persist(); renderSettings(); });
+  $('#stats').addEventListener('click', () => { s.metrics = s.metrics === false; if (!s.metrics) statsOff(); persist(); renderSettings(); });
   $('#lang-ru').addEventListener('click', () => { s.alphabet = 'ru'; persist(); renderSettings(); });
   $('#lang-en').addEventListener('click', () => { s.alphabet = 'en'; persist(); renderSettings(); });
   ['auto', 'light', 'dark'].forEach((mode) => {
@@ -1571,9 +1579,61 @@ function doRestore(e) {
   reader.readAsText(file);
 }
 
+// ——————————————————————————— Анонимная статистика ———————————————————————————
+// Что уходит и почему — в app/js/metrics.js. Здесь только «когда»: занятие начинается
+// при открытии и при возврате из фона, заканчивается при сворачивании. Отправка —
+// при открытии, при появлении сети и в момент сворачивания: keepalive-запрос доживает,
+// даже если система тут же выгрузит приложение. Ответ не дошёл — событие уйдёт ещё раз
+// при следующем открытии, сервер склеит повтор по ключу.
+let mstats = M.loadMeta();
+let sessionStart = Date.now();
+let statsSending = false;
+
+function endSession() {
+  if (sessionStart == null) return;
+  const ev = M.sessionEvent({ start: sessionStart, end: Date.now(), version: APP_VERSION, day: M.localDay() });
+  sessionStart = null;
+  if (!M.metricsOn(state.settings)) return;
+  mstats = M.enqueue(M.ensureId(mstats), ev);
+  M.saveMeta(mstats);
+}
+
+async function sendStats() {
+  const url = pingUrl();
+  if (!url || statsSending || !M.metricsOn(state.settings)) return;
+  if (navigator.onLine === false) return;
+  const payload = M.buildPayload(mstats);
+  if (!payload) return;
+  statsSending = true;
+  try {
+    // text/plain — «простой» запрос без предварительного OPTIONS: при сворачивании
+    // второй запрос уже не успел бы. Сервер разбирает JSON из тела сам.
+    const res = await fetch(url, {
+      method: 'POST', headers: { 'content-type': 'text/plain' },
+      body: JSON.stringify(payload), keepalive: true,
+    });
+    if (res.ok) { mstats = M.dropSent(mstats, payload.events.map((e) => e.k)); M.saveMeta(mstats); }
+  } catch {
+    // Сети нет или сервер лёг — очередь останется в телефоне до следующего раза.
+  } finally {
+    statsSending = false;
+  }
+}
+
+// Выключили в настройках — накопленное тоже выбрасываем: слово «выключено» должно значить ровно это.
+function statsOff() {
+  mstats = { ...mstats, queue: [] };
+  M.saveMeta(mstats);
+}
+
+window.addEventListener('pagehide', () => { endSession(); sendStats(); });
+window.addEventListener('online', sendStats);
+setTimeout(sendStats, 3000); // не толкаться со стартом: сначала экран, потом отправка
+
 // ——————————————————————————— Системное ———————————————————————————
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) {
+    endSession(); sendStats();
     A.stopAll(); stopActiveClock();
     // Передача прерывается вместе со звуком. Молчаливо оборванная радиограмма выглядела бы
     // как «дальше ничего не передали» — а человек потом считал бы это своими ошибками.
@@ -1586,8 +1646,10 @@ document.addEventListener('visibilitychange', () => {
     }
     // Иначе площадка остаётся визуально вжатой и «залипшей» после возврата.
     resetKeyHold();
+    return;
   }
-  else if (currentTab === 'learn' || currentTab === 'key') {
+  if (sessionStart == null) sessionStart = Date.now();
+  if (currentTab === 'learn' || currentTab === 'key') {
     startActiveClock();
     // Сворачивание во время проигрывания обрывает звук и оставляет кнопки заблокированными —
     // переиграем текущий знак, чтобы занятие не «зависло».

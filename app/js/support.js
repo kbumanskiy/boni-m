@@ -18,6 +18,10 @@ export const DONATE_URL = 'https://pay.cloudtips.ru/p/6f4f40f4';
 // скачал, и токен увели бы за часы. Приёмник хранит токен у себя.
 export const FEEDBACK_URL = 'https://api.morse73.ru/feedback';
 
+// Куда уходит анонимная статистика (app/js/metrics.js). Тот же приёмник, второй вход.
+// Пусто — статистики нет вовсе, как и с остальными адресами.
+export const PINGS_URL = 'https://api.morse73.ru/ping';
+
 // Ограничения письма. Проверяются и здесь, и на сервере: браузеру верить нельзя,
 // а пользователю нужно сказать про предел до отправки, а не после.
 export const MESSAGE_MAX = 2000;
@@ -37,6 +41,10 @@ export function donateUrl(url = DONATE_URL) {
 }
 
 export function feedbackUrl(url = FEEDBACK_URL) {
+  return externalUrl(url);
+}
+
+export function pingUrl(url = PINGS_URL) {
   return externalUrl(url);
 }
 
