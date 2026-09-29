@@ -90,6 +90,13 @@ ok(afterStart.milestones.first4 === true, 'веха «первые 4 знака�
 ok(afterStart.milestones.half === true, 'веха «половина алфавита» доначислена при запуске');
 ok(afterStart.settings.theme === 'auto', 'тема получила значение «как в телефоне»');
 ok(afterStart.settings.metrics === true, 'статистика: у старого состояния настройка появилась и включена');
+// Радиоигра: прежняя сборка поля puzzle не знала — это старый пользователь, плитке
+// положена пометка «Новое». Колоды пусты, буквы и вехи не тронуты.
+ok(afterStart.puzzle && afterStart.puzzle.isNew === true, 'Радиоигра: у старого состояния пометка «Новое» (isNew)');
+ok(['word', 'msg', 'riddle', 'story'].every((c) => afterStart.puzzle[c].seen.length === 0
+  && afterStart.puzzle[c].solved.length === 0 && afterStart.puzzle[c].last === null), 'Радиоигра: колоды пусты');
+ok(afterStart.progress.ru.learnedCount === 20 && afterStart.progress.ru.perChar['Е'].total === 34,
+  'Радиоигра: буквы и статистика знаков на месте');
 
 // 4) Первый ответ на занятии не приносит поздравлений за прошлые заслуги.
 document.querySelector('[data-tab="learn"]').click();
@@ -154,6 +161,22 @@ ok(text().includes('Радиограмма принята'), 'радиограм
 ok(text().includes('Ошибок: 1') || text().includes('Ошибок:  1'), `радиограмма: ровно одна ошибка (${text().match(/Ошибок:\s*\d+/)?.[0]})`);
 ok(saved().records.radiogramCpm > 0, 'радиограмма: рекорд скорости записан');
 ok(saved().milestones.radiogram === true, 'радиограмма: веха за принятую радиограмму');
+
+// Радиоигра: после входа в режим пометка гаснет и не возвращается после перезапуска.
+// Экрана режима ещё нет (шаг 2), поэтому «вход» — запись isNew:false, а «перезапуск» —
+// повторная загрузка из хранилища тем же load(), что при старте приложения.
+{
+  const { load } = await import('../app/js/state.js');
+  const st = saved();
+  st.puzzle.isNew = false;
+  st.puzzle.word.solved = ['w01'];
+  window.localStorage.setItem('boni_m_state', JSON.stringify(st));
+  const again = load(window.localStorage);
+  ok(again.puzzle.isNew === false, 'Радиоигра: после входа и перезапуска пометки «Новое» нет');
+  ok(again.puzzle.word.solved[0] === 'w01', 'Радиоигра: разгаданное переживает перезапуск');
+  ok(again.milestones.first4 === true && again.milestones.radiogram === true
+    && again.progress.ru.learnedCount >= 20, 'Радиоигра: вехи и буквы на месте после перезапуска');
+}
 
 assert.equal(errors.length, 0, 'необработанные ошибки: ' + errors.map(String).join(' | '));
 console.log(`\nДымовой тест обновления пройден: ${pass} проверок, ошибок ${errors.length}`);

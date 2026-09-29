@@ -2,4 +2,4 @@
 // ничего не может (обычный worker), поэтому строка живёт в двух местах, а их
 // совпадение держит тест в test/metrics.test.js: разойдутся — тест упадёт.
 // Поднимать вместе: и здесь, и CACHE в app/sw.js.
-export const APP_VERSION = 'morse-v22';
+export const APP_VERSION = 'morse-v23';

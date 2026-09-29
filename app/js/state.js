@@ -1,6 +1,7 @@
 // Состояние и сохранность (ТЗ §2, §13). Ключ localStorage — boni_m_state.
 // Всё чтение/запись в try/catch; битый/отсутствующий state → дефолт; квота → работаем в памяти.
 import { clampEff, LIMITS } from './timing.js';
+import { puzzleFresh, puzzleClean } from './puzzle.js';
 
 export const STORAGE_KEY = 'boni_m_state';
 export const STATE_VERSION = 2;
@@ -39,6 +40,10 @@ export function defaultState() {
     totalSeconds: 0,
     history: [],
     milestones: {},
+    // Радиоигра (js/puzzle.js): колода на каждую категорию { seen, last, solved } —
+    // seen/last — текущий круг, solved — разгадано когда-либо; isNew — пометка «Новое»
+    // на плитке для тех, кто пользовался приложением до появления режима.
+    puzzle: puzzleFresh(),
   };
 }
 
@@ -131,6 +136,13 @@ export function migrate(raw) {
       if (/^[a-zA-Z0-9]{1,20}$/.test(k) && v === true) s.milestones[k] = true;
     }
   }
+  // Радиоигра: только id из каталога, без повторов (белый список живёт в puzzle.js).
+  // isNew считается по СЫРОМУ входу: прогресс есть, а поля puzzle нет — значит, человек
+  // пользовался приложением до появления режима, и плитке положена пометка «Новое».
+  // Чистая установка сюда не попадает вовсе (пустое хранилище → defaultState, isNew:false).
+  // Восстановление из копии, сделанной до обновления, вернёт пометку — это безобидно.
+  const oldUser = isObj(raw.progress) && raw.puzzle === undefined;
+  s.puzzle = puzzleClean(raw.puzzle, oldUser || (isObj(raw.puzzle) && raw.puzzle.isNew === true));
   s.version = STATE_VERSION;
   return s;
 }

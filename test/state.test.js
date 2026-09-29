@@ -115,3 +115,74 @@ test('выход за края всё ещё зажимается', () => {
   assert.equal(s.settings.keyWpm, LIMITS.keyWpm.min);
   assert.equal(s.settings.volume, LIMITS.volume.max);
 });
+
+// ——— Радиоигра: поле puzzle и пометка «Новое» (КОНЦЕПТ-викторина.md) ———
+const EMPTY_DECK = { seen: [], last: null, solved: [] };
+
+test('Радиоигра: старое состояние (прогресс есть, puzzle нет) → isNew, колоды пусты, остальное на месте', () => {
+  const old = {
+    version: 2,
+    profile: { name: 'Бонислав', callsign: 'Boney M', points: 148 },
+    progress: { ru: { learnedCount: 20, perChar: { 'Е': { correct: 31, total: 34 } } } },
+    settings: { charWpm: 20, effWpm: 10, theme: 'dark' },
+    milestones: { first10: true },
+  };
+  const s = migrate(old);
+  assert.equal(s.puzzle.isNew, true);
+  for (const c of ['word', 'msg', 'riddle', 'story']) assert.deepEqual(s.puzzle[c], EMPTY_DECK, c);
+  assert.equal(s.progress.ru.learnedCount, 20);
+  assert.deepEqual(s.progress.ru.perChar['Е'], { correct: 31, total: 34 });
+  assert.deepEqual(s.milestones, { first10: true });
+  assert.equal(s.settings.charWpm, 20);
+  assert.equal(s.settings.theme, 'dark');
+  assert.equal(s.version, 2, 'STATE_VERSION не поднимается');
+});
+
+test('Радиоигра: чистая установка → isNew:false', () => {
+  assert.equal(defaultState().puzzle.isNew, false);
+  assert.equal(load(mockStore()).puzzle.isNew, false);
+  // Состояние без прогресса (например, только настройки) — не «старый пользователь».
+  assert.equal(migrate({ settings: { theme: 'dark' } }).puzzle.isNew, false);
+  assert.equal(migrate(null).puzzle.isNew, false);
+});
+
+test('Радиоигра: isNew берётся из сохранённого, когда puzzle уже есть', () => {
+  assert.equal(migrate({ progress: {}, puzzle: { isNew: false } }).puzzle.isNew, false);
+  assert.equal(migrate({ progress: {}, puzzle: { isNew: true } }).puzzle.isNew, true);
+  assert.equal(migrate({ progress: {}, puzzle: { isNew: 'да' } }).puzzle.isNew, false);
+  assert.equal(migrate({ progress: {}, puzzle: 'мусор' }).puzzle.isNew, false);
+});
+
+test('Радиоигра: мусор в puzzle отбрасывается (чужие id, повторы, не-массивы, last вне каталога)', () => {
+  const s = migrate({
+    progress: {},
+    puzzle: {
+      word: { seen: ['w01', 'w01', 'm01', '<img onerror=x>', 7, 'w02'], last: 'w99', solved: ['w03', 'w03'] },
+      msg: { seen: 'm01', last: 'm05', solved: { m01: true } },
+      riddle: [1, 2, 3],
+      story: null,
+      evil: { seen: ['s01'] },
+      isNew: false,
+    },
+  });
+  assert.deepEqual(s.puzzle.word, { seen: ['w01', 'w02'], last: null, solved: ['w03'] });
+  assert.deepEqual(s.puzzle.msg, { seen: [], last: 'm05', solved: [] });
+  assert.deepEqual(s.puzzle.riddle, EMPTY_DECK);
+  assert.deepEqual(s.puzzle.story, EMPTY_DECK);
+  assert.deepEqual(Object.keys(s.puzzle), ['word', 'msg', 'riddle', 'story', 'isNew']);
+});
+
+test('Радиоигра: сохранение → загрузка сохраняет колоды и isNew:false', () => {
+  const store = mockStore(JSON.stringify({ progress: { ru: { learnedCount: 5 } } }));
+  const s = load(store);
+  assert.equal(s.puzzle.isNew, true, 'старый пользователь');
+  s.puzzle.isNew = false; // вошёл в режим
+  s.puzzle.word = { seen: ['w01', 'w07'], last: 'w07', solved: ['w01'] };
+  s.puzzle.story.solved.push('s03');
+  save(s, store);
+  const again = load(store);
+  assert.equal(again.puzzle.isNew, false, 'после перезапуска пометка не возвращается');
+  assert.deepEqual(again.puzzle.word, { seen: ['w01', 'w07'], last: 'w07', solved: ['w01'] });
+  assert.deepEqual(again.puzzle.story.solved, ['s03']);
+  assert.equal(again.progress.ru.learnedCount, 5);
+});
