@@ -103,7 +103,7 @@ a{color:var(--accent-text); text-underline-offset:3px;}
   color:var(--text-dim); font-size:18px; font-weight:600;}
 
 .screenbar{display:flex; align-items:center; justify-content:space-between; gap:12px; min-height:52px; margin-bottom:6px;}
-.screenbar .title{text-align:right; min-width:0;}
+.screenbar .title{text-align:left; min-width:0;}
 .screenbar .title b{display:block; font-size:21px; line-height:1.2;}
 .counter{font-size:17px; color:var(--text-dim);}
 
@@ -233,49 +233,98 @@ a{color:var(--accent-text); text-underline-offset:3px;}
 .minipics span.r{border-color:var(--ok); color:var(--ok); font-weight:650;}
 .minipics svg{width:48px; height:48px; color:var(--text);}
 
-/* ——— Где в приложении ——— */
-.variants{display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,360px),1fr)); gap:24px; margin-top:16px;}
-.vhead{margin-bottom:10px;}
-.vhead .badge{display:inline-block; font-size:17px; font-weight:700; border-radius:var(--r-pill); padding:3px 12px;
-  background:var(--ok); color:var(--on-ok); margin-left:6px; vertical-align:3px;}
-.vhead p{margin-top:6px; font-size:19px; color:var(--text-dim);}
-.phonebox{display:flex; justify-content:center;}
-.phone{position:relative; width:360px; flex:none; margin:10px 0 20px; background:var(--bg);}
-.phone .scr{padding:14px 16px 24px; pointer-events:none;}
-.phone .frame{position:absolute; top:-10px; left:-10px; right:-10px; height:800px; border:10px solid var(--text);
-  border-radius:36px; pointer-events:none; z-index:3;}
-.phone .below{position:absolute; top:790px; left:-10px; right:-10px; bottom:0; z-index:2;
-  background:color-mix(in srgb, var(--bg) 55%, transparent); border:2px dashed var(--line-strong); border-top:none; border-radius:0 0 24px 24px;}
-.phone .below span{position:absolute; left:50%; top:10px; transform:translateX(-50%); white-space:nowrap;
-  font-size:17px; font-weight:700; background:var(--text); color:var(--bg); padding:2px 12px; border-radius:var(--r-pill);}
-.mock-bar{display:flex; justify-content:flex-end; min-height:44px; margin-bottom:-8px;}
-.mock-bar span{display:inline-flex; align-items:center; min-height:48px; padding:8px 14px; border:1px solid var(--line);
-  border-radius:var(--r-sm); background:var(--surface); color:var(--text-dim);}
-.mock-hero{display:block; height:172px; width:auto; margin:4px auto 0;}
-.mock-greet{font-size:24px; font-weight:700; letter-spacing:-.015em; line-height:1.25; text-align:center; margin-top:2px;}
-.phone .card{margin:12px 0;}
-.phone .btn{margin:8px 0;}
-.mock-rank{font-size:27px; font-weight:700; letter-spacing:-.015em; line-height:1.2; margin-top:3px;}
+/* ——— Где в приложении: кликабельный макет телефона ———
+   Внутренний размер экрана — ровно 360×780, меню 74 точки, как в приложении
+   (app/style.css: #screen, .heroblock, nav#tabs). На узкой странице телефон
+   уменьшается целиком (zoom), чтобы вёрстка внутри оставалась как на настоящих 360. */
+.mphonebox{display:flex; justify-content:center;}
+.where-top{display:flex; flex-direction:column; gap:12px;}
+.who{max-width:420px; margin:4px auto 0; width:100%;}
+.who button{font-size:18px; line-height:1.2; padding:6px 8px;}
+.mphone{position:relative; width:360px; height:780px; margin:14px auto 0;
+  border:10px solid var(--text); border-radius:36px; box-sizing:content-box; overflow:hidden; background:var(--bg);}
+.mscr{position:absolute; inset:0; overflow-y:auto; overscroll-behavior:contain; padding:14px 16px 88px;}
+/* Полоса прокрутки на телефоне не занимает места — прячем, чтобы ширина экрана была честные 360. */
+.mscr{scrollbar-width:none;} .mscr::-webkit-scrollbar{display:none;}
+.mphone.nonav .mscr{padding-bottom:24px;}
+.mphone.nonav .mnav{display:none;}
+.mnav{position:absolute; left:0; right:0; bottom:0; height:74px; display:flex; gap:1px; z-index:2;
+  background:var(--surface); border-top:1px solid var(--line); box-shadow:0 -6px 24px rgba(0,0,0,.10); padding:6px 4px 4px;}
+.mnav button{flex:1 1 0; min-width:0; min-height:62px; border:none; background:none; color:var(--text-dim);
+  font-size:17px; line-height:1.1; padding:6px 1px; margin:0 1px; border-radius:14px; letter-spacing:-.04em;
+  display:flex; flex-direction:column; align-items:center; justify-content:center; gap:5px; position:relative;}
+.mnav button svg{width:27px; height:27px; display:block;}
+.mnav button.active{color:var(--accent-text); font-weight:700; background:var(--surface-2);}
+.mnav button.active::before{content:""; position:absolute; top:0; left:50%; transform:translateX(-50%);
+  width:26px; height:3px; border-radius:0 0 3px 3px; background:var(--accent);}
+
+/* Главная — те же размеры, что в приложении */
+.mhome .btn{margin:8px 0; padding:14px 22px;}
+.mhome .card{margin:12px 0;}
+.mbar{display:flex; justify-content:flex-end; min-height:44px; margin-bottom:-8px;}
+.mhero{position:relative; display:grid; place-items:center; padding-top:2px; margin-top:4px;}
+.mhero::before{content:""; position:absolute; left:50%; top:52%; transform:translate(-50%,-50%);
+  width:92%; aspect-ratio:1/1; border-radius:50%; background:radial-gradient(circle, var(--glow) 0%, transparent 68%);}
+.mhero img{position:relative; display:block; height:172px; width:auto; max-width:100%;}
+.mgreet{position:relative; font-size:24px; font-weight:700; letter-spacing:-.015em; line-height:1.25; text-align:center; margin-top:2px;}
+.mrank{font-size:27px; font-weight:700; letter-spacing:-.015em; line-height:1.2; margin-top:3px;}
 .ticks{display:flex; align-items:flex-end; gap:2px; height:24px; margin:10px 0 8px;}
 .ticks i{flex:1; height:50%; border-radius:2px; background:var(--tick-off);}
 .ticks i.on{height:100%; background:var(--accent);}
 .mstats{display:flex; gap:12px; border-top:1px solid var(--line); margin-top:13px; padding-top:12px;}
-.mstats div{flex:1; min-width:0;}
+.mstats > div{flex:1; min-width:0;}
+.mstats .eyebrow{white-space:nowrap;}
 .mstats b{display:block; font-family:var(--mono); font-size:30px; line-height:1.1; margin-top:4px;}
-.tile{display:grid; grid-template-columns:72px 1fr; gap:4px 12px; align-items:center; padding:14px; margin:12px 0;
-  border-radius:var(--r); border:2px solid var(--accent); background:var(--surface-2); box-shadow:var(--shadow);}
-.tile img{grid-row:1 / span 2; width:72px; height:auto;}
-.tile b{font-size:23px; line-height:1.15;}
-.tile .tsub{font-size:18px; color:var(--text-dim); line-height:1.3;}
-.tile .tcnt{grid-column:1 / -1; font-family:var(--mono); font-size:17px; color:var(--accent-text); font-weight:600; line-height:1.4; margin-top:6px;}
-.newmark{outline:3px dashed var(--accent); outline-offset:3px;}
-.mocknav{position:absolute; left:0; right:0; top:706px; height:74px; z-index:2; display:flex; gap:1px; align-items:center;
-  background:var(--surface); border-top:1px solid var(--line); box-shadow:0 -6px 24px rgba(0,0,0,.10); padding:6px 4px 0;}
-.mocknav span{flex:1 1 0; min-width:0; text-align:center; font-size:17px; color:var(--text-dim); letter-spacing:-.04em;
-  min-height:62px; display:flex; align-items:center; justify-content:center; border-radius:14px;}
-.mocknav span:first-child{color:var(--accent-text); font-weight:700; background:var(--surface-2);}
-.note{margin-top:22px; font-size:19px; line-height:1.5;}
-.note li{margin-top:6px;}
+
+/* Плитка режима: не ещё одна кнопка, а «место», куда входят */
+.mtile{display:grid; grid-template-columns:48px 1fr auto; gap:12px; align-items:center; width:100%;
+  margin:12px 0 8px; padding:12px 10px 12px 12px; text-align:left; border-radius:var(--r);
+  border:2px solid var(--accent); background:var(--surface-2); box-shadow:var(--shadow); color:var(--text);}
+.mt-ic{width:48px; height:48px; border-radius:14px; display:grid; place-items:center;
+  background:var(--accent); color:var(--on-accent);}
+.mt-body{display:flex; flex-direction:column; gap:2px; min-width:0;}
+.mt-body b{font-size:23px; line-height:1.15;}
+.mt-sub{font-size:18px; color:var(--text-dim); line-height:1.3;}
+.mt-cnt{font-family:var(--mono); font-size:17px; font-weight:650; color:var(--accent-text); margin-top:4px;
+  font-variant-numeric:tabular-nums;}
+.mt-go{color:var(--accent-text);}
+.pill-new{align-self:flex-start; font-family:var(--mono); font-size:17px; font-weight:700; letter-spacing:.14em;
+  text-transform:uppercase; line-height:1.2; padding:3px 10px 2px; border-radius:var(--r-pill);
+  background:var(--accent); color:var(--on-accent); margin-bottom:4px;}
+
+.msbar{display:flex; align-items:center; justify-content:space-between; gap:12px; min-height:52px; margin-bottom:10px;}
+.msbar h2{font-size:25px; min-width:0;}
+.mstub p{font-size:19px;}
+
+.fold{font-family:var(--mono); font-size:17px; color:var(--text-dim); text-align:center; margin:10px auto 0;
+  max-width:420px; line-height:1.4; font-variant-numeric:tabular-nums;}
+.fold b{color:var(--ok);}
+.fold b.no{color:var(--bad);}
+
+.whynote{margin-top:22px; font-size:19px; line-height:1.5;}
+.whynote li{margin-top:6px;}
+.rejects{display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap:16px; margin-top:12px;}
+.rejects .card{display:flex; flex-direction:column; gap:10px;}
+.rejects h3{font-size:21px;}
+.rejects p{font-size:18px; color:var(--text-dim);}
+/* Мини-схема главной в масштабе 1:3.5 */
+.mini{position:relative; width:104px; margin:0 auto; border:4px solid var(--text); border-bottom:none; border-radius:14px 14px 0 0;
+  background:var(--bg); display:flex; flex-direction:column; gap:3px; padding:5px 6px 0;}
+.mini .under{display:flex; flex-direction:column; gap:3px; opacity:.55; padding-bottom:6px;}
+.mini i{display:block; border-radius:3px; background:var(--line-strong); flex:none;}
+.mini i.acc{background:var(--accent);}
+.mini i.tile{background:var(--surface-2); border:2px solid var(--accent);}
+.mini .foldline{display:block; margin:1px -6px; height:0; border-top:3px dashed var(--bad);}
+.mini-legend{font-size:17px; color:var(--text-dim); text-align:center;}
+/* Настоящая полоса меню на шесть вкладок в натуральную величину */
+.nav6{display:flex; width:min(360px, 100%); margin:0 auto; background:var(--surface); border:1px solid var(--line);
+  border-radius:var(--r-sm); padding:6px 2px;}
+.nav6 span{flex:1 1 0; min-width:0; overflow:hidden; white-space:nowrap; text-align:center; font-size:17px;
+  letter-spacing:-.04em; color:var(--text-dim); padding:18px 0;}
+.nav6 span:last-child{color:var(--accent-text); font-weight:700;}
+
+.reveal .btn-row{flex-wrap:wrap;}
+.reveal .btn-row .btn{flex:1 1 auto; min-width:max-content;}
 
 @media (prefers-reduced-motion: reduce){
   *{transition:none !important;}
@@ -558,6 +607,9 @@ const ICON = {
   next: (s) => svg('<path d="M9.5 5.5 16 12l-6.5 6.5"/>', s),
   gear: (s) => svg('<circle cx="12" cy="12" r="3"/><path d="M10.4 2.9h3.2l.35 2.2 1.9.8 1.8-1.3 2.25 2.25-1.3 1.8.8 1.9 2.2.35v3.2l-2.2.35-.8 1.9 1.3 1.8-2.25 2.25-1.8-1.3-1.9.8-.35 2.2h-3.2l-.35-2.2-1.9-.8-1.8 1.3L3.4 18.15l1.3-1.8-.8-1.9-2.2-.35v-3.2l2.2-.35.8-1.9-1.3-1.8L5.65 4.6l1.8 1.3 1.9-.8z"/>', s),
   stop: (s) => svg('<rect x="7" y="7" width="10" height="10" rx="1.5"/>', s),
+  exit: (s) => svg('<path d="M14.5 5.5H18a1.5 1.5 0 0 1 1.5 1.5v10a1.5 1.5 0 0 1-1.5 1.5h-3.5"/><path d="M11 8.5 7.5 12l3.5 3.5"/><path d="M7.5 12h7"/>', s),
+  inbox: (s) => svg('<path d="M12 13.5V19"/><circle cx="12" cy="20.5" r="1.2" fill="currentColor" stroke="none"/><path d="M8.5 10a5 5 0 0 1 7 0"/><path d="M5.5 6.8a9.5 9.5 0 0 1 13 0"/>', s),
+  bubble: (s) => svg('<path d="M4.5 4.5h15A1.5 1.5 0 0 1 21 6v9.5a1.5 1.5 0 0 1-1.5 1.5H11l-4.5 3.5V17h-2A1.5 1.5 0 0 1 3 15.5V6a1.5 1.5 0 0 1 1.5-1.5z"/><circle cx="8" cy="10.75" r="1.4" fill="currentColor" stroke="none"/><path d="M11.5 10.75h5"/>', s),
 };
 const traceHTML = (code) => code.split('').map((c) => `<i class="${c === '.' ? 'dit' : 'dah'}"></i>`).join('<i class="g"></i>');
 const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
@@ -567,6 +619,11 @@ const ROUND = 5;
 let R = null;      // текущий раунд
 let view = 'cats';
 const $ = (sel) => document.querySelector(sel);
+// Игра рисуется либо во вкладке «Играть», либо в экране макета телефона («Где в приложении»).
+// Активен всегда один хозяин: второй при этом очищается, чтобы id на странице не задваивались.
+let HOST = 'play';
+const playEl = () => (HOST === 'mock' ? $('#m-scr') : $('#play'));
+function hostTop(){ if (HOST === 'mock'){ const s = $('#m-scr'); if (s) s.scrollTop = 0; } else window.scrollTo(0, 0); }
 
 function renderPlay(){
   stopAll();
@@ -576,10 +633,12 @@ function renderPlay(){
 }
 
 function renderCats(){
-  $('#play').innerHTML = `
+  playEl().innerHTML = `
+    ${HOST === 'mock' ? `<div class="msbar"><h2>Что передали?</h2>
+      <button class="iconbtn" id="mback">${ICON.exit(22)} Назад</button></div>` : ''}
     <div class="intro">
       <img src="${BONYA}" alt="">
-      <div><h2>Что передали?</h2>
+      <div>${HOST === 'mock' ? '' : '<h2>Что передали?</h2>'}
       <p class="muted">Боня передаст пять сообщений. Разберите и выберите ответ.</p></div>
     </div>
     <div class="cats">
@@ -592,6 +651,7 @@ function renderCats(){
     </div>
     <p class="hint">«12 из 30» — сколько разных вопросов разгадано хотя бы раз.</p>`;
   document.querySelectorAll('.cat').forEach((b) => b.addEventListener('click', () => startRound(b.dataset.cat)));
+  if (HOST === 'mock') $('#mback').addEventListener('click', () => mockGo('home'));
 }
 
 function startRound(cat){
@@ -608,7 +668,7 @@ function nextQuestion(){
           firstTry: true, slow: false, code: false, abc: false, playing: false, msg: 'Нажмите «Слушать».', msgKind: '' };
   view = 'q';
   renderPlay();
-  window.scrollTo(0, 0);
+  hostTop();
 }
 
 function renderQuestion(){
@@ -622,10 +682,10 @@ function renderQuestion(){
   const opts = R.cat === 'word'
     ? `<div class="pics" id="opts">${Q.opts.map((o, i) => `<button class="pic" data-o="${esc(o)}" aria-label="Картинка ${i + 1}" ${Q.wrong.includes(o) ? 'disabled' : ''}>${picSVG(o, 72)}</button>`).join('')}</div>`
     : `<div class="opts" id="opts">${Q.opts.map((o) => `<button class="opt" data-o="${esc(o)}" ${Q.wrong.includes(o) ? 'disabled' : ''}>${esc(o)}</button>`).join('')}</div>`;
-  $('#play').innerHTML = `
+  playEl().innerHTML = `
     <div class="screenbar">
-      <button class="iconbtn" id="back">${ICON.back(22)} Назад</button>
       <div class="title"><b>${cat.name}</b><span class="counter">${R.shown.length} из ${ROUND}</span></div>
+      <button class="iconbtn" id="back">${ICON.exit(22)} Назад</button>
     </div>
     <p class="question">${esc(q.q)}</p>
     <div class="lamp" id="lamp" aria-hidden="true"></div>
@@ -731,7 +791,7 @@ function revealHTML(){
 }
 function renderEnd(){
   const n = R.results.filter(Boolean).length;
-  $('#play').innerHTML = `
+  playEl().innerHTML = `
     <div class="card endcard">
       <div class="eyebrow">${catById(R.cat).name}</div>
       <h2 style="margin-top:6px">Раунд пройден</h2>
@@ -745,7 +805,7 @@ function renderEnd(){
       <button class="btn secondary" id="tocats">К категориям</button>
     </div>`;
   $('#again').addEventListener('click', () => startRound(R.cat));
-  $('#tocats').addEventListener('click', () => { view = 'cats'; renderPlay(); });
+  $('#tocats').addEventListener('click', () => { view = 'cats'; renderPlay(); hostTop(); });
 }
 
 // ——— Настройки ———
@@ -846,84 +906,196 @@ function resetListButtons(){
 }
 
 // ═════════════════════ Где в приложении ═════════════════════
+// Кликабельный макет рекомендованного варианта: блок «Чем займёмся» наверху главной.
+// Главная повторяет приложение по размерам (app/app.js renderHome, app/style.css),
+// режим внутри — та же игра, что во вкладке «Играть».
+const NAV = [
+  ['home', 'Главная', '<path d="M3 11.5 12 4l9 7.5"/><path d="M5.5 10V20h13V10"/>'],
+  ['learn', 'Учиться', '<path d="M4 14v-2a8 8 0 0 1 16 0v2"/><rect x="3.5" y="13.5" width="3.6" height="6" rx="1.6"/><rect x="16.9" y="13.5" width="3.6" height="6" rx="1.6"/>'],
+  ['key', 'Ключ', '<circle cx="12" cy="12" r="2"/><path d="M8.5 8.5a5 5 0 0 0 0 7"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M5.8 5.8a9 9 0 0 0 0 12.4"/><path d="M18.2 5.8a9 9 0 0 1 0 12.4"/>'],
+  ['ref', 'Азбука', '<path d="M4 5.5A1.5 1.5 0 0 1 5.5 4H17a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1H5.5A1.5 1.5 0 0 1 4 17.5z"/><path d="M8 8.5h6M8 11.5h6"/>'],
+  ['cabinet', 'Журнал', '<rect x="5" y="3.5" width="14" height="17" rx="2"/><path d="M8.5 8h7M8.5 11.5h7M8.5 15h4"/>'],
+];
+const PERSONA = {
+  papa: { name: 'Boney\u00a0M', rank: 'Уверенный оператор', learned: 21, streak: 12, record: 30, radiogram: true },
+  newbie: { name: 'Иван', rank: 'Стажёр эфира', learned: 4, streak: 1, record: 1, radiogram: false },
+};
+const STUB = {
+  learn: ['Учиться', 'Занятие по буквам — как сейчас в приложении.'],
+  key: ['Ключ', 'Передача ключом — как сейчас в приложении.'],
+  ref: ['Азбука', 'Таблица знаков — как сейчас в приложении.'],
+  cabinet: ['Журнал', 'Мои успехи. Добавится одна строка: «Что передали?: разгадано N из 120».'],
+  radiogram: ['Контрольная радиограмма', 'Упражнение как сейчас в приложении. Кнопка стоит на прежнем месте.'],
+  settings: ['Настройки', 'Настройки как сейчас в приложении.'],
+};
+const M = { who: 'papa', screen: 'home', isNew: true };
+const solvedTotal = () => CATS.reduce((n, c) => n + S.decks[c.id].solved.length, 0);
+
 function renderWhere(){
-  const ticks = Array.from({ length: 32 }, (_, i) => `<i class="${i < 21 ? 'on' : ''}"></i>`).join('');
-  const tile = `<div class="tile newmark">
-      <img src="${BONYA}" alt="">
-      <b>Что передали?</b>
-      <span class="tsub">Боня передаёт — вы отгадываете ›</span>
-      <span class="tcnt">Слово 12/30 · Сообщение 5/30<br>Загадка 0/30 · История 3/30</span>
-    </div>`;
-  const phone = (variant) => `
-    <div class="phonebox"><div class="phone" data-phone aria-label="Макет главного экрана, вариант ${variant}">
-      <div class="scr">
-        <div class="mock-bar"><span>${ICON.gear(22)}</span></div>
-        <img class="mock-hero" src="${ZAST}" alt="">
-        <div class="mock-greet">Здравствуйте, Boney M!</div>
-        <div class="card">
-          <div class="eyebrow">Звание</div>
-          <div class="mock-rank">Уверенный оператор</div>
-          <div class="ticks">${ticks}</div>
-          <div class="muted" style="font-size:19px">Освоено: 21 из 32</div>
-          <div class="mstats"><div><div class="eyebrow">Дней подряд</div><b>12</b></div><div><div class="eyebrow">Рекорд</div><b>30</b></div></div>
-        </div>
-        <div class="btn">Продолжить обучение</div>
-        ${variant === 'Б' ? tile : ''}
-        <div class="btn secondary">Повторение пройденного</div>
-        ${variant === 'А' ? tile : ''}
-        <div class="linkbtn">Поддержать проект</div>
-      </div>
-      <div class="mocknav"><span>Главная</span><span>Учиться</span><span>Ключ</span><span>Азбука</span><span>Журнал</span></div>
-      <div class="frame"></div>
-      <div class="below"><span>ниже — только после прокрутки</span></div>
-    </div></div>`;
   $('#where').innerHTML = `
-    <div class="col">
+    <div class="col where-top">
       <h2>Где режим будет в приложении</h2>
-      <p class="muted" style="margin-top:6px">Своя карточка на главном экране, с портретом Бони и счётчиками. Нижнее меню не меняется: шестая вкладка не влезает при крупном шрифте. Ниже два места для карточки. Макет в натуральную величину телефона 360×780 точек, не нажимается, цифры в нём для примера.</p>
-    </div>
-    <div class="variants">
-      <div>
-        <div class="vhead"><h3>Вариант А <span class="badge">рекомендую</span></h3>
-          <p>Под «Повторением пройденного». Главной кнопкой остаётся «Продолжить обучение». Карточка видна только после прокрутки.</p></div>
-        ${phone('А')}
-      </div>
-      <div>
-        <div class="vhead"><h3>Вариант Б</h3>
-          <p>Сразу под «Продолжить обучение». Над нижним меню виден верх карточки, остальное — после прокрутки. «Повторение» уезжает вниз.</p></div>
-        ${phone('Б')}
+      <p class="muted">Предлагаю блок «Чем займёмся» наверху главной: «Продолжить обучение», прямо под ней плитка «Что передали?», затем «Повторение». Карточка звания опускается под кнопки. Нижнее меню не меняется.</p>
+      <p class="muted">Макет нажимается: плитка ведёт в режим, «Назад» возвращает, вкладки меню переключаются. Экран телефона 360×780 точек, его можно прокручивать.</p>
+      <div class="seg who" role="group" aria-label="Чей телефон">
+        <button id="who-papa" aria-pressed="true">Папа, давно занимается</button>
+        <button id="who-newbie" aria-pressed="false">Новичок, первый день</button>
       </div>
     </div>
-    <div class="col note">
-      <p><b>Что решить:</b> какое место лучше (открытый вопрос 3 в концепте).</p>
+    <div class="mphonebox"><div class="mphone" id="m-phone" aria-label="Макет телефона">
+      <div class="mscr" id="m-scr"></div>
+      <nav class="mnav" id="m-nav" aria-label="Нижнее меню макета">
+        ${NAV.map(([id, label, path]) => `<button data-mtab="${id}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${path}</svg>${label}</button>`).join('')}
+      </nav>
+    </div></div>
+    <p class="fold" id="m-fold" aria-live="polite"></p>
+    <div class="col whynote">
+      <h3>Почему так</h3>
       <ul>
-        <li>Снято с настоящей главной на телефоне 360×780: «Продолжить обучение» кончается чуть выше нижнего меню, а «Повторение пройденного» уже под ним.</li>
-        <li>Когда на главной есть «Контрольная радиограмма» или «Принять свой позывной», всё ниже опускается ещё на кнопку.</li>
-        <li>Целиком без прокрутки карточку не видно ни в одном варианте. В варианте Б над меню выглядывает её верх, но только пока на главной нет дополнительных кнопок.</li>
-        <li>Нажатие на карточку откроет выбор категории — тот экран, что во вкладке «Играть».</li>
+        <li>Сейчас на телефоне 360×780 у папы (весь алфавит, открыта радиограмма) даже «Продолжить обучение» частично уходит под нижнее меню. Место съедают портрет и карточка звания, на них не нажимают.</li>
+        <li>Карточка опускается на одну прокрутку. Зато «Продолжить обучение» и плитка видны сразу целиком, «Повторение» — у самого края меню.</li>
+        <li>Меню, радиограмма, позывной и «Повторение» остаются на своих местах и в прежнем порядке.</li>
+        <li>«Новое» — пометка на самой плитке, без окон. Гаснет после первого входа в режим. Новичку её не показываем: для него новое всё приложение.</li>
+        <li>Внутри режима меню спрятано, «Назад» справа вверху, как в контрольной радиограмме.</li>
       </ul>
+      <h3 style="margin-top:22px">Что отклонено</h3>
+      <div class="rejects">
+        <div class="card">
+          <h3>Плитка внизу главной</h3>
+          <div class="mini" aria-label="Схема: плитка ниже края экрана">
+            <i style="height:14px;width:30%;margin-left:auto"></i><i style="height:48px;width:50%;margin:0 auto"></i>
+            <i style="height:10px"></i><i style="height:66px;background:var(--surface);border:1px solid var(--line-strong)"></i>
+            <i style="height:20px"></i><i class="acc" style="height:18px"></i>
+            <span class="foldline"></span>
+            <span class="under"><i style="height:20px"></i><i class="tile" style="height:40px"></i></span>
+          </div>
+          <p class="mini-legend">красный пунктир — начало меню; плитка в рамке ниже</p>
+          <p>Прежний концепт. Плитка оказывается ниже края, её видно только после прокрутки, а у папы даже «Продолжить обучение» уже под меню.</p>
+        </div>
+        <div class="card">
+          <h3>Своя вкладка в меню</h3>
+          <div class="nav6" aria-label="Меню на шесть вкладок в натуральную величину"><span>Главная</span><span>Учиться</span><span>Ключ</span><span>Азбука</span><span>Журнал</span><span>Что передали?</span></div>
+          <p>Шесть вкладок в натуральную величину. Подписи обрезаются, а «Что передали?» не влезает совсем. Убрать «Ключ» или «Азбуку» значит переучивать папу.</p>
+        </div>
+      </div>
+      <p class="hint" style="margin-top:14px">Ещё рассмотрены: хаб «Упражнения» (лишнее нажатие, радиограмма уезжает глубже), нажимаемая реплика Бони у портрета (скрытое действие), вход после занятия в «Учиться» (там нет экрана «занятие окончено»). Разбор — в концепте, раздел «Место в интерфейсе».</p>
     </div>`;
-  fitPhones();
-}
-// На узком экране макет уменьшается целиком, чтобы край экрана оставался на своём месте.
-function fitPhones(){
-  document.querySelectorAll('[data-phone]').forEach((ph) => {
-    const avail = ph.parentElement.clientWidth || 380;
-    ph.style.zoom = String(Math.min(1, (avail - 4) / 380));
+  document.querySelectorAll('[data-mtab]').forEach((b) => b.addEventListener('click', () => mockGo(b.dataset.mtab)));
+  for (const w of ['papa', 'newbie']) $('#who-' + w).addEventListener('click', () => {
+    M.who = w; M.isNew = w === 'papa';
+    $('#who-papa').setAttribute('aria-pressed', String(w === 'papa'));
+    $('#who-newbie').setAttribute('aria-pressed', String(w === 'newbie'));
+    mockGo('home');
   });
+  mockRender();
+  fitPhone();
 }
-window.addEventListener('resize', fitPhones);
+
+function mockGo(screen){
+  stopAll();
+  if (screen === 'mode'){
+    M.isNew = false;           // пометка гаснет при первом входе
+    $('#play').innerHTML = ''; // единственный хозяин игры — макет
+    view = 'cats';
+  } else if (HOST === 'mock'){
+    HOST = 'play'; view = 'cats';
+  }
+  M.screen = screen;
+  mockRender();
+  const s = $('#m-scr'); if (s) s.scrollTop = 0;
+}
+
+function mockRender(){
+  const scr = $('#m-scr'), phone = $('#m-phone');
+  if (!scr) return;
+  const noNav = ['mode', 'radiogram', 'settings'].includes(M.screen);
+  phone.classList.toggle('nonav', noNav);
+  document.querySelectorAll('[data-mtab]').forEach((b) => {
+    const on = b.dataset.mtab === M.screen;
+    b.classList.toggle('active', on);
+    if (on) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
+  });
+  $('#m-fold').textContent = '';
+  if (M.screen === 'mode'){ HOST = 'mock'; renderPlay(); return; }
+  if (M.screen === 'home') return mockHome();
+  const [title, text] = STUB[M.screen];
+  const back = ['radiogram', 'settings'].includes(M.screen);
+  scr.innerHTML = `
+    <div class="msbar"><h2>${title}</h2>${back ? `<button class="iconbtn" id="m-back">${ICON.exit(22)} Назад</button>` : ''}</div>
+    <div class="card mstub"><p>${text}</p><p class="muted" style="margin-top:8px">В макете этот раздел не показан.</p></div>`;
+  if (back) $('#m-back').addEventListener('click', () => mockGo('home'));
+}
+
+function mockHome(){
+  const P = PERSONA[M.who], n = solvedTotal();
+  const ticks = Array.from({ length: 32 }, (_, i) => `<i class="${i < P.learned ? 'on' : ''}"></i>`).join('');
+  $('#m-scr').innerHTML = `<div class="mhome">
+    <div class="mbar"><button class="iconbtn" id="m-gear" aria-label="Настройки">${ICON.gear(22)}</button></div>
+    <div class="mhero"><img src="${ZAST}" alt=""></div>
+    <div class="mgreet">${M.who === 'papa' ? 'С возвращением' : 'Здравствуйте'}, ${P.name}!</div>
+    ${P.radiogram ? `<button class="btn secondary" id="m-radiogram">${ICON.inbox(24)} Контрольная радиограмма</button>` : ''}
+    <button class="btn" id="m-continue">Продолжить обучение</button>
+    <button class="mtile" id="m-puzzle">
+      <span class="mt-ic">${ICON.bubble(28)}</span>
+      <span class="mt-body">
+        ${M.isNew ? '<span class="pill-new">Новое</span>' : ''}
+        <b>Что передали?</b>
+        <span class="mt-sub">Боня передаёт — вы отгадываете</span>
+        ${n > 0 ? `<span class="mt-cnt">Разгадано ${n} из 120</span>` : ''}
+      </span>
+      <span class="mt-go">${ICON.next(26)}</span>
+    </button>
+    <button class="btn secondary" id="m-review">Повторение пройденного</button>
+    <div class="card">
+      <div class="eyebrow">Звание</div>
+      <div class="mrank">${P.rank}</div>
+      <div class="ticks" role="img" aria-label="Освоено ${P.learned} из 32 знаков">${ticks}</div>
+      <div class="muted" style="font-size:19px">Освоено: ${P.learned} из 32</div>
+      <div class="mstats"><div><div class="eyebrow">Дней подряд</div><b>${P.streak}</b></div><div><div class="eyebrow">Рекорд</div><b>${P.record}</b></div></div>
+    </div>
+  </div>`;
+  $('#m-puzzle').addEventListener('click', () => mockGo('mode'));
+  $('#m-continue').addEventListener('click', () => mockGo('learn'));
+  $('#m-review').addEventListener('click', () => mockGo('learn'));
+  $('#m-gear').addEventListener('click', () => mockGo('settings'));
+  if (P.radiogram) $('#m-radiogram').addEventListener('click', () => mockGo('radiogram'));
+  measureFold();
+  const img = $('#m-scr .mhero img');
+  if (img && !img.complete) img.addEventListener('load', measureFold, { once: true });
+}
+
+// Замер «первого экрана»: где кончаются «Продолжить» и плитка относительно меню (706 точек).
+function measureFold(){
+  const scr = $('#m-scr'), out = $('#m-fold');
+  if (!scr || M.screen !== 'home' || !$('#m-puzzle')) return;
+  // Масштаб телефона на узкой странице: переводим экранные точки обратно в точки телефона.
+  const k = $('#m-phone').getBoundingClientRect().width / 380 || 1;
+  const top0 = scr.getBoundingClientRect().top - scr.scrollTop * k;
+  const box = (id) => { const r = $(id).getBoundingClientRect(); return [Math.round((r.top - top0) / k), Math.round((r.bottom - top0) / k)]; };
+  const FOLD = 780 - 74, c = box('#m-continue'), t = box('#m-puzzle');
+  const mark = (b) => b[1] <= FOLD ? '<b>видна целиком</b>' : '<b class="no">уходит под меню</b>';
+  out.innerHTML = `Меню начинается с ${FOLD}. «Продолжить»: ${c[0]}–${c[1]}, ${mark(c)}. Плитка: ${t[0]}–${t[1]}, ${mark(t)}.`;
+}
 
 // ═════════════════════ Разделы ═════════════════════
+function fitPhone(){
+  const ph = $('#m-phone'); if (!ph) return;
+  const avail = ph.parentElement.clientWidth || 380;
+  ph.style.zoom = String(Math.min(1, avail / 380));
+  measureFold();
+}
+window.addEventListener('resize', fitPhone);
 const TABS = ['play', 'all', 'where'];
 function showTab(name){
   stopAll(); resetListButtons();
+  // Уходя из макета, возвращаем его на главную: игра снова живёт во вкладке «Играть».
+  if (name !== 'where' && HOST === 'mock'){ HOST = 'play'; view = 'cats'; M.screen = 'home'; }
   for (const t of TABS){
     $('#t-' + t).setAttribute('aria-selected', String(t === name));
     $('#tab-' + t).hidden = t !== name;
   }
   if (name === 'play') renderPlay();
-  if (name === 'where') fitPhones();
+  if (name === 'where'){ if (HOST === 'play' && M.screen === 'mode') M.screen = 'home'; mockRender(); fitPhone(); }
   try { localStorage.setItem(KEY + '-tab', name); } catch (e) {}
 }
 TABS.forEach((t) => $('#t-' + t).addEventListener('click', () => showTab(t)));
