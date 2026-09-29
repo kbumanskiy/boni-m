@@ -314,7 +314,12 @@ function onboardingStep2() {
     // ответу в викторине (иначе «Новая веха!» выпадала даже на неверный ответ новичка).
     G.checkMilestones(state, { triggers: ['chars'] });
     persist();
-    go('home');
+    // Кнопка обещает занятие — сразу в него, тем же путём, что «Продолжить обучение»
+    // на главной. Переход — прямо в обработчике касания: первый знак начинает звучать
+    // от этого же жеста, и звук на айфоне просыпается. Веха «первые 4 знака» записана
+    // выше молча, как и раньше: поздравление посреди первого знака не выпадет.
+    learnOpts.repetition = false;
+    go('learn');
   });
 }
 
@@ -327,6 +332,9 @@ function renderHome() {
   const rank = G.rankFor(learned, G.avgAccuracy(t));
   const greeted = state._greeted ? 'С возвращением' : 'Здравствуйте';
   state._greeted = true;
+  // Ещё ни разу не отвечал (и журнал пуст) — «Начать», а не «Продолжить», и повторять
+  // пока нечего. Признак — P.hasAnswered: пишется только настоящим ответом.
+  const fresh = !P.hasAnswered(t) && !state.history.length;
   const drill = G.callsignDrillAvailable(t, state.settings.alphabet, myCallsign()) && !state.milestones.callsign;
   const ticks = Array.from({ length: total },
     (_, i) => `<i class="${i < learned ? 'on' : ''}"></i>`).join('');
@@ -347,9 +355,9 @@ function renderHome() {
     <div class="greeting">${esc(greeted)}, ${esc(state.profile.name)}!</div>
     ${drill ? `<button class="btn secondary" id="drill">${ICON.inbox(24)} Принять свой позывной</button>` : ''}
     ${radiogramOpen() ? `<button class="btn secondary" id="radiogram">${ICON.inbox(24)} Контрольная радиограмма</button>` : ''}
-    <button class="btn" id="continue">Продолжить обучение</button>
+    <button class="btn" id="continue">${fresh ? 'Начать обучение' : 'Продолжить обучение'}</button>
     ${puzzleTile()}
-    <button class="btn secondary" id="review" ${learned < 1 ? 'disabled' : ''}>Повторение пройденного</button>
+    ${fresh ? '' : `<button class="btn secondary" id="review" ${learned < 1 ? 'disabled' : ''}>Повторение пройденного</button>`}
     <div class="card">
       <div class="eyebrow">Звание</div>
       <div class="rankline">${esc(rank)}</div>
@@ -363,7 +371,7 @@ function renderHome() {
     ${supportLine()}`;
   $('#continue').addEventListener('click', () => { learnOpts.repetition = false; go('learn'); });
   $('#puzzle').addEventListener('click', () => go('puzzle'));
-  $('#review').addEventListener('click', () => { learnOpts.repetition = true; go('learn'); });
+  if (!fresh) $('#review').addEventListener('click', () => { learnOpts.repetition = true; go('learn'); });
   if (drill) $('#drill').addEventListener('click', callsignDrill);
   if (radiogramOpen()) $('#radiogram').addEventListener('click', renderRadiogram);
   wireGear();

@@ -143,9 +143,11 @@ const NO_AUDIO = new Set(['puzzlecats', 'puzzleq', 'puzzleqwrong', 'puzzleqpics'
 // Главная на маленьком телефоне 360×780: «Продолжить обучение» и плитка Радиоигры
 // обязаны стоять целиком выше нижнего меню. Не ослаблять — чинить вёрстку.
 const FOLD = new Set(['homepapa360', 'homecall360', 'homenew360']);
+// Экраны с чистого листа — без посева прогресса.
+const CLEAN = new Set(['onboarding', 'onboardstart']);
 // Экраны режима снимаем тоже на 360 точек: самый тесный из телефонов, под который верстаем.
 const SMALL = { width: 360, height: 780 };
-const VIEWPORT = Object.fromEntries([...FOLD, ...NO_AUDIO].map((n) => [n, SMALL]));
+const VIEWPORT = Object.fromEntries([...FOLD, ...NO_AUDIO, 'onboardstart'].map((n) => [n, SMALL]));
 
 // Верный ответ на вопрос, который сейчас на экране: id берём из сохранённой колоды.
 async function rightAnswer(page, cat) {
@@ -179,6 +181,12 @@ const SCREENS = {
   settings: async (page) => { await page.click('[data-tab="cabinet"]'); await page.waitForTimeout(200);
                               await page.click('#gear'); await page.waitForTimeout(300); },
   onboarding: async () => {},
+  // Первый вход: знакомство → «Начать занятие» открывает само занятие на четырёх знаках
+  // (раньше — главную с «Продолжить обучение», хотя ни одного знака ещё не было).
+  onboardstart: async (page) => {
+    await page.fill('#name', 'Бонислав'); await page.click('#next'); await page.waitForTimeout(200);
+    await page.click('#start'); await page.waitForTimeout(900);
+  },
   // Вкладки «Азбуки»: цифры и знаки препинания. Их отсутствие здесь и было дырой в проверке —
   // обрезанный столбец жил на экранах, которые ни разу не снимались.
   refdigits: async (page) => { await page.click('[data-tab="ref"]'); await page.waitForTimeout(200);
@@ -319,20 +327,22 @@ async function foldCheck(page, name) {
       const r = e.getBoundingClientRect(); return { top: Math.round(r.top), bottom: Math.round(r.bottom) }; };
     return { nav: Math.round(document.querySelector('nav#tabs').getBoundingClientRect().top),
       cont: box('#continue'), tile: box('#puzzle'), review: box('#review'),
+      label: document.querySelector('#continue')?.textContent.trim(), hasReview: !!document.querySelector('#review'),
       drill: !!document.querySelector('#drill'), radiogram: !!document.querySelector('#radiogram'),
       pill: !!document.querySelector('#puzzle .pill-new'), scrollY: Math.round(scrollY) };
   });
   const out = [];
   const span = (b) => (b ? `${b.top}–${b.bottom}` : 'нет');
-  console.log(`    ↳ 360×780: меню с ${m.nav}; «Продолжить» ${span(m.cont)}; плитка ${span(m.tile)}; «Повторение» ${span(m.review)}`
+  console.log(`    ↳ 360×780: меню с ${m.nav}; «${m.label}» ${span(m.cont)}; плитка ${span(m.tile)}; «Повторение» ${span(m.review)}`
     + `${m.drill ? '; есть «Принять свой позывной»' : ''}${m.pill ? '; пометка «Новое»' : ''}`);
   if (m.scrollY !== 0) out.push(`замер первого экрана не с верха страницы (прокрутка ${m.scrollY})`);
-  if (!m.cont || m.cont.bottom > m.nav) out.push(`«Продолжить обучение» уходит под нижнее меню (${span(m.cont)}, меню с ${m.nav})`);
+  if (!m.cont || m.cont.bottom > m.nav) out.push(`кнопка обучения «${m.label}» уходит под нижнее меню (${span(m.cont)}, меню с ${m.nav})`);
   if (!m.tile || m.tile.bottom > m.nav) out.push(`плитка «Радиоигра» уходит под нижнее меню (${span(m.tile)}, меню с ${m.nav})`);
   // Состояние обязано быть тем, которое проверяем, — иначе зелёный замер ничего не значит.
-  const want = { homepapa360: { drill: false, radiogram: true, pill: true },
-    homecall360: { drill: true, radiogram: true, pill: true },
-    homenew360: { drill: false, radiogram: false, pill: false } }[name];
+  // Новичок до первого ответа: «Начать обучение» и без «Повторения» — повторять нечего.
+  const want = { homepapa360: { drill: false, radiogram: true, pill: true, label: 'Продолжить обучение', hasReview: true },
+    homecall360: { drill: true, radiogram: true, pill: true, label: 'Продолжить обучение', hasReview: true },
+    homenew360: { drill: false, radiogram: false, pill: false, label: 'Начать обучение', hasReview: false } }[name];
   for (const k of Object.keys(want)) if (m[k] !== want[k]) out.push(`состояние главной не то: ${k}=${m[k]}, ждали ${want[k]}`);
   return out;
 }
@@ -383,7 +393,7 @@ for (const theme of ['light', 'dark']) {
     const errors = [];
     page.on('pageerror', (e) => errors.push(String(e)));
     // Онбординг показываем «чистому» состоянию, остальные экраны — с прогрессом.
-    if (name !== 'onboarding') {
+    if (!CLEAN.has(name)) {
       const seed = SEED_PATCH[name] ? SEED_PATCH[name](structuredClone(SEED)) : SEED;
       await ctx.addInitScript((s) => {
         localStorage.setItem('boni_m_state', JSON.stringify(s));

@@ -49,6 +49,17 @@ export function ensureStarted(track) {
   return track;
 }
 
+// Отвечал ли человек хоть раз в этом алфавите. Признак «ещё не занимался» для главной:
+// до первого ответа там «Начать обучение» и нет «Повторения». Опора — счётчики perChar:
+// их пишет только recordAnswer, то есть настоящий ответ (открыть занятие и уйти не
+// считается — lastFirst и минуты при этом пишутся, поэтому на них не смотрим).
+// Больше четырёх открытых знаков — тоже «занимался»: так бывает только после ответов,
+// даже если счётчики когда-то потерялись.
+export function hasAnswered(track) {
+  if (openedCount(track) > START_SET_SIZE) return true;
+  return Object.values(track.perChar || {}).some((pc) => pc && pc.total > 0);
+}
+
 // Освежить отложенные: вернуть в ротацию тех, чей срок возврата наступил.
 function refreshParked(track) {
   const n = openedCount(track);
