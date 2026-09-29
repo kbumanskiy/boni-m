@@ -7,6 +7,7 @@ import { readFile } from 'node:fs/promises';
 import { mkdirSync } from 'node:fs';
 import { extname, join, normalize } from 'node:path';
 import { CHECK_LAYOUT } from './page-checks.mjs';
+import * as PZ from '../app/js/puzzle.js';
 
 const ROOT = new URL('../app/', import.meta.url).pathname;
 
@@ -93,6 +94,76 @@ const SEED_PATCH = {
     return s;
   },
 };
+
+// ——— Радиоигра ———
+// Колода подставляется так, чтобы выпал нужный вопрос: в круге «уже показаны» все,
+// кроме него. Так снимки повторяемы и берут самые трудные для вёрстки случаи.
+const forceQ = (s, cat, id) => {
+  s.puzzle = { isNew: false };
+  s.puzzle[cat] = { seen: PZ.idsOf(cat).filter((x) => x !== id), last: null, solved: [] };
+  return s;
+};
+// Папа: весь алфавит и цифры, открыта радиограмма, приложение стояло до обновления
+// (пометка «Новое»), веха позывного уже получена — разовой кнопки нет.
+const papa = (s) => {
+  s.progress.ru.learnedCount = 32; s.progress.ru.digitsLearned = 10;
+  s.milestones = { ...s.milestones, callsign: true };
+  s.puzzle = { isNew: true };
+  return s;
+};
+Object.assign(SEED_PATCH, {
+  homepapa360: papa,
+  // Та же главная с разовой кнопкой «Принять свой позывной»: самый тесный случай.
+  homecall360: (s) => { papa(s); delete s.milestones.callsign; return s; },
+  homecall: (s) => { papa(s); delete s.milestones.callsign; return s; },
+  // Новичок в первый день: четыре знака, ни серии, ни журнала, пометки «Новое» нет.
+  homenew360: (s) => {
+    s.profile = { ...s.profile, callsign: '', points: 0 };
+    s.progress.ru = { learnedCount: 4, digitsLearned: 0, parked: [], lastFirst: null, recent: [], perChar: {} };
+    s.streak = { current: 0, longest: 0, lastActiveDate: null };
+    s.totalSeconds = 0; s.history = []; s.milestones = { first4: true };
+    s.puzzle = { isNew: false };
+    return s;
+  },
+  puzzlecats: (s) => { s.puzzle = { isNew: false, word: { seen: [], last: null, solved: ['w01', 'w02', 'w05'] },
+    story: { seen: [], last: null, solved: ['s01'] } }; return s; },
+  puzzleq:      (s) => forceQ(s, 'riddle', 'r08'),   // самый длинный текст каталога
+  puzzleqwrong: (s) => forceQ(s, 'msg', 'm09'),      // самые длинные варианты «Сообщения»
+  puzzleqpics:  (s) => forceQ(s, 'word', 'w25'),
+  puzzlecode:   (s) => forceQ(s, 'story', 's15'),    // РАДИОЛЮБИТЕЛЬ — самое длинное слово
+  puzzlereveal: (s) => forceQ(s, 'word', 'w30'),
+  puzzlestory:  (s) => forceQ(s, 'story', 's05'),    // самый длинный рассказ Бони
+  puzzleend:    (s) => { s.puzzle = { isNew: false }; return s; },
+});
+
+// Экраны режима снимаются БЕЗ звука: иначе история в 30 знаков звучит полминуты на
+// каждый вопрос. Приложение без Web Audio считает сигнал прозвучавшим — как в JSDOM.
+const NO_AUDIO = new Set(['puzzlecats', 'puzzleq', 'puzzleqwrong', 'puzzleqpics', 'puzzlecode',
+  'puzzlereveal', 'puzzlestory', 'puzzleend']);
+// Главная на маленьком телефоне 360×780: «Продолжить обучение» и плитка Радиоигры
+// обязаны стоять целиком выше нижнего меню. Не ослаблять — чинить вёрстку.
+const FOLD = new Set(['homepapa360', 'homecall360', 'homenew360']);
+// Экраны режима снимаем тоже на 360 точек: самый тесный из телефонов, под который верстаем.
+const SMALL = { width: 360, height: 780 };
+const VIEWPORT = Object.fromEntries([...FOLD, ...NO_AUDIO].map((n) => [n, SMALL]));
+
+// Верный ответ на вопрос, который сейчас на экране: id берём из сохранённой колоды.
+async function rightAnswer(page, cat) {
+  const last = await page.evaluate((c) => JSON.parse(localStorage.getItem('boni_m_state')).puzzle[c].last, cat);
+  return PZ.qById(cat, last).right;
+}
+async function puzzleOpen(page, cat) {
+  await page.click('#puzzle'); await page.waitForTimeout(200);
+  await page.click(`.pz-cat[data-cat="${cat}"]`); await page.waitForTimeout(200);
+}
+async function puzzleListen(page) {
+  await page.click('#pz-listen'); await page.waitForSelector('#pz-opts button', { timeout: 5000 });
+}
+async function puzzleSolve(page, cat) {
+  await puzzleListen(page);
+  const right = await rightAnswer(page, cat);
+  await page.click(`#pz-opts button[data-o="${right}"]`); await page.waitForTimeout(200);
+}
 
 // Как дойти до каждого экрана. Возвращает функцию, которую выполняем на странице.
 const SCREENS = {
@@ -202,7 +273,88 @@ const SCREENS = {
     await page.click('[data-tab="learn"]'); await page.waitForTimeout(900);
     await page.click('#help'); await page.waitForTimeout(250);
   },
+  // Главная в трёх состояниях на телефоне 360×780 (см. FOLD).
+  homepapa360: async () => {},
+  homecall360: async () => {},
+  homecall: async () => {},   // то же на обычных 390 точках: круг света там шире
+  homenew360: async () => {},
+  // Радиоигра: категории, вопрос текстом и картинками, неверный ответ, точки-тире
+  // с азбукой, разгадка «Слова» и истории, итог раунда.
+  puzzlecats: async (page) => { await page.click('#puzzle'); await page.waitForTimeout(250); },
+  puzzleq: async (page) => { await puzzleOpen(page, 'riddle'); await puzzleListen(page); await page.waitForTimeout(150); },
+  puzzleqwrong: async (page) => {
+    await puzzleOpen(page, 'msg'); await puzzleListen(page);
+    const right = await rightAnswer(page, 'msg');
+    await page.click(`#pz-opts button:not([data-o="${right}"])`); await page.waitForTimeout(250);
+  },
+  puzzleqpics: async (page) => { await puzzleOpen(page, 'word'); await puzzleListen(page); await page.waitForTimeout(150); },
+  puzzlecode: async (page) => {
+    await puzzleOpen(page, 'story');
+    await page.click('#pz-code'); await page.waitForTimeout(150);
+    await page.click('#pz-abc'); await page.waitForTimeout(150);
+  },
+  puzzlereveal: async (page) => { await puzzleOpen(page, 'word'); await puzzleSolve(page, 'word'); },
+  puzzlestory: async (page) => { await puzzleOpen(page, 'story'); await puzzleSolve(page, 'story'); },
+  puzzleend: async (page) => {
+    await puzzleOpen(page, 'msg');
+    for (let i = 0; i < 5; i++) {
+      await puzzleListen(page);
+      // Две из пяти — со второй попытки: на итоге видны обе краски кружков.
+      if (i === 1 || i === 3) {
+        const right = await rightAnswer(page, 'msg');
+        await page.click(`#pz-opts button:not([data-o="${right}"])`); await page.waitForTimeout(100);
+      }
+      const right = await rightAnswer(page, 'msg');
+      await page.click(`#pz-opts button[data-o="${right}"]`); await page.waitForTimeout(100);
+      await page.click('#pz-next'); await page.waitForTimeout(150);
+    }
+  },
 };
+
+// Первый экран главной: где кончаются «Продолжить» и плитка относительно верхнего края меню.
+// Печатаем числа всегда — это замер для отчёта, а не только приговор.
+async function foldCheck(page, name) {
+  const m = await page.evaluate(() => {
+    const box = (sel) => { const e = document.querySelector(sel); if (!e) return null;
+      const r = e.getBoundingClientRect(); return { top: Math.round(r.top), bottom: Math.round(r.bottom) }; };
+    return { nav: Math.round(document.querySelector('nav#tabs').getBoundingClientRect().top),
+      cont: box('#continue'), tile: box('#puzzle'), review: box('#review'),
+      drill: !!document.querySelector('#drill'), radiogram: !!document.querySelector('#radiogram'),
+      pill: !!document.querySelector('#puzzle .pill-new'), scrollY: Math.round(scrollY) };
+  });
+  const out = [];
+  const span = (b) => (b ? `${b.top}–${b.bottom}` : 'нет');
+  console.log(`    ↳ 360×780: меню с ${m.nav}; «Продолжить» ${span(m.cont)}; плитка ${span(m.tile)}; «Повторение» ${span(m.review)}`
+    + `${m.drill ? '; есть «Принять свой позывной»' : ''}${m.pill ? '; пометка «Новое»' : ''}`);
+  if (m.scrollY !== 0) out.push(`замер первого экрана не с верха страницы (прокрутка ${m.scrollY})`);
+  if (!m.cont || m.cont.bottom > m.nav) out.push(`«Продолжить обучение» уходит под нижнее меню (${span(m.cont)}, меню с ${m.nav})`);
+  if (!m.tile || m.tile.bottom > m.nav) out.push(`плитка «Радиоигра» уходит под нижнее меню (${span(m.tile)}, меню с ${m.nav})`);
+  // Состояние обязано быть тем, которое проверяем, — иначе зелёный замер ничего не значит.
+  const want = { homepapa360: { drill: false, radiogram: true, pill: true },
+    homecall360: { drill: true, radiogram: true, pill: true },
+    homenew360: { drill: false, radiogram: false, pill: false } }[name];
+  for (const k of Object.keys(want)) if (m[k] !== want[k]) out.push(`состояние главной не то: ${k}=${m[k]}, ждали ${want[k]}`);
+  return out;
+}
+
+// Кнопки главной обязаны нажиматься по всей площади. Круг света за портретом шире самого
+// блока и однажды перехватывал касания у верхней кромки «Принять свой позывной» (390 точек):
+// снимок этого не показывает, а палец промахивается. Точки под нижним меню не проверяем.
+async function tapCheck(page) {
+  return page.evaluate(() => {
+    const navTop = document.querySelector('nav#tabs').getBoundingClientRect().top;
+    return ['#drill', '#radiogram', '#continue', '#puzzle', '#review'].flatMap((sel) => {
+      const e = document.querySelector(sel); if (!e) return [];
+      const r = e.getBoundingClientRect();
+      return [[r.left + 12, r.top + 3], [r.left + r.width / 2, r.top + 3], [r.right - 12, r.top + 3],
+        [r.left + r.width / 2, r.top + r.height / 2], [r.left + r.width / 2, r.bottom - 3]]
+        .filter(([, y]) => y > 0 && y < navTop)
+        .filter(([x, y]) => !e.contains(document.elementFromPoint(x, y)))
+        .map(([x, y]) => { const hit = document.elementFromPoint(x, y);
+          return `касание по ${sel} в (${Math.round(x)},${Math.round(y)}) уходит в ${hit ? hit.tagName.toLowerCase() + (hit.className ? '.' + hit.className : '') : 'пустоту'}`; });
+    });
+  });
+}
 
 let failures = 0;
 const want = process.argv.slice(2);
@@ -224,7 +376,7 @@ const browser = await launch();
 for (const theme of ['light', 'dark']) {
   for (const name of list) {
     const ctx = await browser.newContext({
-      viewport: { width: 390, height: 844 }, deviceScaleFactor: 2,
+      viewport: VIEWPORT[name] || { width: 390, height: 844 }, deviceScaleFactor: 2,
       colorScheme: theme, reducedMotion: 'no-preference',
     });
     const page = await ctx.newPage();
@@ -236,6 +388,9 @@ for (const theme of ['light', 'dark']) {
       await ctx.addInitScript((s) => {
         localStorage.setItem('boni_m_state', JSON.stringify(s));
       }, seed);
+    }
+    if (NO_AUDIO.has(name)) {
+      await ctx.addInitScript(() => { window.AudioContext = undefined; window.webkitAudioContext = undefined; });
     }
     await ctx.addInitScript(CHECK_LAYOUT);
     INJECT_LINKS = WITH_LINKS.has(name);
@@ -251,6 +406,17 @@ for (const theme of ['light', 'dark']) {
       ...await page.evaluate(() => checkLayout()),
       ...await page.evaluate(() => checkA11y()),
     ];
+    if (FOLD.has(name)) problems.push(...await foldCheck(page, name));
+    if (name.startsWith('home')) problems.push(...await tapCheck(page));
+    // Наложение заголовка на кнопки шапки: замер «за край экрана» его не видит.
+    problems.push(...await page.evaluate(() => [...document.querySelectorAll('#screen .screenbar')].flatMap((bar) => {
+      const h = bar.querySelector('h2'), act = bar.querySelector('.screenbar-actions, .iconbtn');
+      if (!h || !act) return [];
+      const range = document.createRange(); range.selectNodeContents(h);
+      const textRight = Math.max(...[...range.getClientRects()].map((r) => r.right));
+      const left = act.getBoundingClientRect().left;
+      return textRight > left + 1 ? [`заголовок «${h.textContent.trim()}» заходит под кнопки шапки (${Math.round(textRight)} > ${Math.round(left)})`] : [];
+    })));
     const scrollable = await page.evaluate(() => document.documentElement.scrollHeight > innerHeight + 4);
     if (scrollable) {
       await page.evaluate(() => scrollTo(0, document.documentElement.scrollHeight));

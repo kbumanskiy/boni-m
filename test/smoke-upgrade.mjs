@@ -162,20 +162,34 @@ ok(text().includes('Ошибок: 1') || text().includes('Ошибок:  1'), `�
 ok(saved().records.radiogramCpm > 0, 'радиограмма: рекорд скорости записан');
 ok(saved().milestones.radiogram === true, 'радиограмма: веха за принятую радиограмму');
 
-// Радиоигра: после входа в режим пометка гаснет и не возвращается после перезапуска.
-// Экрана режима ещё нет (шаг 2), поэтому «вход» — запись isNew:false, а «перезапуск» —
-// повторная загрузка из хранилища тем же load(), что при старте приложения.
+// Радиоигра: на главной у старого пользователя — пометка «Новое» на плитке. После входа
+// в режим она гаснет, в том числе после перезапуска. Буквы и вехи при этом на месте,
+// и никаких поздравлений за прошлые заслуги.
 {
+  document.querySelector('#leave').click(); // из разбора радиограммы — на главную
+  await sleep(30);
+  const tile = document.querySelector('#puzzle');
+  ok(tile && tile.querySelector('.pill-new')?.textContent.trim() === 'Новое', 'главная: на плитке «Радиоигра» пометка «Новое»');
+  ok(saved().puzzle.isNew === true, 'пока в режим не входили, isNew сохраняется');
+  tile.click();
+  await sleep(20);
+  ok(document.querySelectorAll('.pz-cat').length === 4, 'Радиоигра: вход с плитки — выбор категорий');
+  ok(saved().puzzle.isNew === false, 'Радиоигра: после входа isNew=false записан в хранилище');
+  document.querySelector('#back').click();
+  await sleep(20);
+  ok(document.querySelector('#puzzle') && !document.querySelector('#puzzle .pill-new'), 'главная: после входа пометки «Новое» нет');
+  ok(!document.querySelector('#overlay-root .overlay'), 'вход в режим и возврат не вызывают поздравлений');
+
   const { load } = await import('../app/js/state.js');
   const st = saved();
-  st.puzzle.isNew = false;
   st.puzzle.word.solved = ['w01'];
   window.localStorage.setItem('boni_m_state', JSON.stringify(st));
   const again = load(window.localStorage);
   ok(again.puzzle.isNew === false, 'Радиоигра: после входа и перезапуска пометки «Новое» нет');
   ok(again.puzzle.word.solved[0] === 'w01', 'Радиоигра: разгаданное переживает перезапуск');
   ok(again.milestones.first4 === true && again.milestones.radiogram === true
-    && again.progress.ru.learnedCount >= 20, 'Радиоигра: вехи и буквы на месте после перезапуска');
+    && again.progress.ru.learnedCount >= 20 && again.progress.ru.perChar['Е'].total >= 34,
+    'Радиоигра: вехи и буквы на месте после перезапуска');
 }
 
 assert.equal(errors.length, 0, 'необработанные ошибки: ' + errors.map(String).join(' | '));

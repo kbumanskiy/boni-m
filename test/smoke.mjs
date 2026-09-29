@@ -454,5 +454,148 @@ ok(!sentOut.some((r) => r.url === PINGS_URL), 'статистика: выклю�
 ok(JSON.parse(localStorage.getItem(METRICS_KEY)).queue.length === 0, 'статистика: выключена — ничего не копится');
 Object.defineProperty(document, 'hidden', { configurable: true, get: () => false });
 
+// 8) Радиоигра. Проверки — в конце файла намеренно: вставка в середину сдвигает порядок
+// остальных шагов (см. грабли в СТАТУС.md).
+{
+  const PZ = await import('../app/js/puzzle.js');
+  const saved = () => JSON.parse(localStorage.getItem('boni_m_state'));
+  const hidden = () => document.querySelector('#tabs').classList.contains('hidden');
+  const rightOf = (cat) => PZ.qById(cat, saved().puzzle[cat].last).right;
+  const optBtn = (o) => document.querySelector(`#pz-opts button[data-o="${o}"]`);
+
+  click('[data-tab="home"]'); await sleep(10);
+  const tile = document.querySelector('#puzzle');
+  ok(tile && tile.tagName === 'BUTTON', 'главная: плитка «Радиоигра» — настоящая кнопка');
+  ok(tile.getAttribute('aria-label').startsWith('Радиоигра'), 'главная: доступное имя плитки начинается с «Радиоигра»');
+  ok(!tile.querySelector('.pill-new'), 'главная: у чистой установки пометки «Новое» нет');
+  ok(!tile.textContent.includes('Разгадано'), 'главная: пока ничего не разгадано — счётчика нет');
+  // Порядок главной: «Продолжить» → плитка → «Повторение» → карточка звания.
+  const kids = [...document.querySelector('#screen').children];
+  const at = (sel) => kids.indexOf(document.querySelector(sel));
+  const rankCard = kids.find((el) => el.classList.contains('card') && el.textContent.includes('Звание'));
+  ok(at('#continue') < at('#puzzle') && at('#puzzle') < at('#review') && at('#review') < kids.indexOf(rankCard),
+    'главная: «Продолжить» → плитка → «Повторение» → звание');
+
+  // Ответы режима не трогают ни буквы, ни зачёт дня, ни очки, ни серию.
+  const snap = () => { const st = saved();
+    return JSON.stringify({ p: st.progress, h: st.history, s: st.streak, pts: st.profile.points, m: st.milestones }); };
+  const before = snap();
+  const secondsBefore = saved().totalSeconds;
+
+  click('#puzzle'); await sleep(10);
+  ok(hidden(), 'Радиоигра: на выборе категорий нижнее меню спрятано');
+  ok(document.querySelectorAll('.pz-cat').length === 4, 'Радиоигра: четыре категории');
+  ok(text().includes('Боня передаёт пять сообщений'), 'Радиоигра: вводная Бони');
+  ok(text().includes('0 из 30'), 'Радиоигра: счётчики категорий');
+  ok(document.querySelector('#gear') && document.querySelector('#back'), 'Радиоигра: шестерёнка и «Назад» в шапке');
+
+  click('.pz-cat[data-cat="msg"]'); await sleep(10);
+  ok(!document.querySelector('#pz-opts'), 'вопрос: до звука вариантов нет');
+  ok(document.querySelectorAll('.pz-cell').length === PZ.qById('msg', saved().puzzle.msg.last).text.replace(/ /g, '').length,
+    'вопрос: клеточек столько, сколько букв');
+  ok(!document.querySelector('.pz-ch').textContent, 'вопрос: клеточки пустые — ответ не подсмотреть');
+  click('#pz-listen'); await sleep(10);
+  ok(document.querySelectorAll('#pz-opts .pz-opt').length === 3, 'вопрос: после звука — три варианта');
+  ok(document.querySelector('#pz-listen').textContent.includes('Ещё раз'), 'вопрос: «Слушать» стало «Ещё раз»');
+  click('#pz-slow'); await sleep(5);
+  ok(document.querySelector('#pz-slow').getAttribute('aria-pressed') === 'true', 'вопрос: «Медленнее» включается');
+  click('#pz-code'); await sleep(5);
+  ok(document.querySelectorAll('.pz-cell .trace').length === document.querySelectorAll('.pz-cell').length,
+    'вопрос: «Показать точки-тире» — код под каждой клеточкой');
+  click('#pz-abc'); await sleep(5);
+  const letters = new Set(PZ.qById('msg', saved().puzzle.msg.last).text.replace(/ /g, ''));
+  ok(document.querySelectorAll('.pz-abc > div').length === letters.size, 'вопрос: азбука — только знаки этого сообщения');
+
+  // Неверный ответ: вариант гаснет, штрафа нет, можно выбрать снова.
+  const right0 = rightOf('msg');
+  const wrong0 = [...document.querySelectorAll('#pz-opts button')].find((b) => b.dataset.o !== right0);
+  wrong0.click(); await sleep(5);
+  ok(optBtn(wrong0.dataset.o).disabled, 'неверный вариант гаснет');
+  ok(document.querySelector('#pz-fb').textContent.includes('Не то'), 'неверно: «Не то. Послушайте ещё раз.»');
+  ok(!document.querySelector('.pz-reveal'), 'неверно: разгадки ещё нет — можно выбрать снова');
+  optBtn(right0).click(); await sleep(5);
+  ok(text().includes('Верно!'), 'разгадка на том же экране: «Верно!»');
+  ok(document.querySelector('.pz-ch').textContent.length === 1, 'разгадка: буквы проступили в клеточках');
+  ok(document.querySelector('#pz-relisten') && document.querySelector('#pz-next'), 'разгадка: «Послушать» и «Дальше»');
+
+  // Остальные четыре: один — до последнего оставшегося варианта, три — сразу верно.
+  for (let i = 1; i < 5; i++) {
+    click('#pz-next'); await sleep(5);
+    ok(!document.querySelector('#pz-opts'), `вопрос ${i + 1}: до звука вариантов нет`);
+    click('#pz-listen'); await sleep(5);
+    const right = rightOf('msg');
+    if (i === 2) {
+      for (const b of [...document.querySelectorAll('#pz-opts button')].filter((x) => x.dataset.o !== right)) {
+        b.click(); await sleep(5);
+      }
+      ok(text().includes('Остался один ответ'), 'два промаха — вопрос засчитан, показана разгадка');
+    } else {
+      optBtn(right).click(); await sleep(5);
+    }
+  }
+  ok(document.querySelector('#pz-next').textContent.includes('Итог раунда'), 'на пятом вопросе — «Итог раунда»');
+  click('#pz-next'); await sleep(5);
+  ok(text().includes('Раунд пройден'), 'итог раунда на экране, без окна');
+  ok(/С первой попытки\s*3 из 5/.test(text()), `итог: с первой попытки 3 из 5 (${text().match(/\d из 5/)?.[0]})`);
+  ok(document.querySelector('#pz-again') && document.querySelector('#pz-tocats'), 'итог: «Ещё раунд» и «К категориям»');
+  ok(snap() === before, 'Радиоигра не пишет в буквы, журнал, серию, очки и вехи');
+  ok(saved().puzzle.msg.solved.length === 5, 'разгаданное записано в колоду (5 из 30)');
+  ok(saved().puzzle.msg.seen.length === 5, 'показанные вопросы учтены в круге');
+  ok(saved().totalSeconds > secondsBefore, 'время раунда вошло во «время в эфире»');
+
+  click('#pz-tocats'); await sleep(5);
+  ok(document.querySelector('.pz-cat[data-cat="msg"]').textContent.includes('5 из 30'), 'категории: счётчик «5 из 30»');
+  click('#back'); await sleep(10);
+  ok(!hidden(), '«Назад» с категорий — на главную, меню снова видно');
+  ok(document.querySelector('#puzzle .mt-cnt')?.textContent.includes('Разгадано 5 из 120'), 'плитка: «Разгадано 5 из 120»');
+  ok(!document.querySelector('#puzzle .pill-new'), 'плитка: пометки «Новое» нет');
+
+  // Шестерёнка из вопроса и «Назад» из настроек: не пустой экран, а выбор категорий.
+  click('#puzzle'); await sleep(5);
+  click('.pz-cat[data-cat="word"]'); await sleep(5);
+  click('#pz-listen'); await sleep(5);
+  const pics = [...document.querySelectorAll('#pz-opts .pz-pic')];
+  ok(pics.length === 3 && pics.every((b) => /^Картинка \d$/.test(b.getAttribute('aria-label')) && !b.textContent.trim()),
+    '«Слово»: три картинки без подписей, для диктора — «Картинка N»');
+  click('#gear'); await sleep(5);
+  ok(text().includes('Настройки'), 'из режима открываются настройки');
+  click('#back'); await sleep(10);
+  ok(document.querySelectorAll('.pz-cat').length === 4 && hidden(), '«Назад» из настроек — выбор категорий режима, меню спрятано');
+
+  // «Назад» из вопроса — к категориям; сворачивание посреди вопроса — зовём послушать заново.
+  click('.pz-cat[data-cat="riddle"]'); await sleep(5);
+  click('#back'); await sleep(5);
+  ok(document.querySelectorAll('.pz-cat').length === 4, '«Назад» из вопроса — к категориям');
+  click('.pz-cat[data-cat="riddle"]'); await sleep(5);
+  Object.defineProperty(document, 'hidden', { configurable: true, get: () => true });
+  document.dispatchEvent(new window.Event('visibilitychange'));
+  await sleep(10);
+  Object.defineProperty(document, 'hidden', { configurable: true, get: () => false });
+  document.dispatchEvent(new window.Event('visibilitychange'));
+  await sleep(10);
+  ok(document.querySelector('#pz-fb').textContent === 'Нажмите «Слушать».', 'после сворачивания: «Нажмите «Слушать».»');
+  ok(!document.querySelector('#pz-opts'), 'после сворачивания варианты не открылись сами');
+  click('#back'); await sleep(5);
+  click('#back'); await sleep(5);
+  ok(!hidden() && document.querySelector('#continue'), 'вышли на главную');
+
+  click('[data-tab="cabinet"]'); await sleep(5);
+  ok(/Радиоигра: разгадано\s*5 из 120/.test(text()), 'журнал: «Радиоигра: разгадано 5 из 120»');
+
+  // Последним: звук не проснулся (айфон без касания). Модуль звука запоминает контекст,
+  // поэтому этот шаг обязан быть последним в файле.
+  window.AudioContext = class {
+    constructor() { this.state = 'suspended'; this.currentTime = 0; this.destination = {}; }
+    resume() { return new Promise(() => {}); }
+  };
+  click('[data-tab="home"]'); await sleep(5);
+  click('#puzzle'); await sleep(5);
+  click('.pz-cat[data-cat="word"]'); await sleep(5);
+  click('#pz-listen');
+  await sleep(1700);
+  ok(!document.querySelector('#pz-opts'), 'звук не проснулся — варианты не открываются');
+  ok(document.querySelector('#pz-fb').textContent === 'Нажмите «Слушать» ещё раз.', 'звук не проснулся — «Нажмите «Слушать» ещё раз.»');
+}
+
 assert.equal(errors.length, 0, 'необработанные ошибки: ' + errors.map(String).join(' | '));
 console.log(`\nДымовой тест пройден: ${pass} проверок, ошибок ${errors.length}`);

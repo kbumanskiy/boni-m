@@ -188,35 +188,60 @@ export function playCode(code, settings, { onFlash, onDone } = {}) {
   return () => stopAll();
 }
 
-// Проиграть последовательность знаков как радиограмму (для спецдрилла позывного §9).
-export function playSequence(chars, codeOf, settings, { onDone } = {}) {
+// Проиграть последовательность знаков как радиограмму (спецдрилл позывного §9,
+// контрольная радиограмма, Радиоигра). Пробел — пауза между словами.
+// onDone(played): true — прозвучало до конца (или Web Audio нет вовсе, как в playCode),
+// false — звук не проснулся (айфон будит его только по касанию).
+// onFlash(on) — тон пошёл / смолк, onChar(i|null) — начался i-й звучащий знак
+// (пробелы не считаются); оба в такт по часам аудио. Необязательны: прежние вызовы
+// их не передают и аргумент onDone не читают.
+export function playSequence(chars, codeOf, settings, { onDone, onFlash, onChar } = {}) {
   const c = ensureAudio();
-  if (!c) { if (onDone) onDone(); return () => {}; }
+  if (!c) { if (onDone) onDone(true); return () => {}; }
   stopAll();
   const mine = ++generation;
 
   whenRunning(c, (awake) => {
     if (mine !== generation) return;
-    if (!awake) { if (onDone) onDone(); return; }
+    if (!awake) { if (onFlash) onFlash(false); if (onDone) onDone(false); return; }
 
     const { toneHz = 600, volume = 0.5, charWpm = 18, effWpm = 9 } = settings;
     const tmg = charTiming(charWpm, effWpm);
     let t = c.currentTime + 0.1;
+    const events = []; // { time, on } — лампа; { time, ch } — начало знака
+    let li = -1;
     for (const ch of chars) {
       if (ch === ' ') { t += tmg.wordGap; continue; }
       const code = codeOf(ch);
       if (!code) continue;
+      li++;
+      events.push({ time: t, ch: li });
       const sched = codeToSchedule(code, charWpm, effWpm);
       for (const seg of sched) {
-        if (seg.tone) scheduleTone(t, seg.dur, toneHz, volume);
+        if (seg.tone) {
+          scheduleTone(t, seg.dur, toneHz, volume);
+          events.push({ time: t, on: true }, { time: t + seg.dur, on: false });
+        }
         t += seg.dur;
       }
       t += tmg.charGap;
     }
     const endTime = t;
+    events.sort((a, b) => a.time - b.time);
+    let idx = 0;
     const check = () => {
       if (mine !== generation) return;
-      if (c.currentTime >= endTime) { if (onDone) onDone(); return; }
+      const now = c.currentTime;
+      while (idx < events.length && events[idx].time <= now) {
+        const e = events[idx++];
+        if ('ch' in e) { if (onChar) onChar(e.ch); } else if (onFlash) onFlash(e.on);
+      }
+      if (now >= endTime) {
+        if (onFlash) onFlash(false);
+        if (onChar) onChar(null);
+        if (onDone) onDone(true);
+        return;
+      }
       rafId = requestAnimationFrame(check);
     };
     rafId = requestAnimationFrame(check);

@@ -300,3 +300,48 @@ test('«Ключ»: палец держат — тон начинается по
     assert.equal(env.log.started[0].ctxState, 'running');
   } finally { env.restore(); }
 });
+
+// ——— Последовательность знаков (радиограмма, позывной, Радиоигра) ———
+// Радиоигра открывает варианты ответа только после того, как сигнал прозвучал до конца,
+// и не открывает, если звук не проснулся. Для этого onDone обязан различать два случая.
+test('последовательность: onDone(true) один раз, лампа и знаки в такт, в конце всё гаснет', async () => {
+  const env = fakeEnv({ startState: 'running' });
+  try {
+    const A = await freshAudio();
+    const done = [], flashes = [], chars = [];
+    const codes = { 'А': '.-', 'Б': '-...' };
+    A.playSequence([...'А Б'], (ch) => codes[ch], { ...SET, charWpm: 40, effWpm: 40 }, {
+      onDone: (p) => done.push(p), onFlash: (on) => flashes.push(on), onChar: (i) => chars.push(i),
+    });
+    env.log.runFrames(80);
+    env.log.runFrames(10);
+    assert.deepEqual(done, [true]);
+    assert.deepEqual(chars, [0, 1, null], 'пробел не считается знаком, в конце — null');
+    assert.equal(flashes.filter((x) => x === true).length, 6, 'лампа загорается на каждую точку и тире');
+    assert.equal(flashes.at(-1), false, 'в конце лампа погашена');
+  } finally { env.restore(); }
+});
+
+test('последовательность: звук не проснулся — onDone(false) и лампа погашена', async () => {
+  const env = fakeEnv({ startState: 'suspended', neverWakes: true });
+  try {
+    const A = await freshAudio();
+    const done = [], flashes = [];
+    A.playSequence(['А'], () => '.-', SET, { onDone: (p) => done.push(p), onFlash: (on) => flashes.push(on) });
+    await new Promise((r) => setTimeout(r, 1800));
+    assert.deepEqual(done, [false], 'иначе варианты открылись бы вслепую');
+    assert.deepEqual(flashes, [false]);
+    assert.equal(env.log.started.length, 0);
+  } finally { env.restore(); }
+});
+
+test('последовательность: без Web Audio — onDone(true), как у одиночного знака', async () => {
+  const env = fakeEnv({ startState: 'running' });
+  try {
+    globalThis.window.AudioContext = undefined;
+    const A = await freshAudio();
+    const done = [];
+    A.playSequence(['А'], () => '.-', SET, { onDone: (p) => done.push(p) });
+    assert.deepEqual(done, [true]);
+  } finally { env.restore(); }
+});

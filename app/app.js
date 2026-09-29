@@ -7,10 +7,11 @@ import * as G from './js/gamify.js';
 import * as A from './js/audio.js';
 import * as KT from './js/keytext.js';
 import * as TR from './js/trace.js';
-import { ICON } from './js/icons.js';
+import { ICON, picSVG } from './js/icons.js';
 import { glyphKind, glyphText, glyphName } from './js/glyph.js';
 import { normalizeCallsign, callsignParts } from './js/callsign.js';
 import * as RG from './js/radiogram.js';
+import * as PZ from './js/puzzle.js';
 import { donateUrl, feedbackUrl, pingUrl, validateFeedback, MESSAGE_MAX, CONTACT_MAX, NAME_MAX } from './js/support.js';
 import * as M from './js/metrics.js';
 import { APP_VERSION } from './js/version.js';
@@ -91,6 +92,10 @@ function go(tab) {
   else if (tab === 'ref') renderReference();
   else if (tab === 'cabinet') renderCabinet();
   else if (tab === 'settings') renderSettings();
+  // Радиоигра — не вкладка меню, но в неё возвращаются «Назад» из настроек (шестерёнка
+  // есть и в режиме). Без этой строки go('puzzle') оставил бы пустой экран. Возвращаем
+  // на выбор категорий: раунд начинается заново, выпавшие вопросы в круге уже учтены.
+  else if (tab === 'puzzle') renderPuzzle();
   window.scrollTo(0, 0);
 }
 tabsEl.addEventListener('click', (e) => {
@@ -323,6 +328,10 @@ function renderHome() {
     (_, i) => `<i class="${i < learned ? 'on' : ''}"></i>`).join('');
   // Шапки «Станция Boney M» здесь нет намеренно: на главной уже есть портрет Бони и
   // приветствие по имени, а нажимаемый портрет-аватар дублировал вкладку «Журнал».
+  // Порядок (КОНЦЕПТ-викторина.md, «Место в интерфейсе»): сначала действия, потом «табло».
+  // Карточка звания опустилась под кнопки: на телефоне 360×780 она выталкивала даже
+  // «Продолжить обучение» под нижнее меню. Кнопки позывного и радиограммы — на прежних
+  // местах и в прежнем порядке; плитка Радиоигры встаёт между «Продолжить» и «Повторением».
   screenEl.innerHTML = `
     <div class="screenbar bare">
       <div></div>
@@ -332,6 +341,11 @@ function renderHome() {
       <img class="hero" src="assets/hero-zastavka.webp" alt="">
     </div>
     <div class="greeting">${esc(greeted)}, ${esc(state.profile.name)}!</div>
+    ${drill ? `<button class="btn secondary" id="drill">${ICON.inbox(24)} Принять свой позывной</button>` : ''}
+    ${radiogramOpen() ? `<button class="btn secondary" id="radiogram">${ICON.inbox(24)} Контрольная радиограмма</button>` : ''}
+    <button class="btn" id="continue">Продолжить обучение</button>
+    ${puzzleTile()}
+    <button class="btn secondary" id="review" ${learned < 1 ? 'disabled' : ''}>Повторение пройденного</button>
     <div class="card">
       <div class="eyebrow">Звание</div>
       <div class="rankline">${esc(rank)}</div>
@@ -342,12 +356,9 @@ function renderHome() {
         <div class="stat"><div class="eyebrow">Рекорд</div><b>${state.streak.longest}</b></div>
       </div>
     </div>
-    ${drill ? `<button class="btn secondary" id="drill">${ICON.inbox(24)} Принять свой позывной</button>` : ''}
-    ${radiogramOpen() ? `<button class="btn secondary" id="radiogram">${ICON.inbox(24)} Контрольная радиограмма</button>` : ''}
-    <button class="btn" id="continue">Продолжить обучение</button>
-    <button class="btn secondary" id="review" ${learned < 1 ? 'disabled' : ''}>Повторение пройденного</button>
     ${supportLine()}`;
   $('#continue').addEventListener('click', () => { learnOpts.repetition = false; go('learn'); });
+  $('#puzzle').addEventListener('click', () => go('puzzle'));
   $('#review').addEventListener('click', () => { learnOpts.repetition = true; go('learn'); });
   if (drill) $('#drill').addEventListener('click', callsignDrill);
   if (radiogramOpen()) $('#radiogram').addEventListener('click', renderRadiogram);
@@ -976,6 +987,288 @@ function drawRadiogramResult() {
   });
 }
 
+// ——————————————————————————— Радиоигра «Угадайте на слух» ———————————————————————————
+//
+// Боня передаёт короткое сообщение, человек угадывает смысл из трёх вариантов.
+// Концепт — КОНЦЕПТ-викторина.md, эталон вида и поведения — prototype/chto-peredali.html.
+// Каталог, колода и подсчёт — в js/puzzle.js; здесь только экраны.
+//
+// Устроено как «Контрольная радиограмма»: нижнее меню спрятано, в правом углу «Назад»
+// и шестерёнка. «Назад» ведёт на уровень выше: вопрос → категории → главная.
+//
+// Правила, которые нельзя нарушать:
+// • варианты ответа появляются только после того, как сигнал прозвучал ДО КОНЦА;
+//   не проснулся звук (айфон) — вариантов нет, есть подсказка нажать ещё раз;
+// • ответы не пишутся в статистику букв и в зачёт дня «15 ответов», очки не
+//   начисляются, вехи не проверяются — режим трогает только state.puzzle;
+// • штрафов и таймеров нет: неверный вариант гаснет, выбрать можно снова.
+let Z = null; // текущий раунд: { cat, shown, results, q }
+
+// Плитка на главной. Вся — одна кнопка: для человека за семьдесят нажимаемая часть
+// карточки (а не вся карточка) — скрытое действие.
+function puzzleTile() {
+  const n = PZ.solvedTotal(state.puzzle);
+  const isNew = !!state.puzzle.isNew;
+  const label = ['Радиоигра', 'угадайте на слух', isNew ? 'новое' : '',
+    n > 0 ? `разгадано ${n} из ${PZ.TOTAL}` : ''].filter(Boolean).join(', ');
+  return `<button class="modetile" id="puzzle" aria-label="${esc(label)}">
+      <span class="mt-ic" aria-hidden="true">${ICON.bubble(28)}</span>
+      <span class="mt-body">
+        ${isNew ? '<span class="pill-new">Новое</span>' : ''}
+        <b>Радиоигра</b>
+        <span class="mt-sub">Угадайте на слух</span>
+        ${n > 0 ? `<span class="mt-cnt">Разгадано ${n} из ${PZ.TOTAL}</span>` : ''}
+      </span>
+      <span class="mt-go" aria-hidden="true">${ICON.next(26)}</span>
+    </button>`;
+}
+
+// Шапка режима: заголовок слева, шестерёнка и «Назад» справа — как в радиограмме и настройках.
+function puzzleBar(title, sub = '') {
+  return `<div class="screenbar pz-bar">
+      <div><h2>${esc(title)}</h2>${sub ? `<div class="counter">${esc(sub)}</div>` : ''}</div>
+      <div class="screenbar-actions">
+        <button class="iconbtn" id="gear" aria-label="Настройки">${ICON.gear(22)}</button>
+        <button class="iconbtn" id="back" aria-label="Назад">${ICON.exit(22)}<span>Назад</span></button>
+      </div>
+    </div>`;
+}
+
+const pzCode = (ch) => DATA.CODE_BY_CHAR.ru.get(ch) || '';   // каталог — русский, независимо от курса
+const pzShow = (text) => [...text].map(glyphText).join('');  // ноль — перечёркнутый, как везде
+const pzCap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
+
+// Вход в режим (с плитки и «Назад» из настроек) — всегда на выбор категорий.
+function renderPuzzle() {
+  currentTab = 'puzzle';
+  tabsEl.classList.add('hidden');
+  // Пометка «Новое» гаснет при первом входе и больше не возвращается.
+  if (state.puzzle.isNew) { state.puzzle.isNew = false; persist(); }
+  puzzleCats();
+}
+
+function puzzleCats() {
+  A.stopAll();
+  stopActiveClock();
+  Z = null;
+  screenEl.innerHTML = `
+    ${puzzleBar('Радиоигра')}
+    <div class="pz-intro">
+      <img src="assets/hero-portret.webp" alt="">
+      <p>Боня передаёт пять сообщений — угадайте, что он сказал.</p>
+    </div>
+    <div class="pz-cats">${PZ.CATS.map((c) => `
+      <button class="pz-cat" data-cat="${c.id}">
+        <span class="pz-nm">${esc(c.name)}${c.tag ? `<span class="pz-tag">${esc(c.tag)}</span>` : ''}</span>
+        <span class="pz-cnt">${PZ.solvedCount(state.puzzle, c.id)} из ${PZ.CATALOG[c.id].length}<span aria-hidden="true"> ›</span></span>
+        <span class="pz-sub">${esc(c.sub)}</span>
+      </button>`).join('')}
+    </div>
+    <p class="muted hint">«12 из 30» — сколько разных вопросов разгадано хотя бы раз.</p>`;
+  $('#back').addEventListener('click', () => go('home'));
+  wireGear();
+  screenEl.querySelectorAll('.pz-cat').forEach((b) => b.addEventListener('click', () => puzzleStart(b.dataset.cat)));
+  window.scrollTo(0, 0);
+}
+
+function puzzleStart(cat) {
+  Z = { cat, shown: [], results: [], q: null };
+  puzzleNext();
+}
+
+function puzzleNext() {
+  A.stopAll();
+  if (Z.shown.length >= PZ.ROUND) { puzzleEnd(); return; }
+  // Вопрос считается выпавшим, как только показан: выход посреди раунда ничего не ломает.
+  const id = PZ.deckDraw(state.puzzle[Z.cat], PZ.idsOf(Z.cat), Z.shown, Math.random);
+  Z.shown.push(id);
+  persist();
+  const q = PZ.qById(Z.cat, id);
+  Z.q = { q, opts: PZ.shuffle([q.right, ...q.wrong], Math.random), wrong: [], heard: false,
+          done: false, firstTry: true, pickedRight: false, slow: false, code: false, abc: false,
+          msg: 'Нажмите «Слушать».', msgKind: '' };
+  startActiveClock();
+  puzzleDraw();
+  window.scrollTo(0, 0);
+}
+
+// Клеточки по числу букв: слова переносятся целиком, буквы внутри слова — нет.
+// С точками-тире клетки шире, и длинному слову разрешено переноситься.
+function puzzleCells(Q) {
+  let li = -1;
+  return Q.q.text.split(' ').map((w) => `<span class="pz-word">${[...w].map((ch) => {
+    li++;
+    return `<span class="pz-cell" data-i="${li}"><span class="pz-ch">${Q.done ? esc(glyphText(ch)) : ''}</span>${
+      Q.code ? traceOfCode(pzCode(ch), 'pz-cd') : ''}</span>`;
+  }).join('')}</span>`).join('');
+}
+
+function puzzleDraw() {
+  const Q = Z.q, q = Q.q, cat = PZ.catById(Z.cat);
+  const letters = [...new Set(q.text.replace(/ /g, ''))].sort((a, b) => a.localeCompare(b, 'ru'));
+  // «Слово» — три картинки БЕЗ подписей (подпись выдала бы ответ без звука); название
+  // для диктора тоже нейтральное — «Картинка 1».
+  const opts = Z.cat === 'word'
+    ? `<div class="pz-pics" id="pz-opts">${Q.opts.map((o, i) => `<button class="pz-pic" data-o="${esc(o)}"
+        aria-label="Картинка ${i + 1}" ${Q.wrong.includes(o) ? 'disabled' : ''}>${picSVG(o, 72)}</button>`).join('')}</div>`
+    : `<div class="pz-opts" id="pz-opts">${Q.opts.map((o) => `<button class="pz-opt" data-o="${esc(o)}"
+        ${Q.wrong.includes(o) ? 'disabled' : ''}>${esc(o)}</button>`).join('')}</div>`;
+  const listenLabel = Q.heard ? `${ICON.replay(24)} Ещё раз` : `${ICON.play(24)} Слушать`;
+  screenEl.innerHTML = `
+    ${puzzleBar(cat.name, `вопрос ${Z.shown.length} из ${PZ.ROUND}`)}
+    <p class="pz-question">${esc(q.q)}</p>
+    <div class="lamp pz-lamp" id="pz-lamp" aria-hidden="true"></div>
+    <div class="pz-line${Q.done ? ' solved' : ''}${Q.code ? ' withcode' : ''}" id="pz-cells"
+      role="img" aria-label="${Q.done ? esc(pzShow(q.text)) : `Клеточки по числу букв: ${q.text.replace(/ /g, '').length}`}">${puzzleCells(Q)}</div>
+    ${Q.done ? puzzleRevealHTML() : `
+    <div class="feedback center pz-fb ${Q.msgKind}" id="pz-fb" role="status">${esc(Q.msg)}</div>
+    <button class="btn" id="pz-listen">${listenLabel}</button>
+    <div class="btn-row pz-tools">
+      <button class="btn secondary" id="pz-slow" aria-pressed="${Q.slow}">Медленнее</button>
+      <button class="btn secondary" id="pz-code" aria-pressed="${Q.code}">${Q.code ? 'Скрыть точки-тире' : 'Показать точки-тире'}</button>
+    </div>
+    ${Q.code ? `<button class="linkbtn" id="pz-abc" aria-expanded="${Q.abc}">${Q.abc ? 'Скрыть азбуку' : 'Азбука для этого сообщения'}</button>
+      ${Q.abc ? `<div class="pz-abc">${letters.map((ch) => `<div><b>${esc(glyphText(ch))}</b><span>${visualCode(pzCode(ch))}</span></div>`).join('')}</div>` : ''}` : ''}
+    ${Q.heard ? opts : ''}`}`;
+  $('#back').addEventListener('click', puzzleCats);
+  wireGear();
+  if (Q.done) {
+    $('#pz-relisten').addEventListener('click', () => puzzleListen());
+    $('#pz-next').addEventListener('click', puzzleNext);
+    return;
+  }
+  $('#pz-listen').addEventListener('click', () => puzzleListen());
+  $('#pz-slow').addEventListener('click', () => { Q.slow = !Q.slow; puzzleDraw(); });
+  $('#pz-code').addEventListener('click', () => { Q.code = !Q.code; if (!Q.code) Q.abc = false; puzzleDraw(); });
+  $('#pz-abc')?.addEventListener('click', () => { Q.abc = !Q.abc; puzzleDraw(); });
+  screenEl.querySelectorAll('#pz-opts button').forEach((b) => b.addEventListener('click', () => puzzleAnswer(b.dataset.o)));
+}
+
+function puzzleSay(text, kind = '') {
+  const Q = Z && Z.q;
+  if (!Q) return;
+  Q.msg = text; Q.msgKind = kind;
+  const fb = $('#pz-fb');
+  if (fb) { fb.textContent = text; fb.className = `feedback center pz-fb ${kind}`; }
+}
+
+// Скорость — из настроек приложения, как в «Учиться». «Медленнее» — тот же приём,
+// что L.slow там: знак звучит как был, паузы между знаками длиннее.
+function puzzlePlaySettings(slow) {
+  const s = { ...state.settings };
+  if (slow) s.effWpm = clampEff(Math.max(5, s.effWpm - 3), s.charWpm);
+  return s;
+}
+
+function puzzleListen() {
+  const Q = Z && Z.q;
+  if (!Q) return;
+  if (!Q.done) puzzleSay('Слушайте…');
+  const lampOn = (on) => { const l = $('#pz-lamp'); if (l) l.classList.toggle('on', !!on); };
+  // Лампа здесь мигает в такт, а не горит ровно, как в «Учиться»: там ритм подсказал бы
+  // ответ глазами, а здесь ответ — смысл сообщения, и ритм ничего не выдаёт.
+  A.playSequence([...Q.q.text], pzCode, puzzlePlaySettings(Q.slow), {
+    onFlash: lampOn,
+    onChar: (i) => {
+      screenEl.querySelectorAll('.pz-cell.now').forEach((c) => c.classList.remove('now'));
+      if (i !== null) screenEl.querySelector(`.pz-cell[data-i="${i}"]`)?.classList.add('now');
+    },
+    onDone: (played) => {
+      if (!Z || Z.q !== Q || currentTab !== 'puzzle') return; // вопрос уже сменился
+      lampOn(false);
+      if (Q.done) return;
+      // Звук не проснулся (айфон будит его только по касанию): варианты НЕ открываем,
+      // иначе отвечали бы, не услышав. Выход один и всегда доступен — нажать ещё раз.
+      if (!played) { puzzleSay(`Нажмите «${Q.heard ? 'Ещё раз' : 'Слушать'}» ещё раз.`); return; }
+      const first = !Q.heard;
+      Q.heard = true;
+      if (Q.wrong.length) { Q.msg = 'Не то. Послушайте ещё раз.'; Q.msgKind = 'no'; }
+      else { Q.msg = 'Что передали? Выберите ответ.'; Q.msgKind = ''; }
+      if (first) puzzleDraw(); else puzzleSay(Q.msg, Q.msgKind);
+    },
+  });
+}
+
+function puzzleAnswer(o) {
+  const Q = Z && Z.q;
+  if (!Q || Q.done || !Q.heard) return;
+  if (o === Q.q.right) { puzzleFinish(true); return; }
+  // Штрафа нет: вариант гаснет, выбрать можно снова. Но итог «с первой попытки» уже не тот.
+  Q.firstTry = false;
+  if (!Q.wrong.includes(o)) Q.wrong.push(o);
+  Q.msg = 'Не то. Послушайте ещё раз.'; Q.msgKind = 'no';
+  if (Q.opts.filter((x) => !Q.wrong.includes(x)).length <= 1) { puzzleFinish(false); return; }
+  vibrate([20, 40, 20]);
+  puzzleDraw();
+}
+
+// Разгадка — на том же экране, без всплывающего окна. Отмечаем «разгадано» в любом
+// случае: вопрос пройден до конца, а «с первой попытки» считается отдельно.
+function puzzleFinish(pickedRight) {
+  A.stopAll();
+  const Q = Z.q;
+  Q.done = true; Q.pickedRight = pickedRight;
+  Z.results.push(Q.firstTry);
+  PZ.markSolved(state.puzzle[Z.cat], Q.q.id);
+  persist();
+  if (pickedRight) {
+    if (state.settings.answerSound !== false) A.cue('success');
+    vibrate(30);
+  }
+  puzzleDraw();
+}
+
+function puzzleRevealHTML() {
+  const Q = Z.q, q = Q.q, last = Z.shown.length >= PZ.ROUND;
+  const verdict = Q.pickedRight
+    ? `<div class="pz-verdict">${ICON.check(30)} Верно!</div>`
+    : '<div class="pz-verdict soft">Остался один ответ — он и верный.</div>';
+  let extra = Z.cat === 'word'
+    ? `<div class="pz-revpic">${picSVG(q.right, 104)}<span>${esc(pzCap(q.right))}</span></div>`
+    : `<p class="pz-answer">${esc(q.right)}</p>`;
+  if (Z.cat === 'story') extra += `
+    <div class="card pz-story">
+      <span class="pz-year">${esc(String(q.year))}</span>
+      <p>${esc(q.tale)}</p>
+    </div>`;
+  return `<div class="pz-reveal">
+      ${verdict}
+      <div class="pz-big">${esc(pzShow(q.text))}</div>
+      ${extra}
+      <div class="btn-row pz-revbtns">
+        <button class="btn secondary" id="pz-relisten">${ICON.sound(24)} Послушать</button>
+        <button class="btn" id="pz-next">${last ? 'Итог раунда' : 'Дальше'} ${ICON.next(24)}</button>
+      </div>
+    </div>`;
+}
+
+// Итог раунда. «С первой попытки» — иначе при правиле «можно выбрать снова» было бы всегда 5 из 5.
+function puzzleEnd() {
+  A.stopAll();
+  stopActiveClock();
+  Z.q = null; // вопроса на экране больше нет — часам и возврату из фона нечего продолжать
+  const n = Z.results.filter(Boolean).length;
+  const cat = PZ.catById(Z.cat);
+  screenEl.innerHTML = `
+    ${puzzleBar('Радиоигра')}
+    <div class="card center pz-end">
+      <div class="eyebrow">${esc(cat.name)}</div>
+      <h3>Раунд пройден</h3>
+      <div class="pz-dots" aria-hidden="true">${Z.results.map((r) => `<i class="${r ? 'ok' : ''}"></i>`).join('')}</div>
+      <p class="muted">С первой попытки</p>
+      <div class="pz-score">${n} из ${Z.results.length}</div>
+      <p class="muted">Разгадано в этой категории: ${PZ.solvedCount(state.puzzle, Z.cat)} из ${PZ.CATALOG[Z.cat].length}</p>
+    </div>
+    <button class="btn" id="pz-again">Ещё раунд</button>
+    <button class="btn secondary" id="pz-tocats">К категориям</button>`;
+  $('#back').addEventListener('click', puzzleCats);
+  wireGear();
+  const cat0 = Z.cat;
+  $('#pz-again').addEventListener('click', () => puzzleStart(cat0));
+  $('#pz-tocats').addEventListener('click', puzzleCats);
+  window.scrollTo(0, 0);
+}
+
 // ——————————————————————————— Ключ (§7.3) ———————————————————————————
 let K = null;
 function clearKeyTimers() {
@@ -1423,6 +1716,7 @@ function renderCabinet() {
         <li><span>Дней подряд сейчас</span><span class="num">${state.streak.current}</span></li>
         <li><span>Лучший результат</span><span class="num">${state.streak.longest} дн.</span></li>
         <li><span>Всего в эфире</span><span class="num">${Math.round(state.totalSeconds / 60)} мин</span></li>
+        <li><span>Радиоигра: разгадано</span><span class="num nowrap">${PZ.solvedTotal(state.puzzle)} из ${PZ.TOTAL}</span></li>
         ${state.records.radiogramCpm ? `<li><span>Лучшая радиограмма</span><span class="num">${state.records.radiogramCpm} зн/мин</span></li>` : ''}
       </ul>
     </div>
@@ -1644,11 +1938,20 @@ document.addEventListener('visibilitychange', () => {
       if (bar) { bar.style.transition = 'none'; bar.style.width = '0%'; }
       if (R.stop) R.stop();
     }
+    // Радиоигра: звук оборван вместе с onDone — гасим лампу и зовём послушать заново,
+    // иначе после возврата висело бы «Слушайте…» над тишиной.
+    if (currentTab === 'puzzle' && Z && Z.q && !Z.q.done) {
+      $('#pz-lamp')?.classList.remove('on');
+      screenEl.querySelectorAll('.pz-cell.now').forEach((c) => c.classList.remove('now'));
+      puzzleSay(`Нажмите «${Z.q.heard ? 'Ещё раз' : 'Слушать'}».`);
+    }
     // Иначе площадка остаётся визуально вжатой и «залипшей» после возврата.
     resetKeyHold();
     return;
   }
   if (sessionStart == null) sessionStart = Date.now();
+  // Радиоигра: часы идут, пока открыт вопрос (как у занятия), без автоповтора звука.
+  if (currentTab === 'puzzle' && Z && Z.q) startActiveClock();
   if (currentTab === 'learn' || currentTab === 'key') {
     startActiveClock();
     // Сворачивание во время проигрывания обрывает звук и оставляет кнопки заблокированными —
