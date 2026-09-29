@@ -59,3 +59,13 @@ test('версия кэша поднята относительно прошло
   assert.ok(m, 'в sw.js нет версионированного имени кэша');
   assert.ok(Number(m[1]) >= 5, `версия кэша morse-v${m[1]} — при выпуске её нужно поднимать`);
 });
+
+test('установка качает файлы мимо HTTP-кэша браузера (cache: \'reload\')', () => {
+  // Pages отдаёт файлы с max-age до 10 минут. Без reload новый кэш мог собраться из смеси
+  // новых и старых файлов — новый app.js со старым state.js ронял главную.
+  const install = /addEventListener\('install'[\s\S]*?\n\}\);/.exec(sw);
+  assert.ok(install, 'в sw.js нет обработчика install');
+  assert.match(install[0], /new Request\(\s*u\s*,\s*\{\s*cache:\s*'reload'\s*\}\s*\)/,
+    'install должен качать каждый файл через new Request(u, { cache: \'reload\' })');
+  assert.match(install[0], /ASSETS\.map\(/, 'reload должен применяться ко всему списку ASSETS');
+});

@@ -1,7 +1,7 @@
 // Школа Морзе 73 — контроллер интерфейса. Чистая логика — в js/*, здесь только экраны и события.
 import * as DATA from './js/data.js';
 import { load, save, needsOnboarding } from './js/state.js';
-import { clampEff, charTiming, classifyHold, keyThresholds, cpm, LIMITS } from './js/timing.js';
+import { clampEff, slowerEff, charTiming, classifyHold, keyThresholds, cpm, LIMITS } from './js/timing.js';
 import * as P from './js/progress.js';
 import * as G from './js/gamify.js';
 import * as A from './js/audio.js';
@@ -17,6 +17,9 @@ import * as M from './js/metrics.js';
 import { APP_VERSION } from './js/version.js';
 
 let state = load();
+// Страховка от смешанного кэша при обновлении: новый app.js мог приехать со старым
+// state.js, который поля puzzle не знает. Без этой строки главная падала бы на плитке.
+if (!state.puzzle || typeof state.puzzle !== 'object') state.puzzle = PZ.puzzleFresh();
 const persist = () => save(state);
 
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -70,6 +73,7 @@ let currentTab = 'home';
 // Откуда вошли в настройки — чтобы кнопка «Назад» вернула туда же, а не на главную.
 let settingsFrom = 'home';
 function go(tab) {
+  const from = currentTab;
   if (tab === 'settings' && currentTab !== 'settings') settingsFrom = currentTab;
   // Уход из «Учиться» любым путём (нижнее меню, кнопка) фиксирует сессию — иначе серия
   // дней и журнал не запишутся, когда папа просто тапнет «Главная».
@@ -93,9 +97,9 @@ function go(tab) {
   else if (tab === 'cabinet') renderCabinet();
   else if (tab === 'settings') renderSettings();
   // Радиоигра — не вкладка меню, но в неё возвращаются «Назад» из настроек (шестерёнка
-  // есть и в режиме). Без этой строки go('puzzle') оставил бы пустой экран. Возвращаем
-  // на выбор категорий: раунд начинается заново, выпавшие вопросы в круге уже учтены.
-  else if (tab === 'puzzle') renderPuzzle();
+  // есть и в режиме). Посреди раунда — на тот же вопрос или на итог, а не на выбор
+  // категорий: подкрутил скорость и продолжил, раунд не сбрасывается.
+  else if (tab === 'puzzle') { if (from === 'settings' && Z) puzzleResume(); else renderPuzzle(); }
   window.scrollTo(0, 0);
 }
 tabsEl.addEventListener('click', (e) => {
@@ -428,7 +432,7 @@ function renderCounter() {
 
 function settingsForPlay() {
   const s = { ...state.settings };
-  if (L.slow) s.effWpm = clampEff(Math.max(5, s.effWpm - 3), s.charWpm);
+  if (L.slow) s.effWpm = slowerEff(s.effWpm, s.charWpm);
   return s;
 }
 
@@ -1038,13 +1042,26 @@ const pzCode = (ch) => DATA.CODE_BY_CHAR.ru.get(ch) || '';   // каталог �
 const pzShow = (text) => [...text].map(glyphText).join('');  // ноль — перечёркнутый, как везде
 const pzCap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 
-// Вход в режим (с плитки и «Назад» из настроек) — всегда на выбор категорий.
+// Вход в режим с плитки — всегда на выбор категорий (возврат из настроек — puzzleResume).
 function renderPuzzle() {
   currentTab = 'puzzle';
   tabsEl.classList.add('hidden');
   // Пометка «Новое» гаснет при первом входе и больше не возвращается.
   if (state.puzzle.isNew) { state.puzzle.isNew = false; persist(); }
   puzzleCats();
+}
+
+// Возврат из настроек посреди раунда: тот же вопрос в том же виде (погасшие варианты,
+// «услышан ли» сигнал). Звук сам не запускается; новая скорость — со следующего «Слушать».
+function puzzleResume() {
+  currentTab = 'puzzle';
+  tabsEl.classList.add('hidden');
+  if (!Z.q) { puzzleEnd(); return; }             // раунд уже на итоге
+  // Уход в настройки оборвал звук, а onDone на чужом экране ничего не менял —
+  // не оставляем «Слушайте…» над тишиной.
+  if (!Z.q.done && Z.q.msg === 'Слушайте…') { Z.q.msg = `Нажмите «${Z.q.heard ? 'Ещё раз' : 'Слушать'}».`; Z.q.msgKind = ''; }
+  startActiveClock();
+  puzzleDraw();
 }
 
 function puzzleCats() {
@@ -1156,7 +1173,7 @@ function puzzleSay(text, kind = '') {
 // что L.slow там: знак звучит как был, паузы между знаками длиннее.
 function puzzlePlaySettings(slow) {
   const s = { ...state.settings };
-  if (slow) s.effWpm = clampEff(Math.max(5, s.effWpm - 3), s.charWpm);
+  if (slow) s.effWpm = slowerEff(s.effWpm, s.charWpm);
   return s;
 }
 

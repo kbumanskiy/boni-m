@@ -557,10 +557,14 @@ Object.defineProperty(document, 'hidden', { configurable: true, get: () => false
   const pics = [...document.querySelectorAll('#pz-opts .pz-pic')];
   ok(pics.length === 3 && pics.every((b) => /^Картинка \d$/.test(b.getAttribute('aria-label')) && !b.textContent.trim()),
     '«Слово»: три картинки без подписей, для диктора — «Картинка N»');
+  const wordId = saved().puzzle.word.last;
   click('#gear'); await sleep(5);
   ok(text().includes('Настройки'), 'из режима открываются настройки');
   click('#back'); await sleep(10);
-  ok(document.querySelectorAll('.pz-cat').length === 4 && hidden(), '«Назад» из настроек — выбор категорий режима, меню спрятано');
+  ok(saved().puzzle.word.last === wordId && document.querySelectorAll('#pz-opts .pz-pic').length === 3 && hidden(),
+    '«Назад» из настроек — тот же вопрос, варианты на месте, меню спрятано');
+  click('#back'); await sleep(5);
+  ok(document.querySelectorAll('.pz-cat').length === 4, '«Назад» из вопроса после настроек — к категориям');
 
   // «Назад» из вопроса — к категориям; сворачивание посреди вопроса — зовём послушать заново.
   click('.pz-cat[data-cat="riddle"]'); await sleep(5);
@@ -582,6 +586,44 @@ Object.defineProperty(document, 'hidden', { configurable: true, get: () => false
   click('[data-tab="cabinet"]'); await sleep(5);
   ok(/Радиоигра: разгадано\s*5 из 120/.test(text()), 'журнал: «Радиоигра: разгадано 5 из 120»');
 
+  // Шестерёнка посреди раунда не сбрасывает раунд: вопрос 3 с погасшим вариантом → настройки
+  // → «Назад» → тот же вопрос в том же виде. С итога — обратно на итог.
+  click('[data-tab="home"]'); await sleep(5);
+  click('#puzzle'); await sleep(5);
+  click('.pz-cat[data-cat="story"]'); await sleep(5);
+  for (let i = 0; i < 2; i++) {
+    click('#pz-listen'); await sleep(5);
+    optBtn(rightOf('story')).click(); await sleep(5);
+    click('#pz-next'); await sleep(5);
+  }
+  click('#pz-listen'); await sleep(5);
+  const q3 = saved().puzzle.story.last;
+  const wrong3 = [...document.querySelectorAll('#pz-opts button')].find((b) => b.dataset.o !== rightOf('story')).dataset.o;
+  optBtn(wrong3).click(); await sleep(5);
+  click('#gear'); await sleep(5);
+  ok(text().includes('Настройки'), 'вопрос 3: шестерёнка открыла настройки');
+  click('#back'); await sleep(10);
+  ok(text().includes('вопрос 3 из 5'), 'из настроек: счётчик «вопрос 3 из 5»');
+  ok(saved().puzzle.story.last === q3, 'из настроек: тот же вопрос');
+  ok(optBtn(wrong3)?.disabled === true && document.querySelectorAll('#pz-opts button:not([disabled])').length === 2,
+    'из настроек: погасший вариант погашен, остальные доступны');
+  ok(document.querySelector('#pz-listen').textContent.includes('Ещё раз') && document.querySelector('#pz-fb').textContent.includes('Не то'),
+    'из настроек: сигнал уже услышан, подсказка прежняя');
+  ok(hidden(), 'из настроек: меню спрятано, как в режиме');
+  optBtn(rightOf('story')).click(); await sleep(5);
+  click('#pz-next'); await sleep(5);
+  for (let i = 0; i < 2; i++) {
+    click('#pz-listen'); await sleep(5);
+    optBtn(rightOf('story')).click(); await sleep(5);
+    click('#pz-next'); await sleep(5);
+  }
+  ok(document.querySelector('#pz-again'), 'раунд «История» дошёл до итога');
+  click('#gear'); await sleep(5);
+  click('#back'); await sleep(10);
+  ok(document.querySelector('#pz-again') && /4 из 5/.test(text()), 'из настроек с итога — обратно на итог (4 из 5)');
+  click('#pz-tocats'); await sleep(5);
+  click('#back'); await sleep(5);
+
   // Последним: звук не проснулся (айфон без касания). Модуль звука запоминает контекст,
   // поэтому этот шаг обязан быть последним в файле.
   window.AudioContext = class {
@@ -595,6 +637,44 @@ Object.defineProperty(document, 'hidden', { configurable: true, get: () => false
   await sleep(1700);
   ok(!document.querySelector('#pz-opts'), 'звук не проснулся — варианты не открываются');
   ok(document.querySelector('#pz-fb').textContent === 'Нажмите «Слушать» ещё раз.', 'звук не проснулся — «Нажмите «Слушать» ещё раз.»');
+}
+
+// Смешанный кэш при обновлении: новый app.js со СТАРЫМ state.js, который поля puzzle не знает
+// (миграция его не добавила). Главная обязана открыться. Подменяем state.js загрузчиком,
+// отдельным экземпляром приложения в чистом документе.
+{
+  const { registerHooks } = await import('node:module');
+  const realState = new URL('../app/js/state.js', import.meta.url).href;
+  const fakeState = realState + '?nopuzzle';
+  registerHooks({
+    resolve(spec, ctx, next) {
+      if (ctx.parentURL && ctx.parentURL.includes('app.js?nopuzzle') && spec === './js/state.js') return { url: fakeState, shortCircuit: true };
+      return next(spec, ctx);
+    },
+    load(url, ctx, next) {
+      if (url === fakeState) return { format: 'module', shortCircuit: true, source:
+        `import * as S from '${realState}'; export * from '${realState}';
+         export function load(...a) { const s = S.load(...a); delete s.puzzle; return s; }` };
+      return next(url, ctx);
+    },
+  });
+  const dom2 = new JSDOM(html, { url: 'https://example.com/', pretendToBeVisual: true });
+  const w2 = dom2.window;
+  const errors2 = [];
+  w2.addEventListener('error', (e) => errors2.push(e.error || e.message));
+  w2.localStorage.setItem('boni_m_state', localStorage.getItem('boni_m_state'));
+  Object.assign(w2, { scrollTo: () => {}, confirm: () => true, alert: () => {}, AudioContext: undefined,
+    requestAnimationFrame: global.requestAnimationFrame, cancelAnimationFrame: global.cancelAnimationFrame });
+  setGlobal('window', w2); setGlobal('document', w2.document);
+  setGlobal('location', w2.location); setGlobal('localStorage', w2.localStorage);
+  let crash = null;
+  try { await import('../app/app.js?nopuzzle'); } catch (e) { crash = e; }
+  await sleep(20);
+  ok(!crash && errors2.length === 0, `нет state.puzzle (старый state.js): приложение не падает${crash ? ' — ' + crash.message : ''}`);
+  ok(w2.document.querySelector('#continue') && w2.document.querySelector('#puzzle'), 'нет state.puzzle: главная открылась, плитка Радиоигры на месте');
+  w2.document.querySelector('#puzzle').click(); await sleep(10);
+  ok(w2.document.querySelectorAll('.pz-cat').length === 4, 'нет state.puzzle: режим открывается');
+  ok(errors2.length === 0, 'нет state.puzzle: без ошибок при входе в режим');
 }
 
 assert.equal(errors.length, 0, 'необработанные ошибки: ' + errors.map(String).join(' | '));

@@ -36,7 +36,11 @@ const ASSETS = [
 
 self.addEventListener('install', (e) => {
   e.waitUntil(
-    caches.open(CACHE).then((c) => c.addAll(ASSETS)).then(() => self.skipWaiting())
+    // cache: 'reload' — мимо HTTP-кэша браузера (Pages отдаёт файлы с max-age до 10 минут).
+    // Иначе новый кэш мог собраться из смеси: новый app.js и старый state.js.
+    caches.open(CACHE)
+      .then((c) => c.addAll(ASSETS.map((u) => new Request(u, { cache: 'reload' }))))
+      .then(() => self.skipWaiting())
   );
 });
 

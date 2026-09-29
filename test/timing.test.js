@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   charTiming, ditSeconds, codeToSchedule, codeDuration, clampEff,
-  keyThresholds, classifyHold, classifyGap,
+  keyThresholds, classifyHold, classifyGap, slowerEff, LIMITS,
 } from '../app/js/timing.js';
 
 const approx = (a, b, eps = 1e-9) => Math.abs(a - b) < eps;
@@ -110,4 +110,18 @@ test('на спокойных скоростях пауза конца знак�
     assert.ok(th.wordGapMin - th.charGapMin >= 0.4,
       `скорость ${wpm}: между концом знака и концом слова всего ${(th.wordGapMin - th.charGapMin).toFixed(2)}с`);
   }
+});
+
+test('«Медленнее» никогда не быстрее обычного, в том числе на минимальной скорости', () => {
+  const min = LIMITS.effWpm.min;
+  for (const c of [5, 18, 45]) {
+    for (let e = min; e <= c; e++) {
+      const slow = slowerEff(e, c);
+      assert.ok(slow <= e, `E=${e}, C=${c}: «Медленнее» дало ${slow} — быстрее обычного`);
+      assert.ok(slow >= min, `E=${e}, C=${c}: ниже нижней границы настроек (${slow})`);
+      assert.ok(charTiming(c, slow).charGap >= charTiming(c, e).charGap, `E=${e}: паузы не длиннее`);
+    }
+  }
+  assert.equal(slowerEff(min, 18), min, 'на минимуме — не быстрее (раньше давало 5)');
+  assert.equal(slowerEff(9, 18), 6, 'обычный случай: на 3 медленнее');
 });
