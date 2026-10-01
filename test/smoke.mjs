@@ -706,5 +706,74 @@ Object.defineProperty(document, 'hidden', { configurable: true, get: () => false
   ok(errors2.length === 0, 'нет state.puzzle: без ошибок при входе в режим');
 }
 
+// 9) «Я уже знаю азбуку» (решение Кости 1.10.2026). Отдельная страница с новичком на
+// четырёх знаках: проверка в конце файла и в своём окне, чтобы не сдвигать шаги выше.
+{
+  const seed = migrate({ profile: { name: 'Радист', callsign: 'UA5B' }, progress: { ru: { learnedCount: 4 } },
+    milestones: { first4: true } });
+  const dom3 = new JSDOM(html, { url: 'https://example.com/', pretendToBeVisual: true });
+  const w3 = dom3.window, d3 = w3.document;
+  const errors3 = [];
+  w3.addEventListener('error', (e) => errors3.push(e.error || e.message));
+  w3.localStorage.setItem('boni_m_state', JSON.stringify(seed));
+  // Подтверждение обязано быть на странице: окно confirm() здесь — ошибка.
+  let dialogs = 0;
+  Object.assign(w3, { scrollTo: () => {}, confirm: () => { dialogs++; return true; }, alert: () => { dialogs++; },
+    AudioContext: undefined,
+    requestAnimationFrame: global.requestAnimationFrame, cancelAnimationFrame: global.cancelAnimationFrame });
+  setGlobal('window', w3); setGlobal('document', d3);
+  setGlobal('location', w3.location); setGlobal('localStorage', w3.localStorage);
+  await import('../app/app.js?knows');
+  await sleep(20);
+  const st3 = () => JSON.parse(w3.localStorage.getItem('boni_m_state'));
+  const c3 = (sel) => { const el = d3.querySelector(sel); assert.ok(el, `нет элемента ${sel}`); el.click(); };
+  const t3 = () => d3.querySelector('#screen').textContent;
+  const milestonesBefore = JSON.stringify(st3().milestones);
+  ok(!d3.querySelector('#radiogram') && t3().includes('Освоено: 4 из 32'), 'знаю азбуку: у новичка радиограммы на главной нет');
+  ok(!d3.querySelector('#drill'), 'знаю азбуку: у новичка «Принять свой позывной» (UA5B) закрыт');
+  c3('#gear'); await sleep(10);
+  const knows = d3.querySelector('#knows');
+  ok(knows && knows.textContent.trim() === 'Я уже знаю азбуку', 'знаю азбуку: в настройках кнопка «Я уже знаю азбуку»');
+  ok(t3().includes('Откроет контрольную радиограмму сразу — со всеми знаками.'), 'знаю азбуку: под кнопкой пояснение');
+  c3('#knows'); await sleep(10);
+  ok(t3().includes('Открыть радиограмму со всеми знаками?') && d3.querySelector('#knows-yes') && d3.querySelector('#knows-no'),
+    'знаю азбуку: подтверждение раскрылось на странице (Да / Отмена)');
+  ok(st3().settings.knowsAll === false, 'знаю азбуку: до «Да» отметка не ставится');
+  c3('#knows-no'); await sleep(10);
+  ok(d3.querySelector('#knows') && st3().settings.knowsAll === false, 'знаю азбуку: «Отмена» возвращает кнопку, отметки нет');
+  c3('#knows'); await sleep(10);
+  c3('#knows-yes'); await sleep(10);
+  ok(st3().settings.knowsAll === true, 'знаю азбуку: «Да» ставит отметку и сохраняет');
+  ok(t3().includes('Включено: радиограмма открыта со всеми знаками') && d3.querySelector('#knows-off'),
+    'знаю азбуку: на месте кнопки — «Включено…» и «Выключить»');
+  c3('#back'); await sleep(10);
+  ok(d3.querySelector('#radiogram'), 'знаю азбуку: на главной появилась «Контрольная радиограмма»');
+  ok(t3().includes('Освоено: 4 из 32'), 'знаю азбуку: «Освоено: 4 из 32» не изменилось');
+  ok(d3.querySelector('#drill'), 'знаю азбуку: «Принять свой позывной» открылся');
+  ok(st3().progress.ru.learnedCount === 4 && st3().profile.points === seed.profile.points, 'знаю азбуку: прогресс и очки не тронуты');
+  ok(!d3.querySelector('#overlay-root .overlay'), 'знаю азбуку: никаких поздравлений');
+  c3('#radiogram'); await sleep(10);
+  // Смесь: буквы + цифры + знаки — проверяем, что звучат и цифры, хотя ни одной не освоено.
+  c3('.seg [data-kind="mixed"]'); await sleep(10);
+  let outside = false, digits = false;
+  for (let i = 0; i < 3 && !(outside && digits); i++) {
+    c3('#start'); await sleep(10);
+    const sent = (w3.__rgText || '').replace(/\s+/g, '');
+    if ([...sent].some((ch) => /[А-ЯЁ]/.test(ch) && !'ЕТИМ'.includes(ch))) outside = true;
+    if (/[0-9]/.test(sent)) digits = true;
+    c3('#abort'); await sleep(10);
+    if (i < 2 && !(outside && digits)) { c3('#radiogram'); await sleep(10); }
+  }
+  ok(outside && digits, 'знаю азбуку: в тексте радиограммы есть буквы вне четырёх освоенных, и цифры тоже');
+  ok(JSON.stringify(st3().milestones) === milestonesBefore, 'знаю азбуку: вехи не выпали');
+  c3('#gear'); await sleep(10);
+  c3('#knows-off'); await sleep(10);
+  ok(st3().settings.knowsAll === false && d3.querySelector('#knows'), 'знаю азбуку: «Выключить» снимает отметку');
+  c3('#back'); await sleep(10);
+  ok(!d3.querySelector('#radiogram') && !d3.querySelector('#drill'), 'знаю азбуку: после «Выключить» кнопок радиограммы и позывного снова нет');
+  ok(dialogs === 0, 'знаю азбуку: ни одного окна confirm/alert');
+  ok(errors3.length === 0, 'знаю азбуку: без ошибок — ' + errors3.map(String).join(' | '));
+}
+
 assert.equal(errors.length, 0, 'необработанные ошибки: ' + errors.map(String).join(' | '));
 console.log(`\nДымовой тест пройден: ${pass} проверок, ошибок ${errors.length}`);

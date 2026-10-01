@@ -186,3 +186,19 @@ test('Радиоигра: сохранение → загрузка сохран
   assert.deepEqual(again.puzzle.story.solved, ['s03']);
   assert.equal(again.progress.ru.learnedCount, 5);
 });
+
+test('«Я уже знаю азбуку»: по умолчанию выключено, старое состояние и мусор → false, true переживает сохранение', () => {
+  assert.equal(defaultState().settings.knowsAll, false);
+  const old = { profile: { name: 'Бонислав' }, settings: { alphabet: 'ru', charWpm: 18 }, progress: { ru: { learnedCount: 22 } } };
+  assert.equal(migrate(old).settings.knowsAll, false);
+  for (const junk of ['yes', 'true', 1, null, {}, []]) {
+    assert.equal(migrate({ settings: { knowsAll: junk } }).settings.knowsAll, false, `мусор ${JSON.stringify(junk)}`);
+  }
+  const store = mockStore();
+  const s = defaultState();
+  s.settings.knowsAll = true;
+  save(s, store);
+  const loaded = load(store);
+  assert.equal(loaded.settings.knowsAll, true);
+  assert.equal(loaded.progress.ru.learnedCount, 0, 'отметка не трогает прогресс');
+});

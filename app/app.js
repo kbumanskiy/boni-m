@@ -72,9 +72,13 @@ function stopActiveClock() {
 let currentTab = 'home';
 // Откуда вошли в настройки — чтобы кнопка «Назад» вернула туда же, а не на главную.
 let settingsFrom = 'home';
+// Раскрыт ли на экране настроек вопрос «Открыть радиограмму со всеми знаками?» (см. knowsCard).
+// Сбрасывается при любом уходе с экрана: вернувшись, человек видит кнопку, а не вопрос.
+let knowsAsk = false;
 function go(tab) {
   const from = currentTab;
   if (tab === 'settings' && currentTab !== 'settings') settingsFrom = currentTab;
+  if (tab !== 'settings') knowsAsk = false;
   // Уход из «Учиться» любым путём (нижнее меню, кнопка) фиксирует сессию — иначе серия
   // дней и журнал не запишутся, когда папа просто тапнет «Главная».
   // Сначала остановить часы (время войдёт в totalSeconds), потом засчитывать занятие —
@@ -335,7 +339,10 @@ function renderHome() {
   // Ещё ни разу не отвечал (и журнал пуст) — «Начать», а не «Продолжить», и повторять
   // пока нечего. Признак — P.hasAnswered: пишется только настоящим ответом.
   const fresh = !P.hasAnswered(t) && !state.history.length;
-  const drill = G.callsignDrillAvailable(t, state.settings.alphabet, myCallsign()) && !state.milestones.callsign;
+  // «Я уже знаю азбуку» открывает и позывной: считаем, будто освоен весь курс, — но только
+  // для этой проверки. Сам прогресс (t) не трогаем: звание и «Освоено» остаются честными.
+  const drillTrack = state.settings.knowsAll ? { ...t, learnedCount: total, digitsLearned: DATA.DIGIT_ORDER.length } : t;
+  const drill = G.callsignDrillAvailable(drillTrack, state.settings.alphabet, myCallsign()) && !state.milestones.callsign;
   const ticks = Array.from({ length: total },
     (_, i) => `<i class="${i < learned ? 'on' : ''}"></i>`).join('');
   // Шапки «Станция Boney M» здесь нет намеренно: на главной уже есть портрет Бони и
@@ -738,24 +745,25 @@ function callsignDrill() {
 // результат и ошибки».
 //
 // Начинающему упражнение не мешает: кнопка появляется, только когда освоено
-// не меньше двадцати знаков.
+// не меньше двадцати знаков. Исключение — отметка «Я уже знаю азбуку» в настройках
+// (решение Кости 1.10.2026): опытный радист, потерявший прогресс, попадает сюда сразу.
 const RADIOGRAM_MIN_LEARNED = 20;
 
 function radiogramOpen() {
-  return (track().learnedCount || 0) >= RADIOGRAM_MIN_LEARNED;
+  return state.settings.knowsAll === true || (track().learnedCount || 0) >= RADIOGRAM_MIN_LEARNED;
 }
 
-// Из чего составляем текст. Берём ТОЛЬКО освоенные знаки: радиограмма из букв,
-// которых человек ещё не проходил, — не проверка, а издевательство. Знаки препинания
-// в курсе не изучаются, поэтому в смешанном тексте о них предупреждаем отдельно.
+// Из чего составляем текст — правило в RG.chooseSet: только освоенные знаки, а с отметкой
+// «Я уже знаю азбуку» — весь алфавит курса и все цифры. Знаки препинания в курсе
+// не изучаются, поэтому в смешанном тексте о них предупреждаем отдельно.
 function radiogramSet(kind) {
-  const t = track(), alpha = state.settings.alphabet;
-  const order = alpha === 'en' ? DATA.KOCH_ORDER_EN : DATA.KOCH_ORDER_RU;
-  const letters = order.slice(0, t.learnedCount || 0);
-  const digits = DATA.DIGIT_ORDER.slice(0, t.digitsLearned || 0);
-  if (kind === 'digits') return digits;
-  if (kind === 'mixed') return [...letters, ...digits, ...RG.MIXED_PUNCT];
-  return letters;
+  const t = track();
+  return RG.chooseSet({
+    order: state.settings.alphabet === 'en' ? DATA.KOCH_ORDER_EN : DATA.KOCH_ORDER_RU,
+    digitOrder: DATA.DIGIT_ORDER,
+    learnedCount: t.learnedCount, digitsLearned: t.digitsLearned,
+    knowsAll: state.settings.knowsAll === true, kind,
+  });
 }
 
 let R = null; // состояние упражнения
@@ -1802,6 +1810,7 @@ function renderSettings() {
         <button id="lang-en" class="${s.alphabet === 'en' ? 'active' : ''}">Латинская (English)</button>
       </div>
     </div>
+    ${knowsCard(s)}
     <div class="card">
       <div class="eyebrow">Скорость</div>
       ${speedSliders(s)}
@@ -1845,6 +1854,7 @@ function renderSettings() {
     </div>
     <button class="linkbtn danger" id="reset">Начать обучение заново</button>`;
   $('#back').addEventListener('click', () => go(settingsFrom));
+  wireKnows(s);
   // Пишем сразу по вводу, но экран НЕ перерисовываем: перерисовка увела бы курсор
   // из поля на первой же букве. Позывной приводим к верхнему регистру при сохранении.
   $('#s-name').addEventListener('input', (e) => { state.profile.name = e.target.value.slice(0, 20); persist(); });
@@ -1875,6 +1885,43 @@ function renderSettings() {
       location.reload();
     }
   });
+}
+
+// «Я уже знаю азбуку» — для опытного радиста (в том числе потерявшего прогресс): открывает
+// контрольную радиограмму сразу и со всеми знаками курса. Курс «Учиться», «Освоено»,
+// звание, вехи и очки не трогает — без поздравлений. Повод — письмо пользователя
+// («Почему обучение началось с самого начала. Как перейти в приём радиограмм»).
+// Подтверждение — на самой странице, не окном (РЕШЕНИЯ.md, «Ни одного всплывающего окна»).
+// Надпись кнопки не менять: на неё ссылаются в письмах пользователям.
+function knowsCard(s) {
+  let body;
+  if (s.knowsAll) {
+    body = `<p><b>Включено: радиограмма открыта со всеми знаками</b></p>
+      <p class="muted hint">Кнопка «Контрольная радиограмма» — на главной. Обучение по буквам идёт как прежде.</p>
+      <button class="linkbtn" id="knows-off">Выключить</button>`;
+  } else if (knowsAsk) {
+    body = `<p><b>Открыть радиограмму со всеми знаками?</b></p>
+      <div class="btn-row">
+        <button class="btn" id="knows-yes">Да</button>
+        <button class="btn secondary" id="knows-no">Отмена</button>
+      </div>`;
+  } else {
+    body = `<button class="btn secondary" id="knows">Я уже знаю азбуку</button>
+      <p class="muted hint">Откроет контрольную радиограмму сразу — со всеми знаками.
+         Обучение по буквам останется как есть.</p>`;
+  }
+  return `<div class="card" id="knows-card">
+      <div class="eyebrow">Если вы уже радист</div>
+      ${body}
+    </div>`;
+}
+function wireKnows(s) {
+  const on = (id, fn) => { const el = $(id); if (el) el.addEventListener('click', fn); };
+  const redraw = () => { renderSettings(); const c = $('#knows-card'); if (c && c.scrollIntoView) c.scrollIntoView({ block: 'center' }); };
+  on('#knows', () => { knowsAsk = true; redraw(); });
+  on('#knows-no', () => { knowsAsk = false; redraw(); });
+  on('#knows-yes', () => { s.knowsAll = true; knowsAsk = false; persist(); redraw(); });
+  on('#knows-off', () => { s.knowsAll = false; knowsAsk = false; persist(); redraw(); });
 }
 
 function doBackup() {

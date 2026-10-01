@@ -26,6 +26,20 @@ export const MINUTE = 60;          // длительность полной ра
 // Знаки препинания смешанного текста — ровно те, что названы в правилах.
 export const MIXED_PUNCT = ['.', ',', '/', '?', '='];
 
+// Из каких знаков составлять текст. По умолчанию — ТОЛЬКО освоенные: радиограмма
+// из букв, которых человек ещё не проходил, — не проверка, а издевательство.
+// Исключение — отметка «Я уже знаю азбуку» (knowsAll, решение Кости 1.10.2026):
+// опытный радист берёт весь алфавит курса и все цифры, не проходя курс заново.
+// Порядки знаков приходят параметрами, чтобы модуль не зависел от data.js.
+// kind: 'letters' | 'digits' | 'mixed' (в смесь добавляются знаки препинания из правил).
+export function chooseSet({ order, digitOrder, learnedCount = 0, digitsLearned = 0, knowsAll = false, kind }) {
+  const letters = knowsAll ? [...order] : order.slice(0, learnedCount || 0);
+  const digits = knowsAll ? [...digitOrder] : digitOrder.slice(0, digitsLearned || 0);
+  if (kind === 'digits') return digits;
+  if (kind === 'mixed') return [...letters, ...digits, ...MIXED_PUNCT];
+  return letters;
+}
+
 // Сколько групп прозвучит за отведённое время на данной скорости.
 // Скорость в правилах — знаков в минуту, поэтому число знаков считается прямо.
 export function groupsFor(cpm, seconds = MINUTE) {

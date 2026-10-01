@@ -180,6 +180,17 @@ const SCREENS = {
   // теперь живут выбор азбуки, скорость знака в зн/мин, тон и резервная копия.
   settings: async (page) => { await page.click('[data-tab="cabinet"]'); await page.waitForTimeout(200);
                               await page.click('#gear'); await page.waitForTimeout(300); },
+  // «Я уже знаю азбуку»: кнопка и раскрытое подтверждение (на странице, не окном).
+  // Карточка ниже первого экрана — прокручиваем к ней, иначе снимок её не покажет.
+  settingsknows: async (page) => { await page.click('#gear'); await page.waitForTimeout(300);
+                                   await page.evaluate(() => document.querySelector('#knows-card').scrollIntoView({ block: 'center' })); await page.waitForTimeout(150); },
+  settingsknowsask: async (page) => { await page.click('#gear'); await page.waitForTimeout(300);
+                                      await page.click('#knows'); await page.waitForTimeout(200);
+                                      await page.evaluate(() => document.querySelector('#knows-card').scrollIntoView({ block: 'center' })); await page.waitForTimeout(150); },
+  settingsknowson: async (page) => { await page.click('#gear'); await page.waitForTimeout(300);
+                                     await page.click('#knows'); await page.waitForTimeout(200);
+                                     await page.click('#knows-yes'); await page.waitForTimeout(200);
+                                     await page.evaluate(() => document.querySelector('#knows-card').scrollIntoView({ block: 'center' })); await page.waitForTimeout(150); },
   onboarding: async () => {},
   // Первый вход: знакомство → «Начать занятие» открывает само занятие на четырёх знаках
   // (раньше — главную с «Продолжить обучение», хотя ни одного знака ещё не было).

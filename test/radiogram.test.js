@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   makeRadiogram, normalize, compare, accepted, score, groupsFor, nextSpeed,
-  GROUP_SIZE, MAX_ERRORS, SPEED_STEP, MIXED_PUNCT,
+  GROUP_SIZE, MAX_ERRORS, SPEED_STEP, MIXED_PUNCT, chooseSet,
 } from '../app/js/radiogram.js';
 
 // Повторяемый источник случайности: тест не должен зависеть от везения.
@@ -107,4 +107,21 @@ test('вырожденные входы не роняют сверку', () => {
   assert.equal(compare('', '').errors, 0);
   assert.equal(compare('', 'ABC').errors, 3);
   assert.equal(compare(null, undefined).errors, 0);
+});
+
+test('набор знаков: без отметки — только освоенные, с отметкой «Я уже знаю азбуку» — весь курс', () => {
+  const order = ['Е', 'Т', 'И', 'М', 'А', 'Н'];
+  const digitOrder = [...'0123456789'];
+  const base = { order, digitOrder, learnedCount: 4, digitsLearned: 0 };
+  assert.deepEqual(chooseSet({ ...base, kind: 'letters' }), ['Е', 'Т', 'И', 'М']);
+  assert.deepEqual(chooseSet({ ...base, kind: 'digits' }), []);
+  assert.deepEqual(chooseSet({ ...base, kind: 'mixed' }), ['Е', 'Т', 'И', 'М', ...MIXED_PUNCT]);
+  assert.deepEqual(chooseSet({ ...base, digitsLearned: 3, kind: 'digits' }), ['0', '1', '2']);
+  const all = { ...base, knowsAll: true };
+  assert.deepEqual(chooseSet({ ...all, kind: 'letters' }), order);
+  assert.deepEqual(chooseSet({ ...all, kind: 'digits' }), digitOrder);
+  assert.deepEqual(chooseSet({ ...all, kind: 'mixed' }), [...order, ...digitOrder, ...MIXED_PUNCT]);
+  // Исходные порядки не портятся: набор — копия.
+  chooseSet({ ...all, kind: 'letters' }).push('X');
+  assert.equal(order.length, 6);
 });

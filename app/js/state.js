@@ -32,6 +32,9 @@ export function defaultState() {
       // Анонимная статистика (минуты занятия и номер установки, см. js/metrics.js).
       // Включена по умолчанию, выключается одним касанием в настройках.
       metrics: true,
+      // «Я уже знаю азбуку» (настройки): открывает контрольную радиограмму сразу
+      // и со всеми знаками курса. Прогресс обучения (освоено, звание, вехи) не трогает.
+      knowsAll: false,
     },
     streak: { current: 0, longest: 0, lastActiveDate: null },
     // Личные рекорды. Пока один: самая быстрая ПРИНЯТАЯ контрольная радиограмма —
@@ -104,6 +107,7 @@ export function migrate(raw) {
     s.settings.radiogramFull = r.radiogramFull === true;
     s.settings.theme = ['light', 'dark'].includes(r.theme) ? r.theme : 'auto';
     s.settings.metrics = r.metrics !== false;
+    s.settings.knowsAll = r.knowsAll === true;
   }
   if (isObj(raw.records)) {
     s.records.radiogramCpm = clampNum(raw.records.radiogramCpm, 0, LIMITS.radiogramCpm.max, 0);

@@ -197,5 +197,18 @@ ok(saved().milestones.radiogram === true, 'радиограмма: веха за
     'Радиоигра: вехи и буквы на месте после перезапуска');
 }
 
+// 9) «Я уже знаю азбуку» (1.10.2026): у папы отметки нет — всё как было.
+{
+  const { KOCH_ORDER_RU } = await import('../app/js/data.js');
+  const learned20 = KOCH_ORDER_RU.slice(0, 20);
+  ok(saved().settings.knowsAll === false, 'знаю азбуку: в старом состоянии отметки нет');
+  ok([...sentText.replace(/\s+/g, '')].every((ch) => learned20.includes(ch)),
+    'знаю азбуку: без отметки радиограмма — только из освоенных букв, как раньше');
+  document.querySelector('[data-tab="home"]').click(); await sleep(20);
+  document.querySelector('#gear').click(); await sleep(20);
+  ok(document.querySelector('#knows') && !text().includes('Включено: радиограмма'),
+    'знаю азбуку: в настройках кнопка, а не «Включено»');
+}
+
 assert.equal(errors.length, 0, 'необработанные ошибки: ' + errors.map(String).join(' | '));
 console.log(`\nДымовой тест обновления пройден: ${pass} проверок, ошибок ${errors.length}`);
