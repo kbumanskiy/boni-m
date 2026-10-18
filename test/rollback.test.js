@@ -47,7 +47,7 @@ function fullV26() {
     profile: { name: 'Бонислав', callsign: 'Boney M', points: 412 },
     progress: {
       ru: { learnedCount: 27, digitsLearned: 6, perChar: { 'Е': { correct: 31, total: 34 }, 'Щ': { correct: 3, total: 9 } },
-            recent: [1, 1, 0, 1, 1], parked: [{ char: 'Ь', returnAt: 30 }], lastFirst: 'Щ' },
+            recent: [1, 1, 0, 1, 1], parked: [{ char: 'Ь', returnAt: 36 }], lastFirst: 'Щ' },
       en: { learnedCount: 6, digitsLearned: 0, perChar: { 'K': { correct: 5, total: 6 } }, recent: [1, 0], parked: [], lastFirst: 'E' },
     },
     settings: { alphabet: 'ru', charWpm: 20, effWpm: 12, keyWpm: 14, toneHz: 700, volume: 0.6,
@@ -74,7 +74,7 @@ test('откат: v25 читает состояние v26 без потерь �
   const s26 = fullV26();
   assert.equal(s26.settings.radiogramLong, true, 'вход действительно содержит выбор «Длинная»');
   assert.equal(s26.settings.radiogramGroups, 50);
-  assert.deepEqual(s26.progress.ru.parked, [{ char: 'Ь', returnAt: 30 }], 'отложенный знак в настоящем формате');
+  assert.deepEqual(s26.progress.ru.parked, [{ char: 'Ь', returnAt: 36 }], 'отложенный знак в настоящем формате');
   const s25 = V25.migrate(JSON.parse(JSON.stringify(s26)));
   assert.deepEqual(s25, withoutNew(s26));
 });

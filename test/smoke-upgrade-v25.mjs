@@ -31,7 +31,7 @@ const V25_STATE = V25.migrate({
   progress: {
     ru: { learnedCount: 27, digitsLearned: 6,
           perChar: { 'Е': { correct: 31, total: 34 }, 'Ь': { correct: 4, total: 11 }, 'Щ': { correct: 6, total: 8 } },
-          recent: [1, 1, 0, 1, 1, 1, 1, 0, 1, 1], parked: [{ char: 'Ь', returnAt: 30 }], lastFirst: 'Щ' },
+          recent: [1, 1, 0, 1, 1, 1, 1, 0, 1, 1], parked: [{ char: 'Ь', returnAt: 36 }], lastFirst: 'Щ' },
     en: { learnedCount: 6, digitsLearned: 0, perChar: { 'K': { correct: 9, total: 10 } }, recent: [1, 1, 1], parked: [], lastFirst: 'E' },
   },
   settings: { alphabet: 'ru', charWpm: 20, effWpm: 12, keyWpm: 14, toneHz: 700, volume: 0.6,
@@ -131,6 +131,24 @@ ok(saved().settings.alphabet === 'en' && saved().progress.en.learnedCount === 6,
 ok(saved().progress.ru.learnedCount === 27 && saved().progress.ru.parked.length === 1
   && saved().progress.ru.parked[0].char === 'Ь', 'русский трек: 27 знаков, отложенная Ь на месте');
 click('#lang-ru'); await sleep(10);
+
+// «Учиться»: отложенная Ь (вернётся после 36 открытых знаков, открыто 33) так и отложена —
+// среди вариантов её нет, в состоянии она на месте.
+click('[data-tab="learn"]'); await sleep(10);
+let sawSoft = false;
+for (let i = 0; i < 6; i++) {
+  for (let t = 0; t < 300 && ![...document.querySelectorAll('#opts .opt')].some((b) => !b.disabled); t++) await sleep(10);
+  if ([...document.querySelectorAll('#opts .opt')].some((b) => b.dataset.c === 'Ь')) sawSoft = true;
+  [...document.querySelectorAll('#opts .opt')].find((b) => !b.disabled)?.click();
+  await sleep(20);
+  document.querySelector('#keep')?.click();
+  for (let t = 0; t < 100 && document.querySelector('#nextbtn')?.disabled; t++) await sleep(10);
+  document.querySelector('#nextbtn')?.click();
+  await sleep(20);
+}
+ok(!sawSoft, '«Учиться»: отложенной Ь нет среди вариантов');
+ok(saved().progress.ru.parked.length === 1 && saved().progress.ru.parked[0].char === 'Ь', '«Учиться»: Ь по-прежнему отложена');
+click('#exit'); await sleep(20);
 
 // Статистика выключена — наружу ничего.
 Object.defineProperty(document, 'hidden', { configurable: true, get: () => true });
