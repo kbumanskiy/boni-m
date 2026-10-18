@@ -105,6 +105,9 @@ const SEED_PATCH = {
   // Длинная радиограмма: подготовка снимается кликом по «Длинной», остальные — уже с выбором 50.
   radiogramlong: (s) => SEED_PATCH.radiogram(s),
   radiogramlong390: (s) => SEED_PATCH.radiogram(s),
+  // «Длина тире» на самой длинной подписи — «заметно длиннее» (ТЗ-длина-тире.md, раздел 5).
+  settingsdah: (s) => { s.settings.dahRatio = 4; return s; },
+  settingsdah390: (s) => SEED_PATCH.settingsdah(s),
   radiogramlongwork: (s) => { SEED_PATCH.radiogram(s); s.settings.radiogramLong = true; s.settings.radiogramGroups = 50; return s; },
   radiogramlongresult: (s) => SEED_PATCH.radiogramlongwork(s),
   // Обрыв: на 225 зн/мин первая полная группа звучит за пару секунд.
@@ -209,6 +212,8 @@ const VIEWPORT = Object.fromEntries([...FOLD, ...NO_AUDIO, 'onboardstart',
   'learnsilent',
   // Напевы латиницы: самые длинные подписи (X/Ь) — на 360 точках.
   'learnwrongen', 'learnhelpen', 'learnhelpru', 'refcarden', 'refcardendigit', 'learnnewen', 'learnnewendigit',
+  // «Длина тире»: карточка «Скорость» на самом тесном телефоне.
+  'settingsdah',
 ].map((n) => [n, SMALL]));
 
 // Верный ответ на вопрос, который сейчас на экране: id берём из сохранённой колоды.
@@ -244,6 +249,10 @@ const SCREENS = {
                               await page.click('#gear'); await page.waitForTimeout(300); },
   // «Я уже знаю азбуку»: кнопка и раскрытое подтверждение (на странице, не окном).
   // Карточка ниже первого экрана — прокручиваем к ней, иначе снимок её не покажет.
+  // Карточка «Скорость» с «Длиной тире»: в обычный кадр settings она не попадает — прокрутка.
+  settingsdah: async (page) => { await page.click('#gear'); await page.waitForTimeout(300);
+                                 await page.evaluate(() => document.querySelector('#ldah').scrollIntoView({ block: 'center' })); await page.waitForTimeout(150); },
+  settingsdah390: async (page) => SCREENS.settingsdah(page),
   settingsknows: async (page) => { await page.click('#gear'); await page.waitForTimeout(300);
                                    await page.evaluate(() => document.querySelector('#knows-card').scrollIntoView({ block: 'center' })); await page.waitForTimeout(150); },
   settingsknowsask: async (page) => { await page.click('#gear'); await page.waitForTimeout(300);

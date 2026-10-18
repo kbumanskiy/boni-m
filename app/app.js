@@ -193,7 +193,38 @@ function speedSliders(s, { full = true } = {}) {
       </div>
       <input type="range" id="lspeed" min="0" max="${PAUSE_STEPS.length - 1}" step="1" value="${pauseIndex(s)}">
       <div class="slider-ends"><span>как в эфире</span><span>вчетверо длиннее</span></div>
-    </div>${SPEED_HINT}`;
+    </div>${dahSlider(s)}${SPEED_HINT}`;
+}
+
+// ——— Длина тире (ТЗ-длина-тире.md, 2.1) ———
+// Просьба Николая: «короткое тире мешает в обучении». Ступени — из timing.js; при старом
+// timing.js (смешанный кэш) их нет, и тогда ползунка нет вовсе. Только в настройках.
+const DAH_WORDS = ['как в эфире', 'чуть длиннее', 'заметно длиннее'];
+const dahSteps = () => LIMITS.dahRatio?.steps || null;
+// Точное совпадение со ступенью; чужое значение — ступень 0.
+function dahIndex(s) {
+  const i = (dahSteps() || []).indexOf(s.dahRatio);
+  return i < 0 ? 0 : i;
+}
+function dahLabel(s) {
+  const steps = dahSteps() || [3];
+  const i = dahIndex(s);
+  return `${DAH_WORDS[i] || ''}<small>${String(steps[i]).replace('.', ',')} точки</small>`;
+}
+function dahSlider(s) {
+  const steps = dahSteps();
+  if (!steps) return '';
+  return `
+    <div class="slider">
+      <div class="slider-head">
+        <label for="ldah">Длина тире</label>
+        <output class="num" id="ldah-val">${dahLabel(s)}</output>
+      </div>
+      <input type="range" id="ldah" min="0" max="${steps.length - 1}" step="1" value="${dahIndex(s)}">
+      <div class="slider-ends"><span>${DAH_WORDS[0]}</span><span>${DAH_WORDS[steps.length - 1] || ''}</span></div>
+    </div>
+    <p class="muted hint" id="dah-hint">Чем длиннее тире, тем чуть медленнее звучит буква.
+       В контрольной радиограмме тире всегда как в эфире.</p>`;
 }
 
 // ——— Пауза между знаками ———
@@ -244,7 +275,7 @@ function timesWord(times) {
 // Ползунок пауз есть только в настройках: в занятии стоит один — скорость знака.
 // Поэтому всё, что касается пауз, включается, только если ползунок на экране есть.
 function wireSpeedSliders(onDone) {
-  const ch = $('#lchar'), sp = $('#lspeed');
+  const ch = $('#lchar'), sp = $('#lspeed'), dah = $('#ldah');
   if (!ch) return;
   const redraw = () => {
     $('#lchar-val').innerHTML = `${cpm(state.settings.charWpm)} зн/мин<small>${state.settings.charWpm} WPM</small>`;
@@ -262,9 +293,16 @@ function wireSpeedSliders(onDone) {
     state.settings.effWpm = effForIndex(+e.target.value, state.settings.charWpm);
     persist(); redraw();
   });
+  if (dah) dah.addEventListener('input', (e) => {
+    const steps = dahSteps();
+    state.settings.dahRatio = steps[Math.min(steps.length - 1, Math.max(0, +e.target.value))];
+    persist();
+    $('#ldah-val').innerHTML = dahLabel(state.settings);
+  });
   if (onDone) {
     ch.addEventListener('change', onDone);
     if (sp) sp.addEventListener('change', onDone);
+    if (dah) dah.addEventListener('change', onDone);
   }
 }
 
@@ -460,10 +498,18 @@ function renderCounter() {
   }
 }
 
+// Длина тире для звука — только в учебных вызовах. audio.js хранимое settings.dahRatio не
+// читает, ему нужен явный dahUnits: так радиограмма (правила радиоспорта, тире 3) защищена
+// устройством. Каждый вызов playCode/playSequence в этом файле — либо через withDah,
+// либо радиограмма (ТЗ-длина-тире.md, 3.3; тест в smoke-radiogram-audio.mjs).
+function withDah(s) {
+  return { ...s, dahUnits: s.dahRatio ?? 3 };
+}
+
 function settingsForPlay() {
   const s = { ...state.settings };
   if (L.slow) s.effWpm = slowerEff(s.effWpm, s.charWpm);
-  return s;
+  return withDah(s);
 }
 
 function nextRound() {
@@ -747,7 +793,7 @@ function callsignDrill() {
     <button class="btn" id="play">${ICON.sound(24)} Послушать</button>
     <button class="btn secondary" id="got">${ICON.check(24)} Я принял</button>
     <button class="linkbtn" id="back">Назад</button></div>`;
-  $('#play').addEventListener('click', () => A.playSequence(parts.map((p) => p.ch), codeAnywhere, state.settings, {}));
+  $('#play').addEventListener('click', () => A.playSequence(parts.map((p) => p.ch), codeAnywhere, withDah(state.settings), {}));
   $('#got').addEventListener('click', () => {
     const newly = G.checkMilestones(state, { callsignReceived: true });
     persist();
@@ -995,6 +1041,7 @@ function startRadiogram() {
   // ещё null — обработчики на него не опираются.
   drawRadiogramReceive();
   const run = R;
+  // Правила радиоспорта: тире всегда 3 точки; withDah сюда не добавлять.
   const stop = A.playSequence([...text], rgCodeOf, { ...s, charWpm: wpm, effWpm: wpm }, {
     onChar: (i) => {
       if (i === null) return; // так playSequence гасит подсветку в конце; конец ловит onDone
@@ -1489,7 +1536,7 @@ function puzzleSay(text, kind = '') {
 function puzzlePlaySettings(slow) {
   const s = { ...state.settings };
   if (slow) s.effWpm = slowerEff(s.effWpm, s.charWpm);
-  return s;
+  return withDah(s);
 }
 
 function puzzleListen() {
@@ -1655,7 +1702,7 @@ function renderKey() {
       <button type="button" class="keypad" id="pad" aria-label="Ключ: нажимайте и держите"><span class="keyout" id="keyout" aria-live="polite">Нажимайте и держите</span></button>${spaceHintMarkup()}
       <div class="keyverdict" id="keychar" aria-live="polite"><div class="muted">Отстучите знак — разберём, что получилось</div></div>
       <button class="linkbtn" id="newtarget">Другой знак</button>${speedCtl}`;
-    $('#sample').addEventListener('click', () => A.playCode(codeOf(K.target), { ...state.settings, charWpm: state.settings.keyWpm, effWpm: state.settings.keyWpm }, {}));
+    $('#sample').addEventListener('click', () => A.playCode(codeOf(K.target), withDah({ ...state.settings, charWpm: state.settings.keyWpm, effWpm: state.settings.keyWpm }), {}));
     $('#newtarget').addEventListener('click', renderKey);
   } else {
     screenEl.innerHTML = `
@@ -1914,8 +1961,8 @@ function refCard(ch) {
     <div class="codeline">${visualCode(code)}</div>
     ${chant}
     <button class="btn" id="play" style="max-width:260px">${ICON.sound(24)} Послушать</button></div>`;
-  const playSettings = () => DATA.DIGITS.some((d) => d.char === ch)
-    ? { ...state.settings } : { ...state.settings, alphabet: refAlpha };
+  const playSettings = () => withDah(DATA.DIGITS.some((d) => d.char === ch)
+    ? { ...state.settings } : { ...state.settings, alphabet: refAlpha });
   $('#play').addEventListener('click', () => A.playCode(code, playSettings(), {}));
   $('#x').addEventListener('click', () => { overlayRoot.innerHTML = ''; });
   overlayRoot.firstElementChild.addEventListener('click', (e) => { if (e.target === overlayRoot.firstElementChild) overlayRoot.innerHTML = ''; });
@@ -2165,7 +2212,7 @@ function renderSettings() {
   $('#s-call').addEventListener('change', (e) => { e.target.value = normalizeCallsign(e.target.value); });
   // Звук пробуем сразу: настройка, которую не слышно, настраивается вслепую.
   // Образец обновляет только строку «Версия · Звук» — без перерисовки экрана (увела бы фокус).
-  const sample = () => A.playCode('-.-', state.settings, { onDone: refreshAbout });
+  const sample = () => A.playCode('-.-', withDah(state.settings), { onDone: refreshAbout });
   wireSpeedSliders(sample);
   $('#key').addEventListener('input', (e) => { s.keyWpm = +e.target.value; persist(); renderSettings(); });
   $('#tone').addEventListener('input', (e) => { s.toneHz = +e.target.value; $('#tone-val').textContent = `${s.toneHz} Гц`; persist(); });

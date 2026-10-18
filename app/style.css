@@ -392,6 +392,10 @@ input[type=range]{width:100%; height:44px; accent-color:var(--accent);}
 .slider-head label{margin:0; font-size:19px; font-weight:600; color:var(--text-dim);}
 .slider-head .num{font-size:21px;}
 .slider-ends{display:flex; justify-content:space-between; color:var(--text-dim); font-size:17px; margin-top:-2px;}
+/* «Длина тире»: подпись короткая — пусть стоит в одну строку, переносится значение справа.
+   Строка-пояснение относится к этому ползунку, но не должна слипаться с концами шкалы. */
+.slider-head label[for="ldah"]{white-space:nowrap;}
+#dah-hint{margin-top:8px;}
 .num.nowrap{white-space:nowrap;}
 .num{font-family:var(--mono); font-variant-numeric:tabular-nums; font-weight:700; color:var(--accent-text);}
 

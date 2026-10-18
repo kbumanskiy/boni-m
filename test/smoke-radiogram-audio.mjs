@@ -184,5 +184,102 @@ const fin = saved();
 ok(fin.milestones.radiogram === true && fin.milestones.tenMin === true,
   'вехи: принятая «Минута» дала «радиограмму» и догнала «10 минут» — как в v25');
 assert.equal(errors.length, 0, 'необработанные ошибки: ' + errors.map(String).join(' | '));
+
+// ——— Длина тире (ТЗ-длина-тире.md, тесты 17–18) ———
+// Отдельное окно с dahRatio: 4. Тоны пишутся в журнал поддельного звука в момент
+// планирования, поэтому длительности известны сразу после нажатия.
+{
+  const { JSDOM: J } = await import('jsdom');
+  const d = new J(html, { url: 'https://example.com/', pretendToBeVisual: true });
+  const w = d.window;
+  const errs = [];
+  w.addEventListener('error', (e) => errs.push(e.error || e.message));
+  w.localStorage.setItem('boni_m_state', JSON.stringify(migrate({
+    profile: { name: 'Николай', callsign: 'UA5B', points: 5 },
+    progress: { ru: { learnedCount: 4 } },
+    settings: { knowsAll: true, radiogramCpm: 60, radiogramKind: 'letters', dahRatio: 4 },
+    milestones: { first4: true }, totalSeconds: 1000,
+  })));
+  Object.assign(w, { scrollTo: () => {}, confirm: () => true, alert: () => {}, AudioContext: fake.AudioContext,
+    requestAnimationFrame: global.requestAnimationFrame, cancelAnimationFrame: global.cancelAnimationFrame });
+  setGlobal('window', w); setGlobal('document', w.document);
+  setGlobal('location', w.location); setGlobal('localStorage', w.localStorage);
+  await import('../app/app.js?dah');
+  await sleep(20);
+  const $w = (sel) => w.document.querySelector(sel);
+  const cw = (sel) => { const el = $w(sel); assert.ok(el, `длина тире: нет элемента ${sel}`); el.click(); };
+  const tab = async (t) => { cw(`#tabs [data-tab="${t}"]`); await sleep(5); };
+  const near = (a, b) => Math.abs(a - b) < 1e-6;
+  // Новые тоны после действия: есть ли тире в 4 точки и нет ли эталонного в 3.
+  const heard = async (wpm, act) => {
+    const n0 = fake.tones.length;
+    await act();
+    await sleep(5);
+    const dit = 1.2 / wpm;
+    const lens = fake.tones.slice(n0).map((t) => t.dur);
+    return { long: lens.some((l) => near(l, 4 * dit)), std: lens.some((l) => near(l, 3 * dit)), lens, dit };
+  };
+  const learnWpm = 18;
+  ok($w('#radiogram') && $w('#drill'), 'длина тире: окно с dahRatio = 4 открыто, радиограмма и позывной на главной');
+
+  // 17) Радиограмма: только 1 и 3 точки на её скорости, ни одного тона в 4.
+  {
+    cw('#radiogram'); await sleep(5);
+    if ($w('[data-dur="short"]')) cw('[data-dur="short"]');
+    await sleep(5);
+    const r = await heard(60 / 5, async () => { cw('#start'); });
+    ok(r.lens.length > 10, `радиограмма: тоны запланированы (${r.lens.length})`);
+    ok(r.lens.every((l) => near(l, r.dit) || near(l, 3 * r.dit)) && !r.long,
+      'радиограмма при «заметно длиннее»: все тоны 1 или 3 точки, ни одного в 4');
+    cw('#abort'); await sleep(5);
+    if ($w('#leave')) { cw('#leave'); await sleep(5); }
+    await tab('home');
+  }
+
+  // 18) Каждый учебный путь звучит с тире в 4 точки.
+  // «Учиться»: знак случайный из четырёх (Е Т И М) — входим, пока не выпадет знак с тире.
+  {
+    let r = { long: false, std: true };
+    for (let i = 0; i < 40 && !r.long; i++) {
+      r = await heard(learnWpm, async () => { cw('#continue'); });
+      await tab('home');
+    }
+    ok(r.long && !r.std, '«Учиться»: тире 4 точки');
+  }
+  {
+    const r = await heard(learnWpm, async () => { cw('#drill'); await sleep(5); cw('#play'); });
+    ok(r.long && !r.std, 'позывной (#play): тире 4 точки');
+    await tab('home');
+  }
+  {
+    cw('#puzzle'); await sleep(5);
+    cw('.pz-cat[data-cat="msg"]'); await sleep(5);
+    const r = await heard(learnWpm, async () => { cw('#pz-listen'); });
+    ok(r.long && !r.std, 'Радиоигра (#pz-listen): тире 4 точки');
+    await tab('home');
+  }
+  {
+    await tab('ref');
+    const r = await heard(learnWpm, async () => { cw('.cell[data-c="Т"]'); await sleep(5); cw('#play'); });
+    ok(r.long && !r.std, '«Азбука» → карточка «Т» → «Послушать»: тире 4 точки');
+    cw('#x'); await sleep(5);
+  }
+  {
+    await tab('key');
+    const keyWpm = JSON.parse(w.localStorage.getItem('boni_m_state')).settings.keyWpm;
+    // Знак случайный — «Другой знак», пока не выпадет знак с тире (Т или М).
+    for (let i = 0; i < 40 && !/[ТМ]/.test($w('.taskchar')?.textContent || ''); i++) { cw('#newtarget'); await sleep(2); }
+    const r = await heard(keyWpm, async () => { cw('#sample'); });
+    ok(r.long && !r.std, '«Ключ → Тренировка» → «Послушать»: тире 4 точки');
+  }
+  {
+    await tab('home');
+    cw('#gear'); await sleep(5);
+    const dah = $w('#ldah');
+    const r = await heard(learnWpm, async () => { dah.value = '2'; dah.dispatchEvent(new w.Event('change', { bubbles: true })); });
+    ok(r.long && !r.std, 'пробный «К» по change у #ldah: тире 4 точки');
+  }
+  ok(errs.length === 0, 'длина тире: без ошибок — ' + errs.map(String).join(' | '));
+}
 console.log(`\nДымовой тест радиограммы со звуком пройден: ${pass} проверок, ошибок ${errors.length}`);
 process.exit(0);

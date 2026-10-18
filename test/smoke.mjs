@@ -113,6 +113,7 @@ ok([...opts].some((b) => !b.disabled), 'учиться: варианты раз�
 // два ползунка с объяснением превращали экран занятия в чтение.
 ok(document.querySelector('#lchar'), 'учиться: регулятор скорости знака есть');
 ok(!document.querySelector('#lspeed'), 'учиться: ползунка пауз здесь нет — он в настройках');
+ok(!document.querySelector('#ldah'), 'учиться: ползунка «Длина тире» здесь нет — он в настройках');
 ok(!text().includes('это и есть метод Коха'), 'учиться: длинного объяснения на экране занятия нет');
 // Правило «занятие засчитывается от 15 ответов» было невидимым: папа мог заниматься
 // каждый день по 10 ответов и не понимать, почему «дни в эфире» стоят на нуле.
@@ -430,6 +431,25 @@ ok(speedState.effWpm <= speedState.charWpm, 'настройки: паузы не
 charSlider.value = '18'; charSlider.dispatchEvent(new window.Event('input', { bubbles: true }));
 pauseSlider.value = '9'; pauseSlider.dispatchEvent(new window.Event('input', { bubbles: true }));
 await sleep(10);
+// «Длина тире» (ТЗ-длина-тире.md, тест 13): три ступени, по умолчанию «как в эфире».
+{
+  const dah = document.querySelector('#ldah');
+  ok(dah && +dah.min === 0 && +dah.max === 2 && dah.value === '0', 'настройки: «Длина тире» — три ступени, бегунок на первой');
+  ok(document.querySelector('#ldah-val').textContent.includes('как в эфире'), 'настройки: длина тире «как в эфире»');
+  dah.value = '2'; dah.dispatchEvent(new window.Event('input', { bubbles: true }));
+  await sleep(10);
+  ok(JSON.parse(localStorage.getItem('boni_m_state')).settings.dahRatio === 4, 'настройки: ступень 2 → dahRatio = 4');
+  ok(document.querySelector('#ldah-val').textContent.includes('заметно длиннее'), 'настройки: «заметно длиннее»');
+  ok(document.querySelector('#dah-hint')?.textContent.includes('В контрольной радиограмме тире всегда как в эфире'),
+    'настройки: строка про радиограмму под ползунком');
+  click('#back'); await sleep(10);
+  click('#gear'); await sleep(10);
+  ok(document.querySelector('#ldah').value === '2', 'настройки: после перерисовки бегунок на ступени 2');
+  const d2 = document.querySelector('#ldah');
+  d2.value = '0'; d2.dispatchEvent(new window.Event('input', { bubbles: true }));
+  await sleep(10);
+  ok(JSON.parse(localStorage.getItem('boni_m_state')).settings.dahRatio === 3, 'настройки: вернули «как в эфире» (3)');
+}
 click('#back');
 await sleep(10);
 ok(text().includes('Мои успехи'), 'настройки: «Назад» вернуло в журнал');
@@ -969,7 +989,7 @@ Object.defineProperty(document, 'hidden', { configurable: true, get: () => false
     load(url, ctx, next) {
       if (url === noNewFields) return { format: 'module', shortCircuit: true, source:
         `import * as S from '${stateUrl}'; export * from '${stateUrl}';
-         export function load(...a) { const s = S.load(...a); delete s.settings.radiogramLong; delete s.settings.radiogramGroups; return s; }` };
+         export function load(...a) { const s = S.load(...a); delete s.settings.radiogramLong; delete s.settings.radiogramGroups; delete s.settings.dahRatio; return s; }` };
       return next(url, ctx);
     },
   });
@@ -1018,6 +1038,11 @@ Object.defineProperty(document, 'hidden', { configurable: true, get: () => false
     ok(env.$w('[data-dur="short"]').classList.contains('active') && !env.$w('[data-groups]'),
       'новый app.js + старый state.js: подготовка радиограммы открылась, «Длинная» не выбрана');
     env.cw('#back'); await sleep(10);
+    // Поля dahRatio в состоянии нет (старый state.js): настройки открываются, бегунок на ступени 0.
+    env.cw('#gear'); await sleep(10);
+    ok(env.$w('#ldah') && env.$w('#ldah').value === '0' && env.$w('#ldah-val').textContent.includes('как в эфире'),
+      'новый app.js + старый state.js (нет dahRatio): «Длина тире» на ступени 0');
+    env.cw('#back'); await sleep(10);
     ok(env.errs.length === 0, 'новый app.js + старый state.js: без ошибок — ' + env.errs.map(String).join(' | '));
   }
 
@@ -1032,6 +1057,8 @@ Object.defineProperty(document, 'hidden', { configurable: true, get: () => false
     ok(!env.crash && env.$w('#continue'), `новый app.js + старые модули: главная открылась${env.crash ? ' — ' + env.crash.message : ''}`);
     env.cw('#gear'); await sleep(10);
     ok(env.tw().includes('Настройки') && !env.$w('#guide-card'), 'новый app.js + старые модули: настройки открылись, карточки «Как пользоваться» нет');
+    ok(!env.$w('#ldah') && !env.$w('#dah-hint') && env.$w('#lspeed'),
+      'новый app.js + старый timing.js: ползунка «Длина тире» и строки под ним нет, остальные на месте');
     env.cw('#back'); await sleep(10);
     env.cw('#continue'); await sleep(10);
     ok(await waitFor(() => [...env.w.document.querySelectorAll('#opts .opt')].some((b) => !b.disabled)),
