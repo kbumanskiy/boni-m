@@ -658,16 +658,18 @@ textarea{
 .rg-extras{white-space:normal; overflow-wrap:anywhere;}
 /* Заголовок тренировки (длинная радиограмма) — без цветной плашки вердикта. */
 .rg-train{font-size:22px; margin:0 0 8px;}
-/* «Короткая | Минута | Длинная»: три слова в ряд на 360 точках влезают только без полей
-   кнопки и чуть меньшим кеглем (не мельче 17px — проверка screens.mjs). */
-.seg.dur button{flex:1 1 auto; min-width:0; padding:0 6px; font-size:17px;}
+/* «Короткая | Минута | Длинная»: три слова в ряд влезают только с узкими полями кнопки
+   (ширина по слову, а не поровну); на 360 точках — ещё и кеглем 17px (не мельче — проверка
+   screens.mjs). На 390 и шире кегль прежний. */
+.seg.dur button{flex:1 1 auto; min-width:0; padding:0 6px; font-size:19px;}
+@media (max-width:370px){ .seg.dur button{font-size:17px;} }
 /* «Контрольная радиограмма» на 360 точках: слово «радиограмма» не помещается рядом с «Назад». */
 @media (max-width:370px){ .screenbar.rg-setup h2{font-size:24px;} }
 /* «Звук не включился»: главная фраза крупно, пояснение — приглушённой строкой под ней. */
 .nosound-more{display:block; font-size:18px; font-weight:400; color:var(--text-dim); margin-top:4px; line-height:1.35;}
 /* Разбор ошибки на 360 точках: «Послушать» и «Дальше» в один ряд влезают только с узкими
    полями кнопок (без этого «Дальше» уезжала за правый край экрана). */
-@media (max-width:370px){ .reveal-actions .btn{padding-left:12px; padding-right:12px; gap:8px;} }
+@media (max-width:370px){ .reveal-actions{gap:8px;} .reveal-actions .btn{flex:1 1 auto; width:auto; padding-left:10px; padding-right:10px; gap:6px;} }
 /* Знаки препинания: коды до восьми элементов («Ошибка») и подписи вроде «Скобка
    открывающая» в три столбца не помещаются — код вылезал за ячейку и за край экрана. */
 .grid.punct{grid-template-columns:repeat(2,minmax(0,1fr));}

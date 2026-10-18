@@ -104,6 +104,7 @@ const SEED_PATCH = {
     s.progress.en.perChar = { X: { correct: 6, total: 6 } }; return s; },
   // Длинная радиограмма: подготовка снимается кликом по «Длинной», остальные — уже с выбором 50.
   radiogramlong: (s) => SEED_PATCH.radiogram(s),
+  radiogramlong390: (s) => SEED_PATCH.radiogram(s),
   radiogramlongwork: (s) => { SEED_PATCH.radiogram(s); s.settings.radiogramLong = true; s.settings.radiogramGroups = 50; return s; },
   radiogramlongresult: (s) => SEED_PATCH.radiogramlongwork(s),
   // Обрыв: на 225 зн/мин первая полная группа звучит за пару секунд.
@@ -331,6 +332,8 @@ const SCREENS = {
     if (!(await page.locator('[data-groups]').count())) throw new Error('radiogramlong: нет ряда «Сколько групп»');
     await page.evaluate(() => scrollTo(0, 0)); await page.waitForTimeout(150);
   },
+  // То же на обычных 390 точках: там сегмент «Длительность» — прежним кеглем.
+  radiogramlong390: async (page) => SCREENS.radiogramlong(page),
   radiogramlongwork: async (page) => {
     await page.click('#radiogram'); await page.waitForTimeout(250);
     await page.click('#start');
