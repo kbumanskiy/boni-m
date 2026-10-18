@@ -268,9 +268,11 @@ test('миграция идемпотентна: migrate(migrate(x)) = migrate(x
     records: { radiogramCpm: 100 }, totalSeconds: 18000,
     history: [{ date: '2026-10-01T10:00', answers: 20, accuracyPct: 91 }],
     milestones: { first4: true, radiogram: true } };
-  const junk = { settings: { radiogramGroups: 37, radiogramLong: 'да', charWpm: 999 }, history: 'x', puzzle: [1] };
-  for (const x of [{}, v25, junk, defaultState()]) {
+  const junk = { settings: { radiogramGroups: 37, radiogramLong: 'да', charWpm: 999, dahRatio: '4' }, history: 'x', puzzle: [1] };
+  const dah = { settings: { dahRatio: 3.5 } };
+  for (const x of [{}, v25, junk, dah, defaultState()]) {
     const once = migrate(x);
+    assert.ok(LIMITS.dahRatio.steps.includes(once.settings.dahRatio), 'в проверяемых полях есть dahRatio');
     assert.deepEqual(migrate(once), once);
     assert.deepEqual(migrate(JSON.parse(JSON.stringify(once))), once);
   }
@@ -354,4 +356,51 @@ test('запрет записи привязан к хранилищу и сни
   bad._map.set(STORAGE_KEY, JSON.stringify(defaultState()));
   load(bad);
   assert.equal(saveBlocked(bad), false);
+});
+
+// ——— Длина тире: settings.dahRatio (ТЗ-длина-тире.md, 3.4; тесты 8–11) ———
+test('длина тире: умолчание 3; старое состояние без поля → 3, остальное как было', () => {
+  assert.equal(defaultState().settings.dahRatio, 3);
+  const old = { settings: { charWpm: 20, effWpm: 10, toneHz: 700, radiogramLong: true, radiogramGroups: 50 },
+    profile: { name: 'Бонислав', callsign: 'Boney M', points: 5 } };
+  const s = migrate(old);
+  assert.equal(s.settings.dahRatio, 3);
+  const want = migrate(old);
+  delete want.settings.dahRatio;
+  const got = structuredClone(s);
+  delete got.settings.dahRatio;
+  assert.deepEqual(got, want);
+  assert.equal(s.settings.charWpm, 20);
+  assert.equal(s.profile.callsign, 'Boney M');
+});
+
+test('длина тире: мусор → 3 (белый список ступеней, без зажима)', () => {
+  for (const junk of ['4', 3.7, 5, 2, null, NaN, {}, [4], true, Infinity]) {
+    assert.equal(migrate({ settings: { dahRatio: junk } }).settings.dahRatio, 3, `мусор ${String(junk)}`);
+  }
+});
+
+test('длина тире: каждая ступень переживает save → load', () => {
+  for (const r of LIMITS.dahRatio.steps) {
+    const st = mockStore();
+    const s = defaultState();
+    s.settings.dahRatio = r;
+    assert.equal(save(s, st), true);
+    assert.equal(load(st).settings.dahRatio, r, `ступень ${r}`);
+  }
+});
+
+test('длина тире: смешанный кэш — без LIMITS.dahRatio migrate не бросает, dahRatio = 3, остальное то же', () => {
+  const raw = { settings: { dahRatio: 4, charWpm: 20, radiogramGroups: 50 }, profile: { name: 'Б' } };
+  const normal = migrate(raw);
+  const saved = LIMITS.dahRatio;
+  try {
+    delete LIMITS.dahRatio;
+    let got;
+    assert.doesNotThrow(() => { got = migrate(raw); });
+    assert.equal(got.settings.dahRatio, 3);
+    const a = structuredClone(got), b = structuredClone(normal);
+    delete a.settings.dahRatio; delete b.settings.dahRatio;
+    assert.deepEqual(a, b);
+  } finally { LIMITS.dahRatio = saved; }
 });

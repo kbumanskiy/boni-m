@@ -1,7 +1,8 @@
 // Тайминг Морзе — стандарт PARIS + растяжка Фарнсуорта (ТЗ §5).
 // Все формулы реализованы ровно как в ТЗ. Менять нельзя без сверки.
 
-// Базовые соотношения: тире = 3 точки; пауза между элементами = 1 точка;
+// Базовые соотношения: тире = 3 точки (по умолчанию; в учёбе — регулятор «Длина тире»,
+// в радиограмме всегда 3); пауза между элементами = 1 точка;
 // между знаками = 3 точки; между словами = 7 точек.
 
 export const DEFAULTS = {
@@ -34,6 +35,9 @@ export const LIMITS = {
   // Не диапазон, а список: читают его экран и миграция (белый список, без зажима).
   // Уменьшить список — запасной путь, если на старом телефоне длинная очередь звука заикается.
   radiogramGroups: { options: [20, 30, 50], def: 30 },
+  // Длина тире в точках (ТЗ-длина-тире.md). Ступени — для ползунка и белого списка миграции,
+  // min/max — для проверки параметра в charTiming. Радиограмма всегда 3.
+  dahRatio: { min: 3, max: 4, steps: [3, 3.5, 4], def: 3 },
 };
 
 // §5/§13: интерфейс физически не даёт выставить E > C.
@@ -64,11 +68,17 @@ export function ditSeconds(charWpm) {
 }
 
 // Полный набор длительностей (в секундах) для C и E.
-export function charTiming(charWpm, effWpm) {
+// dahRatio — длина тире в точках (регулятор «Длина тире»). Меняет ТОЛЬКО тире: точка
+// и все паузы, включая растяжку Фарнсуорта, остаются прежними — компенсации нет
+// намеренно (ТЗ-длина-тире.md, 2.3). Не число или вне LIMITS.dahRatio — считаем 3.
+export function charTiming(charWpm, effWpm, dahRatio = 3) {
   const C = charWpm;
   const E = clampEff(effWpm, charWpm);
   const dit = 1.2 / C;
-  const dah = 3 * dit;
+  const lo = LIMITS.dahRatio?.min ?? 3, hi = LIMITS.dahRatio?.max ?? 3;
+  const r = typeof dahRatio === 'number' && isFinite(dahRatio)
+    && dahRatio >= lo && dahRatio <= hi ? dahRatio : 3;
+  const dah = r * dit;
   const intraGap = dit; // пауза между элементами внутри знака
 
   let charGap, wordGap;
@@ -89,8 +99,8 @@ export function charTiming(charWpm, effWpm) {
 // Превратить код ('.-..') в расписание сегментов для ОДНОГО знака.
 // Возвращает массив { tone: boolean, dur, kind } — без завершающей паузы знака.
 // kind: 'dit' | 'dah' | 'intra' — для визуальной вспышки в ритме (§11).
-export function codeToSchedule(code, charWpm, effWpm) {
-  const t = charTiming(charWpm, effWpm);
+export function codeToSchedule(code, charWpm, effWpm, dahRatio = 3) {
+  const t = charTiming(charWpm, effWpm, dahRatio);
   const seq = [];
   const elems = code.split('');
   for (let i = 0; i < elems.length; i++) {
@@ -103,8 +113,8 @@ export function codeToSchedule(code, charWpm, effWpm) {
 }
 
 // Суммарная длительность проигрывания одного знака (без паузы после), сек.
-export function codeDuration(code, charWpm, effWpm) {
-  return codeToSchedule(code, charWpm, effWpm).reduce((s, x) => s + x.dur, 0);
+export function codeDuration(code, charWpm, effWpm, dahRatio = 3) {
+  return codeToSchedule(code, charWpm, effWpm, dahRatio).reduce((s, x) => s + x.dur, 0);
 }
 
 // ——— Режим «Ключ» (ТЗ §7.3). Все пороги — от keyDit. ———

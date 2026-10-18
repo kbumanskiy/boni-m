@@ -54,7 +54,7 @@ function fullV26() {
       showChants: false, vibration: true, answerSound: false, keyMode: 'free',
       radiogramCpm: 110, radiogramKind: 'mixed', radiogramFull: true,
       theme: 'dark', metrics: false, knowsAll: true,
-      radiogramLong: true, radiogramGroups: 50 },
+      radiogramLong: true, radiogramGroups: 50, dahRatio: 4 },
     streak: { current: 9, longest: 21, lastActiveDate: '2026-10-17' },
     records: { radiogramCpm: 100 },
     totalSeconds: 18000,
@@ -66,12 +66,13 @@ function fullV26() {
 }
 const withoutNew = (s) => {
   const c = structuredClone(s);
-  delete c.settings.radiogramLong; delete c.settings.radiogramGroups;
+  delete c.settings.radiogramLong; delete c.settings.radiogramGroups; delete c.settings.dahRatio;
   return c;
 };
 
-test('откат: v25 читает состояние v26 без потерь — пропадают только два новых поля', () => {
+test('откат: v25 читает состояние v26 без потерь — пропадают только три новых поля', () => {
   const s26 = fullV26();
+  assert.equal(s26.settings.dahRatio, 4, 'вход действительно содержит длинное тире');
   assert.equal(s26.settings.radiogramLong, true, 'вход действительно содержит выбор «Длинная»');
   assert.equal(s26.settings.radiogramGroups, 50);
   assert.deepEqual(s26.progress.ru.parked, [{ char: 'Ь', returnAt: 36 }], 'отложенный знак в настоящем формате');
@@ -82,7 +83,7 @@ test('откат: v25 читает состояние v26 без потерь �
 test('откат: v25 не падает на новых полях любого типа', () => {
   for (const v of ['строка', { a: 1 }, [1, 2], null, 7, true]) {
     const raw = { ...fullV26() };
-    raw.settings = { ...raw.settings, radiogramLong: v, radiogramGroups: v };
+    raw.settings = { ...raw.settings, radiogramLong: v, radiogramGroups: v, dahRatio: v };
     assert.doesNotThrow(() => V25.migrate(JSON.parse(JSON.stringify(raw))));
     assert.deepEqual(V25.migrate(JSON.parse(JSON.stringify(raw))), withoutNew(fullV26()));
   }
@@ -102,6 +103,7 @@ test('повторное обновление после отката: новы�
   const want = structuredClone(s26);
   want.settings.radiogramLong = false;
   want.settings.radiogramGroups = LIMITS.radiogramGroups.def;
+  want.settings.dahRatio = LIMITS.dahRatio.def; // откат теряет только выбор длины тире — безвредно
   assert.deepEqual(again, want);
 });
 
@@ -121,6 +123,7 @@ test('полный цикл: v26 сохранил → v25 загрузил и с
   const want = structuredClone(s26);
   want.settings.radiogramLong = false;
   want.settings.radiogramGroups = LIMITS.radiogramGroups.def;
+  want.settings.dahRatio = LIMITS.dahRatio.def; // откат теряет только выбор длины тире — безвредно
   assert.deepEqual(back, want);
 });
 
@@ -163,4 +166,9 @@ test('смешанный кэш: новый state.js на настоящем tim
   assert.equal(Mixed.saveBlocked(store), false);
   assert.deepEqual(s, V26.migrate(snapshotV25()), 'то же, что у полностью нового кода');
   assert.equal(s.settings.radiogramGroups, 30);
+});
+
+test('повторное обновление после отката: длина тире — «как в эфире» (3)', () => {
+  const again = V26.migrate(V25.migrate(JSON.parse(JSON.stringify(fullV26()))));
+  assert.equal(again.settings.dahRatio, 3);
 });

@@ -39,6 +39,9 @@ export function defaultState() {
       // «Я уже знаю азбуку» (настройки): открывает контрольную радиограмму сразу
       // и со всеми знаками курса. Прогресс обучения (освоено, звание, вехи) не трогает.
       knowsAll: false,
+      // Длина тире в точках: 3 («как в эфире») / 3,5 / 4. Только для учёбы — радиограмма
+      // всегда 3 (звук получает её через dahUnits от withDah в app.js, ТЗ-длина-тире.md).
+      dahRatio: 3,
     },
     streak: { current: 0, longest: 0, lastActiveDate: null },
     // Личные рекорды. Пока один: самая быстрая ПРИНЯТАЯ контрольная радиограмма —
@@ -118,6 +121,10 @@ export function migrate(raw) {
     s.settings.theme = ['light', 'dark'].includes(r.theme) ? r.theme : 'auto';
     s.settings.metrics = r.metrics !== false;
     s.settings.knowsAll = r.knowsAll === true;
+    // Белый список ступеней; хранится число, а не номер ступени. ?. — смешанный кэш
+    // (новый state.js со старым timing.js): исключение здесь стёрло бы прогресс.
+    s.settings.dahRatio = LIMITS.dahRatio?.steps?.includes(r.dahRatio)
+      ? r.dahRatio : (LIMITS.dahRatio?.def ?? 3);
   }
   if (isObj(raw.records)) {
     s.records.radiogramCpm = clampNum(raw.records.radiogramCpm, 0, LIMITS.radiogramCpm.max, 0);

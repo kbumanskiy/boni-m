@@ -12,7 +12,7 @@ const freshAudio = () => import(`../app/js/audio.js?case=${++seq}`);
 // Поддельная звуковая система браузера: запоминает, что было создано и запущено.
 function fakeEnv({ audioSession = true, startState = 'running', ios = true,
                    wakeDelay = 60, neverWakes = false, legacyResume = false } = {}) {
-  const log = { started: [], media: [], sessionTypes: [], stoppedNow: 0 };
+  const log = { started: [], media: [], sessionTypes: [], stoppedNow: 0, stops: [] };
   const ctxRef = { value: null };
 
   class FakeParam {
@@ -49,7 +49,7 @@ function fakeEnv({ audioSession = true, startState = 'running', ios = true,
         type: '', frequency: new FakeParam(),
         start(t) { log.started.push({ at: t, ctxState: ctx.state, ctxTime: ctx.currentTime }); },
         // stop() без времени — немедленная остановка (stopAll), со временем — плановая.
-        stop(t) { if (t === undefined) log.stoppedNow++; }, onended: null,
+        stop(t) { if (t === undefined) log.stoppedNow++; else log.stops.push(t); }, onended: null,
       });
       return osc;
     }
@@ -460,4 +460,57 @@ test('stopAll посреди длинной передачи: onDone не при
     assert.deepEqual(done, [], 'оборванная передача не отчитывается о конце');
     assert.equal(env.log.stoppedNow, env.log.started.length, 'каждый запланированный тон остановлен');
   } finally { env.restore(); }
+});
+
+// ——— Длина тире (ТЗ-длина-тире.md, тесты 6, 7, 7а) ———
+// Длина тона = плановая остановка минус старт минус хвост 0,01 с из scheduleTone.
+const toneLens = (log) => log.started.map((st, i) => log.stops[i] - st.at - 0.01);
+const near = (a, b) => Math.abs(a - b) < 1e-6;
+
+test('длина тире: playCode с dahUnits = 4 — тире 4 точки; без ключа — 3', async () => {
+  const dit = 1.2 / 18;
+  for (const [extra, units] of [[{ dahUnits: 4 }, 4], [{}, 3]]) {
+    const env = fakeEnv({ startState: 'running', ios: false });
+    try {
+      const A = await freshAudio();
+      A.playCode('-', { ...SET, charWpm: 18, ...extra }, {});
+      const [len] = toneLens(env.log);
+      assert.ok(near(len, units * dit), `ожидали ${units} точки, тон ${len}`);
+    } finally { env.restore(); }
+  }
+});
+
+test('длина тире: playSequence с dahUnits = 4 — тоны по 4 точки, пауза между знаками прежняя', async () => {
+  const dit = 1.2 / 18;
+  const codeOf = (ch) => (ch === 'Т' ? '-' : '');
+  const run = async (extra) => {
+    const env = fakeEnv({ startState: 'running', ios: false });
+    try {
+      const A = await freshAudio();
+      A.playSequence(['Т', 'Т'], codeOf, { ...SET, ...extra }, {});
+      const lens = toneLens(env.log);
+      const gap = env.log.started[1].at - env.log.started[0].at - lens[0];
+      return { lens, gap };
+    } finally { env.restore(); }
+  };
+  const long = await run({ dahUnits: 4 });
+  const std = await run({});
+  assert.ok(long.lens.every((l) => near(l, 4 * dit)), `тоны ${long.lens}`);
+  assert.ok(std.lens.every((l) => near(l, 3 * dit)), `стандарт ${std.lens}`);
+  assert.ok(near(long.gap, std.gap), `пауза между знаками ${long.gap} против ${std.gap}`);
+});
+
+test('длина тире: хранимое поле dahRatio звук не читает — без dahUnits тире всегда 3 (радиограмма, старый app.js)', async () => {
+  const dit = 1.2 / 18;
+  for (const play of ['code', 'seq']) {
+    const env = fakeEnv({ startState: 'running', ios: false });
+    try {
+      const A = await freshAudio();
+      const s = { ...SET, dahRatio: 4 };
+      if (play === 'code') A.playCode('-', s, {});
+      else A.playSequence(['Т'], () => '-', s, {});
+      const [len] = toneLens(env.log);
+      assert.ok(near(len, 3 * dit), `${play}: тон ${len}, а должен быть 3 точки`);
+    } finally { env.restore(); }
+  }
 });

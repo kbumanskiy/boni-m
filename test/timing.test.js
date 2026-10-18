@@ -173,3 +173,55 @@ test('оценка длительности по набору: 50 групп ц�
   assert.ok(Math.abs(real - digits) < 1, `оценка ${digits.toFixed(1)} с, план ${real.toFixed(1)} с`);
   assert.equal(estimateRadiogramSeconds([], codeRu, 50, 8), 0);
 });
+
+// ——— Длина тире (ТЗ-длина-тире.md, раздел 5, тесты 1–5) ———
+const PAIRS = [[18, 18], [18, 9], [8, 3], [45, 20]];
+
+test('длина тире: без параметра и при r = 3 — ровно как было (тире = 3 точки)', () => {
+  for (const [C, E] of PAIRS) {
+    const base = charTiming(C, E);
+    assert.deepEqual(charTiming(C, E, 3), base);
+    assert.ok(approx(base.dah, 3 * base.dit));
+  }
+});
+
+test('длина тире: r = 3,5 и 4 меняют только тире; точка и все паузы прежние', () => {
+  for (const [C, E] of PAIRS) {
+    const base = charTiming(C, E);
+    for (const r of [3.5, 4]) {
+      const t = charTiming(C, E, r);
+      assert.ok(approx(t.dah, r * t.dit), `C=${C} E=${E} r=${r}: тире ${t.dah}`);
+      for (const k of ['dit', 'intraGap', 'charGap', 'wordGap']) {
+        assert.equal(t[k], base[k], `C=${C} E=${E} r=${r}: ${k} изменился — Фарнсуорт не компенсируем`);
+      }
+    }
+  }
+});
+
+test('длина тире: мусор (NaN, 10, 2, «4», null) — как r = 3', () => {
+  for (const junk of [NaN, 10, 2, '4', null, Infinity, {}]) {
+    assert.deepEqual(charTiming(18, 9, junk), charTiming(18, 9), `мусор ${String(junk)}`);
+  }
+});
+
+test('длина тире: «К» при r = 4 — два тона по 4 точки и один по точке, длительность — сумма', () => {
+  const dit = 1.2 / 18;
+  const sched = codeToSchedule('-.-', 18, 9, 4);
+  const tones = sched.filter((x) => x.tone).map((x) => x.dur);
+  assert.equal(tones.length, 3);
+  assert.ok(approx(tones[0], 4 * dit) && approx(tones[2], 4 * dit), 'тире по 4 точки');
+  assert.ok(approx(tones[1], dit), 'точка прежняя');
+  const sum = sched.reduce((s, x) => s + x.dur, 0);
+  assert.ok(approx(codeDuration('-.-', 18, 9, 4), sum));
+  assert.ok(approx(codeDuration('-.-', 18, 9, 4) - codeDuration('-.-', 18, 9), 2 * dit), 'на две точки длиннее');
+});
+
+test('длина тире: LIMITS.dahRatio — ступени по возрастанию внутри [min, max], умолчание 3', () => {
+  const L = LIMITS.dahRatio;
+  assert.ok(L && Array.isArray(L.steps) && L.steps.length === 3);
+  assert.deepEqual([...L.steps].sort((a, b) => a - b), L.steps, 'по возрастанию');
+  for (const s of L.steps) assert.ok(s >= L.min && s <= L.max, `ступень ${s} вне границ`);
+  assert.ok(L.steps.includes(L.def));
+  assert.equal(L.steps[0], 3);
+  assert.equal(L.def, 3);
+});

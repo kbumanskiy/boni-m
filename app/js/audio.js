@@ -162,8 +162,10 @@ export function playCode(code, settings, { onFlash, onDone } = {}) {
     // но управление возвращаем сразу: иначе занятие зависнет с серыми кнопками.
     if (!awake) { status = 'asleep'; if (onFlash) onFlash(null); if (onDone) onDone(false); return; }
 
-    const { toneHz = 600, volume = 0.5, charWpm = 18, effWpm = 9 } = settings;
-    const sched = codeToSchedule(code, charWpm, effWpm);
+    // dahUnits — только из учебных вызовов app.js (withDah); хранимое settings.dahRatio
+    // здесь не читать, иначе оно протечёт в радиограмму (ТЗ-длина-тире.md, 3.2).
+    const { toneHz = 600, volume = 0.5, charWpm = 18, effWpm = 9, dahUnits = 3 } = settings;
+    const sched = codeToSchedule(code, charWpm, effWpm, dahUnits);
     const lead = 0.08;
     let t = c.currentTime + lead;
 
@@ -218,7 +220,8 @@ export function playSequence(chars, codeOf, settings, { onDone, onFlash, onChar 
     if (mine !== generation) return;
     if (!awake) { status = 'asleep'; if (onFlash) onFlash(false); if (onDone) onDone(false); return; }
 
-    const { toneHz = 600, volume = 0.5, charWpm = 18, effWpm = 9 } = settings;
+    // dahUnits — как в playCode: только от withDah в app.js. Паузам (charTiming) он не нужен.
+    const { toneHz = 600, volume = 0.5, charWpm = 18, effWpm = 9, dahUnits = 3 } = settings;
     const tmg = charTiming(charWpm, effWpm);
     let t = c.currentTime + 0.1;
     const events = []; // { time, on } — лампа; { time, ch } — начало знака
@@ -229,7 +232,7 @@ export function playSequence(chars, codeOf, settings, { onDone, onFlash, onChar 
       if (!code) continue;
       li++;
       events.push({ time: t, ch: li });
-      const sched = codeToSchedule(code, charWpm, effWpm);
+      const sched = codeToSchedule(code, charWpm, effWpm, dahUnits);
       for (const seg of sched) {
         if (seg.tone) {
           scheduleTone(t, seg.dur, toneHz, volume);

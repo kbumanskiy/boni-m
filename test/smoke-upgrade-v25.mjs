@@ -47,6 +47,7 @@ const V25_STATE = V25.migrate({
   puzzle: { ...structuredClone(def25.puzzle), word: { seen: ['w01', 'w05'], last: 'w05', solved: ['w01'] }, isNew: false },
 });
 assert.equal(V25_STATE.settings.radiogramLong, undefined, 'снимок без полей v26');
+assert.equal(V25_STATE.settings.dahRatio, undefined, 'снимок без поля длины тире');
 window.localStorage.setItem('boni_m_state', JSON.stringify(V25_STATE));
 
 const errors = [];
@@ -94,9 +95,11 @@ ok(document.documentElement.dataset.theme === 'dark', 'тема тёмная, к
   const want = structuredClone(V25_STATE);
   want.settings.radiogramLong = false;
   want.settings.radiogramGroups = LIMITS.radiogramGroups.def;
+  want.settings.dahRatio = 3; // длина тире (ТЗ-длина-тире.md): у старого пользователя — «как в эфире»
   // Старт записывает знак начала занятия только при входе в «Учиться» — здесь его не было.
   assert.deepEqual(now, want);
-  ok(true, 'состояние v25 перенесено без потерь: все поля прежние + radiogramLong=false, radiogramGroups=30');
+  ok(now.settings.dahRatio === 3, 'длина тире после загрузки снимка v25 — 3 («как в эфире»)');
+  ok(true, 'состояние v25 перенесено без потерь: все поля прежние + три новых (radiogramLong=false, radiogramGroups=30, dahRatio=3)');
 }
 
 click('#radiogram'); await sleep(10);
