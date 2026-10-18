@@ -34,6 +34,15 @@ const tabsEl = $('#tabs');
 const overlayRoot = $('#overlay-root');
 
 const codeOf = (ch) => DATA.CODE_BY_CHAR[state.settings.alphabet]?.get(ch) || DATA.charInfo(ch)?.code || '';
+// Напев знака с учётом настройки «Напевы букв» (ТЗ-латинские-напевы.md). У латинской буквы —
+// напев русского двойника { chant, twin }. Через пространство имён и с запасным путём v25:
+// при смешанном кэше старый data.js chantOf не знает — тогда напевы только у русской азбуки.
+function chantFor(ch, alphabet = state.settings.alphabet) {
+  if (!state.settings.showChants) return null;
+  if (typeof DATA.chantOf === 'function') return DATA.chantOf(ch);
+  const info = DATA.charInfo(ch);
+  return alphabet === 'ru' && info?.chant ? { chant: info.chant, twin: null } : null;
+}
 const visualCode = (code) => code.split('').map((c) => (c === '.' ? '•' : '—')).join(' ');
 const track = () => state.progress[state.settings.alphabet];
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -578,8 +587,8 @@ function answer(ch) {
     right.classList.add('reveal');
     if (state.settings.answerSound !== false) A.cue('error');
     vibrate([20, 40, 20]);
-    const info = DATA.charInfo(L.target);
-    const chant = state.settings.showChants && state.settings.alphabet === 'ru' && info?.chant ? `<div class="chant">напев: ${esc(info.chant)}</div>` : '';
+    const ct = chantFor(L.target);
+    const chant = ct ? `<div class="chant">${ct.twin ? `напев русской ${esc(ct.twin)}` : 'напев'}: ${esc(ct.chant)}</div>` : '';
     screenEl.classList.add('revealing');
     $('#fb').className = 'feedback center no';
     $('#fb').textContent = 'Не угадали';
@@ -624,8 +633,8 @@ function afterAnswerProgress(correct) {
   // 1) Открылся новый знак — это событие: показываем героя и ТОЛЬКО ПОТОМ следующий раунд.
   if (P.shouldOpenNext(t, alpha)) {
     const opened = P.openNext(t, alpha);
-    const info = DATA.charInfo(opened);
-    const chant = state.settings.showChants && alpha === 'ru' && info?.chant ? `, напев «${info.chant}»` : '';
+    const ct = chantFor(opened, alpha);
+    const chant = ct ? `, напев «${ct.chant}»${ct.twin ? ` (как ${ct.twin})` : ''}` : '';
     const newly = G.checkMilestones(state, { triggers: ['chars'] });
     persist();
     showHero('hero-radost.webp', `Открыт новый знак: ${glyphText(opened)}`, `${visualCode(codeOf(opened))}${chant}`, 2400)
@@ -672,9 +681,12 @@ function toggleHelp() {
   }
   const active = P.activeSet(track(), state.settings.alphabet);
   btn.innerHTML = `${ICON.help(22)} Скрыть коды знаков`;
-  box.innerHTML = `<div class="card"><ul class="codelist">${active.map((c) => {
-    const info = DATA.charInfo(c);
-    const chant = state.settings.showChants && state.settings.alphabet === 'ru' && info?.chant ? `<span class="chant">${esc(info.chant)}</span>` : '';
+  // В латинском списке справа «Ж · же-ле-зис-тоо»: короткая форма (полная не влезает
+  // в строку на 360 точках), поэтому одна строка-легенда над списком. В русском её нет.
+  const twins = active.some((c) => chantFor(c)?.twin);
+  box.innerHTML = `<div class="card">${twins ? '<p class="muted hint" id="chant-legend">Справа: русская буква с таким же кодом и её напев.</p>' : ''}<ul class="codelist">${active.map((c) => {
+    const ct = chantFor(c);
+    const chant = ct ? `<span class="chant">${ct.twin ? `${esc(ct.twin)} · ` : ''}${esc(ct.chant)}</span>` : '';
     return `<li><b>${esc(glyphText(c))}</b><span class="codeline small">${visualCode(codeOf(c))}</span>${chant}</li>`;
   }).join('')}</ul></div>`;
   // Карточка открывается в самом низу экрана — без прокрутки её просто не видно,
@@ -1891,7 +1903,8 @@ function renderReference() {
 function refCard(ch) {
   const info = DATA.charInfo(ch);
   const code = info.code;
-  const chant = refAlpha === 'ru' && state.settings.showChants && info.chant ? `<div class="chant">напев: ${esc(info.chant)}</div>` : '';
+  const ct = chantFor(ch, refAlpha);
+  const chant = ct ? `<div class="chant">${ct.twin ? `напев русской ${esc(ct.twin)}` : 'напев'}: ${esc(ct.chant)}</div>` : '';
   overlayRoot.innerHTML = `<div class="overlay">
     <button class="closebtn" id="x" aria-label="Закрыть">✕</button>
     <div class="bigchar">${esc(glyphText(ch))}</div>

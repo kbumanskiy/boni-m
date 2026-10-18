@@ -128,3 +128,44 @@ test('звук знака повторяет его код, точка в точ
     }
   }
 });
+
+// ——— Напевы латиницы через русского двойника (ТЗ-латинские-напевы.md, §2) ———
+// У латинской буквы показываем напев русской буквы с тем же кодом. Пара хранится явно —
+// поле latin у RU_LETTERS; тесты ловят и подменённый код, и перепутанную «похожую» букву.
+test('у каждой из 26 латинских букв ровно один русский двойник', () => {
+  for (const { char } of EN_LETTERS) {
+    const twins = RU_LETTERS.filter((r) => r.latin === char);
+    assert.equal(twins.length, 1, `${char}: двойников ${twins.length}`);
+  }
+});
+
+test('код двойника равен коду латинской буквы, напев непустой', () => {
+  for (const { char, code } of EN_LETTERS) {
+    const twin = RU_LETTERS.find((r) => r.latin === char);
+    assert.equal(twin.code, code, `${char} и ${twin.char}`);
+    assert.ok(twin.chant && twin.chant.trim(), `${twin.char}: пустой напев`);
+  }
+});
+
+test('латиница — ASCII A–Z, русские буквы — кириллица (похожие буквы не перепутаны)', () => {
+  for (const { char } of EN_LETTERS) assert.match(char, /^[A-Z]$/, `латинская «${char}»`);
+  for (const { char, latin } of RU_LETTERS) {
+    assert.match(char, /^[А-ЯЁ]$/, `русская «${char}»`);
+    if (latin) assert.match(latin, /^[A-Z]$/, `${char}: поле latin «${latin}»`);
+  }
+});
+
+test('chantOf: латиница — напев двойника, русские и цифры — свой, знаки — null', async () => {
+  const { chantOf } = await import('../app/js/data.js');
+  for (const { char } of EN_LETTERS) {
+    const twin = RU_LETTERS.find((r) => r.latin === char);
+    assert.deepEqual(chantOf(char), { chant: twin.chant, twin: twin.char }, char);
+  }
+  for (const r of RU_LETTERS) assert.deepEqual(chantOf(r.char), { chant: r.chant, twin: null }, r.char);
+  for (const d of DIGITS) assert.deepEqual(chantOf(d.char), { chant: d.chant, twin: null }, d.char);
+  assert.deepEqual(chantOf('V'), { chant: 'же-ле-зис-тоо', twin: 'Ж' });
+  assert.deepEqual(chantOf('5'), { chant: DIGITS.find((d) => d.char === '5').chant, twin: null });
+  assert.equal(chantOf('?'), null);
+  assert.equal(chantOf('Q').twin, 'Щ', 'Щ-коды: Q = Щ');
+  for (const p of PUNCTUATION) assert.equal(chantOf(p.char), null, `знак «${p.char}»`);
+});

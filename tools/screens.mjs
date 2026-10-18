@@ -8,6 +8,7 @@ import { mkdirSync } from 'node:fs';
 import { extname, join, normalize } from 'node:path';
 import { CHECK_LAYOUT } from './page-checks.mjs';
 import * as PZ from '../app/js/puzzle.js';
+import { CODE_BY_CHAR } from '../app/js/data.js';
 
 const ROOT = new URL('../app/', import.meta.url).pathname;
 
@@ -88,6 +89,19 @@ const SEED_PATCH = {
   radiogram: (s) => { s.progress.ru.learnedCount = 33; s.progress.ru.digitsLearned = 10; return s; },
   radiogramwork: (s) => SEED_PATCH.radiogram(s),
   radiogramresult: (s) => SEED_PATCH.radiogram(s),
+  // Напевы латиницы (ТЗ-латинские-напевы.md, §6): латинский курс целиком — 26 букв и все
+  // цифры (одного learnedCount=26 мало: набор — префикс смешанного порядка, без C, D, X).
+  learnwrongen: (s) => { s.settings.alphabet = 'en'; s.progress.en = { learnedCount: 26, digitsLearned: 10, perChar: {}, recent: [], parked: [], lastFirst: null }; return s; },
+  learnhelpen: (s) => SEED_PATCH.learnwrongen(s),
+  // Русский курс целиком (с Ъ) на 360 точках — для сравнения с латинским списком.
+  learnhelpru: (s) => { s.progress.ru.learnedCount = 32; s.progress.ru.digitsLearned = 10; return s; },
+  // Открытие нового знака: трек готов открыть следующий по первому верному ответу.
+  // После 20 латинских букв порядок чередует буквы и цифры: …, D, 4, X, 5 — открывается X.
+  learnnewen: (s) => { s.settings.alphabet = 'en';
+    s.progress.en = { learnedCount: 25, digitsLearned: 5, perChar: { '4': { correct: 6, total: 6 } },
+      recent: Array(20).fill(1), parked: [], lastFirst: null }; return s; },
+  learnnewendigit: (s) => { SEED_PATCH.learnnewen(s); s.progress.en.learnedCount = 26;
+    s.progress.en.perChar = { X: { correct: 6, total: 6 } }; return s; },
   // Длинная радиограмма: подготовка снимается кликом по «Длинной», остальные — уже с выбором 50.
   radiogramlong: (s) => SEED_PATCH.radiogram(s),
   radiogramlongwork: (s) => { SEED_PATCH.radiogram(s); s.settings.radiogramLong = true; s.settings.radiogramGroups = 50; return s; },
@@ -151,7 +165,7 @@ const NO_AUDIO = new Set(['puzzlecats', 'puzzleq', 'puzzleqwrong', 'puzzleqpics'
 // Разбор длинной радиограммы ждёт конца передачи: 50 групп в настоящем Chromium звучали бы
 // минутами. Поэтому — ускоренный поддельный контекст (как test/fake-audio.mjs, ×1000).
 // Только для разбора: у «приёма» и «обрыва» передача обязана ещё идти в момент снимка.
-const FAST_AUDIO = new Set(['radiogramlongresult']);
+const FAST_AUDIO = new Set(['radiogramlongresult', 'learnnewen', 'learnnewendigit']);
 // «Спящий» звук: контекст есть, но не просыпается (айфон без касания) — кадр learnsilent.
 const SLEEPY_AUDIO = new Set(['learnsilent']);
 const SLEEPY_AUDIO_SCRIPT = () => {
@@ -167,7 +181,15 @@ const FAST_AUDIO_SCRIPT = () => {
     constructor() { this.state = 'running'; this.t0 = performance.now(); this.destination = new Node(); }
     get currentTime() { return 1 + (performance.now() - this.t0); } // мс как секунды — ×1000
     resume() { return Promise.resolve(); } close() { return Promise.resolve(); }
-    createOscillator() { return Object.assign(new Node(), { type: 'sine', frequency: new Param(), onended: null, start() {}, stop() {} }); }
+    // Журнал тонов (window.__tones): по нему сценарий «слушает» знак — восстанавливает код
+    // по длительностям, как человек на слух. Подсказки ответа в приложении нет.
+    createOscillator() {
+      const rec = { freq: 0, start: 0, dur: 0 };
+      const osc = Object.assign(new Node(), { type: 'sine', frequency: new Param(), onended: null,
+        start(t) { rec.freq = osc.frequency.value; rec.start = t; (window.__tones ||= []).push(rec); },
+        stop(t) { if (t !== undefined && !rec.dur) rec.dur = t - 0.01 - rec.start; } });
+      return osc;
+    }
     createGain() { return Object.assign(new Node(), { gain: new Param() }); }
   }
   window.AudioContext = Fast; window.webkitAudioContext = Fast;
@@ -183,7 +205,10 @@ const VIEWPORT = Object.fromEntries([...FOLD, ...NO_AUDIO, 'onboardstart',
   // Длинная радиограмма: на узком телефоне выше риск вылезти за край.
   'radiogramlong', 'radiogramlongwork', 'radiogramlongresult', 'radiogramlongstopped',
   // «Звук не включился» на самом тесном телефоне.
-  'learnsilent'].map((n) => [n, SMALL]));
+  'learnsilent',
+  // Напевы латиницы: самые длинные подписи (X/Ь) — на 360 точках.
+  'learnwrongen', 'learnhelpen', 'learnhelpru', 'refcarden', 'refcardendigit', 'learnnewen', 'learnnewendigit',
+].map((n) => [n, SMALL]));
 
 // Верный ответ на вопрос, который сейчас на экране: id берём из сохранённой колоды.
 async function rightAnswer(page, cat) {
@@ -379,6 +404,33 @@ const SCREENS = {
     await page.evaluate(() => document.querySelector('#feedback')?.scrollIntoView({ block: 'center' }));
     await page.waitForTimeout(250);
   },
+  // Напевы латиницы: разбор ошибки, список кодов (до строки X/Ь), карточки «Азбуки»,
+  // открытие нового знака. Русский список целиком — для сравнения на тех же 360 точках.
+  learnwrongen: async (page) => SCREENS.learnwrong(page),
+  learnhelpen: async (page) => {
+    await page.click('[data-tab="learn"]'); await page.waitForTimeout(900);
+    await page.click('#help'); await page.waitForTimeout(250);
+    if (!(await page.locator('#chant-legend').count())) throw new Error('learnhelpen: нет легенды двойников');
+    await page.evaluate(() => [...document.querySelectorAll('#help-box li')].find((li) => li.querySelector('b')?.textContent === 'X')
+      ?.scrollIntoView({ block: 'center' }));
+    await page.waitForTimeout(250);
+  },
+  learnhelpru: async (page) => {
+    await page.click('[data-tab="learn"]'); await page.waitForTimeout(900);
+    await page.click('#help'); await page.waitForTimeout(250);
+    await page.evaluate(() => [...document.querySelectorAll('#help-box li')].find((li) => li.querySelector('b')?.textContent === 'Ъ')
+      ?.scrollIntoView({ block: 'center' }));
+    await page.waitForTimeout(250);
+  },
+  refcarden: async (page) => { await page.click('[data-tab="ref"]'); await page.waitForTimeout(200);
+    await page.click('[data-a="en"]'); await page.waitForTimeout(200);
+    await page.click('.cell[data-c="X"]'); await page.waitForTimeout(250); },
+  refcardendigit: async (page) => { await page.click('[data-tab="ref"]'); await page.waitForTimeout(200);
+    await page.click('[data-a="en"]'); await page.waitForTimeout(200);
+    await page.click('[data-s="digits"]'); await page.waitForTimeout(200);
+    await page.click('.cell[data-c="8"]'); await page.waitForTimeout(250); },
+  learnnewen: async (page) => learnOpenNew(page, 'X'),
+  learnnewendigit: async (page) => learnOpenNew(page, '5'),
   // Подсказка с кодами активного набора.
   learnhelp: async (page) => {
     await page.click('[data-tab="learn"]'); await page.waitForTimeout(900);
@@ -421,6 +473,27 @@ const SCREENS = {
     }
   },
 };
+
+// Открыть новый знак: ответить верно на первый же вопрос. Цель «слышим» по журналу тонов
+// ускоренного поддельного звука (FAST_AUDIO) — цепочка тонов последнего знака.
+const REV_EN = Object.fromEntries([...CODE_BY_CHAR.en].map(([c, k]) => [k, c]));
+async function learnOpenNew(page, want) {
+  await page.click('[data-tab="learn"]');
+  await page.waitForFunction(() => [...document.querySelectorAll('#opts .opt')].some((b) => !b.disabled), null, { timeout: 5000 });
+  const code = await page.evaluate(() => {
+    const st = JSON.parse(localStorage.getItem('boni_m_state')).settings;
+    const dit = 1.2 / st.charWpm;
+    const mine = (window.__tones || []).filter((t) => t.freq === st.toneHz && t.dur > 0);
+    const chain = [mine.at(-1)];
+    for (let i = mine.length - 2; i >= 0; i--) {
+      const p = mine[i], c = chain[0];
+      if (Math.abs(p.start + p.dur + dit - c.start) < 1e-6) chain.unshift(p); else break;
+    }
+    return chain.map((t) => (t.dur > 2 * dit ? '-' : '.')).join('');
+  });
+  await page.click(`#opts .opt[data-c="${REV_EN[code]}"]`);
+  await page.waitForFunction((w) => (document.querySelector('#overlay-root h2')?.textContent || '').includes(`Открыт новый знак: ${w}`), want, { timeout: 3000 });
+}
 
 // Первый экран главной: где кончаются «Продолжить» и плитка относительно верхнего края меню.
 // Печатаем числа всегда — это замер для отчёта, а не только приговор.

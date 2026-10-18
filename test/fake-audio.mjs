@@ -19,6 +19,9 @@
 export function makeFakeAudio({ speed = 1000, manual = false } = {}) {
   const instances = [];
   let oscillators = 0;
+  // Журнал тонов: частота, начало и длительность. По нему тест «слушает» знак: восстанавливает
+  // код по длительностям, как человек на слух. Подсказки ответа в приложение это не добавляет.
+  const tones = [];
 
   class Param {
     constructor() { this.value = 0; }
@@ -57,17 +60,38 @@ export function makeFakeAudio({ speed = 1000, manual = false } = {}) {
     close() { return Promise.resolve(); }
     createOscillator() {
       oscillators++;
-      return Object.assign(new Node(), {
+      const rec = { freq: 0, start: 0, dur: 0 };
+      const osc = Object.assign(new Node(), {
         type: 'sine', frequency: new Param(), onended: null,
-        start() {}, stop() {},
+        start(t) { rec.freq = osc.frequency.value; rec.start = t; tones.push(rec); },
+        // stop(t) со временем — плановый конец тона (+0,01 с запаса, как в audio.js).
+        stop(t) { if (t !== undefined && !rec.dur) rec.dur = t - 0.01 - rec.start; },
       });
+      return osc;
     }
     createGain() { return Object.assign(new Node(), { gain: new Param() }); }
+  }
+
+  // Код последнего проигранного знака заданной частоты: точка или тире по длительности.
+  // Знак — цепочка тонов, где каждый следующий начинается ровно через паузу в точку
+  // после конца предыдущего; так знак отделяется от прошлых проигрываний.
+  function lastCode(toneHz, charWpm) {
+    const mine = tones.filter((t) => t.freq === toneHz && t.dur > 0);
+    if (!mine.length) return '';
+    const dit = 1.2 / charWpm;
+    const chain = [mine.at(-1)];
+    for (let i = mine.length - 2; i >= 0; i--) {
+      const prev = mine[i], cur = chain[0];
+      if (Math.abs(prev.start + prev.dur + dit - cur.start) < 1e-6) chain.unshift(prev); else break;
+    }
+    return chain.map((t) => (t.dur > 2 * dit ? '-' : '.')).join('');
   }
 
   return {
     AudioContext: FakeAudioContext,
     instances,
+    tones,
+    lastCode,
     get last() { return instances.at(-1) || null; },
     get oscillators() { return oscillators; },
   };

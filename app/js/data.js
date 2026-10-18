@@ -122,3 +122,16 @@ export function charInfo(ch) {
     || PUNCTUATION.find((x) => x.char === ch)
     || null;
 }
+
+// ——— Напев знака (ТЗ-латинские-напевы.md, решение владельца 18.10.2026) ———
+// Русская буква и цифра — свой напев (twin: null). Латинская буква — напев её РУССКОГО
+// ДВОЙНИКА, то есть русской буквы с тем же кодом: «V — напев русской Ж». Новых напевов
+// не сочиняем: пара берётся из явного поля latin у RU_LETTERS (тест сверяет коды пары),
+// напевы не копируются. Знаки препинания и неизвестное — null: напевов у них нет.
+const TWIN_OF_LATIN = new Map(RU_LETTERS.filter((r) => r.latin).map((r) => [r.latin, r]));
+export function chantOf(ch) {
+  const own = RU_LETTERS.find((x) => x.char === ch) || DIGITS.find((x) => x.char === ch);
+  if (own) return own.chant ? { chant: own.chant, twin: null } : null;
+  const twin = TWIN_OF_LATIN.get(ch);
+  return twin && twin.chant ? { chant: twin.chant, twin: twin.char } : null;
+}

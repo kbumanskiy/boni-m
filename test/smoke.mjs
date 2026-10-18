@@ -1110,5 +1110,168 @@ Object.defineProperty(document, 'hidden', { configurable: true, get: () => false
   click('#back'); await sleep(10);
 }
 
+// 14) Напевы латиницы через русского двойника (ТЗ-латинские-напевы.md, §7): все четыре места
+// показа на заданных знаках — разбор ошибки, открытие нового знака, «Показать коды знаков»,
+// карточка «Азбуки». Цель урока тест узнаёт «на слух»: по длительностям тонов поддельного
+// звука восстанавливает код — служебного доступа к ответу в приложении нет.
+{
+  // Таймеры приложения (герой 2,4 с, «Верно!» 0,6 с, защита «Дальше» 0,45 с) в этом блоке
+  // идут вдесятеро быстрее: иначе десятки уроков подряд заняли бы минуты. Короткие ожидания
+  // самого теста (до 300 мс) не трогаем. В конце блока таймеры возвращаются.
+  const realSetTimeout = global.setTimeout;
+  global.setTimeout = (f, ms = 0, ...a) => realSetTimeout(f, ms >= 300 ? ms / 10 : ms, ...a);
+  const { CODE_BY_CHAR, DIGITS: DG } = await import('../app/js/data.js');
+  const rev = { ru: new Map([...CODE_BY_CHAR.ru].map(([c, k]) => [k, c])), en: new Map([...CODE_BY_CHAR.en].map(([c, k]) => [k, c])) };
+  const chantOfDigit = (d) => DG.find((x) => x.char === d).chant;
+  let n = 0;
+  async function bootLearn(seedRaw) {
+    const d = new JSDOM(html, { url: 'https://example.com/', pretendToBeVisual: true });
+    const w = d.window;
+    const errs = [];
+    w.addEventListener('error', (e) => errs.push(e.error || e.message));
+    const seed = migrate(seedRaw);
+    w.localStorage.setItem('boni_m_state', JSON.stringify(seed));
+    Object.assign(w, { scrollTo: () => {}, confirm: () => true, alert: () => {}, AudioContext: fakeAudio.AudioContext,
+      requestAnimationFrame: global.requestAnimationFrame, cancelAnimationFrame: global.cancelAnimationFrame });
+    w.HTMLElement.prototype.scrollIntoView = () => {};
+    setGlobal('window', w); setGlobal('document', w.document);
+    setGlobal('location', w.location); setGlobal('localStorage', w.localStorage);
+    await import(`../app/app.js?chants${++n}`);
+    await sleep(20);
+    const $w = (sel) => w.document.querySelector(sel);
+    const cw = (sel) => { const el = $w(sel); assert.ok(el, `нет элемента ${sel}`); el.click(); };
+    const env = { w, errs, $w, cw, alpha: seed.settings.alphabet,
+      tw: () => w.document.querySelector('#screen').textContent.replace(/\s+/g, ' '),
+      overlay: () => w.document.querySelector('#overlay-root').textContent.replace(/\s+/g, ' ') };
+    // Дождаться, когда можно отвечать (звук доиграл, оверлея нет), и «услышать» цель.
+    env.listen = async () => {
+      const okk = await waitFor(() => { w.document.querySelector('#keep')?.click();
+        return !w.document.querySelector('#overlay-root .overlay')
+          && [...w.document.querySelectorAll('#opts .opt')].some((b) => !b.disabled); }, 6000);
+      assert.ok(okk, `урок не дошёл до ответа: экран «${env.tw().slice(0, 120)}», оверлей «${env.overlay().slice(0, 80)}»`);
+      const st = JSON.parse(w.localStorage.getItem('boni_m_state')).settings;
+      return rev[env.alpha].get(fakeAudio.lastCode(st.toneHz, st.charWpm));
+    };
+    env.opt = (c) => w.document.querySelector(`#opts .opt[data-c="${c}"]`);
+    env.wrongOpt = (c) => [...w.document.querySelectorAll('#opts .opt')].find((b) => b.dataset.c !== c);
+    return env;
+  }
+  // Посев: трек готов открыть следующий знак по первому верному ответу.
+  const ready = (alpha, learned, digits, newest) => ({
+    profile: { name: 'Радист' }, settings: { alphabet: alpha, showChants: true },
+    progress: { [alpha]: { learnedCount: learned, digitsLearned: digits, recent: Array(20).fill(1),
+      perChar: { [newest]: { correct: 6, total: 6 } } } },
+    milestones: { first4: true, half: true, allDigits: false },
+  });
+  async function openNew(env) {
+    env.cw('[data-tab="learn"]'); await sleep(10);
+    const t = await env.listen();
+    env.opt(t).click();
+    assert.ok(await waitFor(() => /Открыт новый знак/.test(env.overlay()), 3000), 'новый знак не открылся');
+    return env.overlay();
+  }
+  // Ошибиться ровно на заданном знаке: отвечаем верно, пока целью не станет он.
+  async function wrongOn(env, target) {
+    if (!env.$w('#opts')) { env.cw('[data-tab="learn"]'); await sleep(10); }
+    for (let i = 0; i < 400; i++) {
+      const t = await env.listen();
+      if (t === target) {
+        env.wrongOpt(t).click(); await sleep(10);
+        const chant = env.$w('#reveal .chant')?.textContent ?? null;
+        await waitFor(() => !env.$w('#nextbtn')?.disabled, 1500);
+        env.cw('#nextbtn'); await sleep(5);
+        return chant;
+      }
+      if (!env.opt(t)) throw new Error(`услышан «${t}» (${fakeAudio.lastCode(600, 18)}), а варианты: ${[...env.w.document.querySelectorAll('#opts .opt')].map((b) => b.dataset.c).join(',')}`);
+      env.opt(t).click(); await sleep(5);
+    }
+    throw new Error(`цель ${target} так и не выпала`);
+  }
+  const helpText = async (env) => {
+    env.cw('#help'); await sleep(5);
+    const box = env.$w('#help-box');
+    const rows = new Map([...box.querySelectorAll('li')].map((li) => [li.querySelector('b')?.textContent, li.querySelector('.chant')?.textContent ?? null]));
+    const out = { text: box.textContent.replace(/\s+/g, ' '), legend: !!box.querySelector('#chant-legend'),
+      row: (c) => (rows.has(c) ? rows.get(c) : 'НЕТ СТРОКИ') };
+    env.cw('#help'); await sleep(5);
+    return out;
+  };
+  const refCardText = async (env, a, section, c) => {
+    env.cw('[data-tab="ref"]'); await sleep(5);
+    env.cw(`[data-a="${a}"]`); await sleep(5);
+    env.cw(`[data-s="${section}"]`); await sleep(5);
+    env.cw(`.cell[data-c="${c}"]`); await sleep(5);
+    const t = env.overlay();
+    env.cw('#x'); await sleep(5);
+    return t;
+  };
+  const chantsToggle = async (env) => { env.cw('#gear'); await sleep(5); env.cw('#chants'); await sleep(5); env.cw('#back'); await sleep(5); };
+
+  // а) Латиница: открытие буквы X — «напев «тоо-мяг-кий-знаак» (как Ь)».
+  {
+    const env = await bootLearn(ready('en', 25, 5, '4'));
+    const hero = await openNew(env);
+    ok(hero.includes('Открыт новый знак: X') && hero.includes('напев «тоо-мяг-кий-знаак» (как Ь)'),
+      `латиница, новый знак: «…напев «тоо-мяг-кий-знаак» (как Ь)» (${hero.slice(0, 80)})`);
+    ok(env.errs.length === 0, 'латиница, новый знак: без ошибок');
+  }
+  // б) Латиница: открытие цифры 5 — обычный напев, без «как». Дальше в том же окне —
+  // разбор ошибки, список кодов и «Азбука»; затем всё то же с выключенными напевами.
+  {
+    const env = await bootLearn(ready('en', 26, 5, 'X'));
+    const hero = await openNew(env);
+    ok(hero.includes('Открыт новый знак: 5') && hero.includes(`напев «${chantOfDigit('5')}»`) && !hero.includes('(как'),
+      'латиница, новая цифра: напев цифры, без пометки двойника');
+    ok(await wrongOn(env, 'V') === 'напев русской Ж: же-ле-зис-тоо', 'латиница, ошибка на V: «напев русской Ж: же-ле-зис-тоо»');
+    ok(await wrongOn(env, '5') === `напев: ${chantOfDigit('5')}`, 'латиница, ошибка на 5: «напев: …» без «русской»');
+    const h = await helpText(env);
+    ok(h.row('V') === 'Ж · же-ле-зис-тоо' && h.row('X') === 'Ь · тоо-мяг-кий-знаак', 'латиница, коды знаков: «Ж · же-ле-зис-тоо», «Ь · тоо-мяг-кий-знаак»');
+    ok(h.row('5') === chantOfDigit('5'), 'латиница, коды знаков: у цифры свой напев без пометки');
+    ok(h.legend && h.text.includes('Справа: русская буква с таким же кодом и её напев.'), 'латиница, коды знаков: строка-легенда');
+    ok((await refCardText(env, 'en', 'letters', 'X')).includes('напев русской Ь: тоо-мяг-кий-знаак'), 'Азбука → English → X: «напев русской Ь: тоо-мяг-кий-знаак»');
+    const r8 = await refCardText(env, 'en', 'digits', '8');
+    ok(r8.includes(`напев: ${chantOfDigit('8')}`) && !r8.includes('русской'), 'Азбука → English → Цифры → 8: напев цифры');
+    await chantsToggle(env);
+    ok(await wrongOn(env, 'V') === null, 'напевы выключены: в разборе ошибки напева нет');
+    const h2 = await helpText(env);
+    ok(h2.row('V') === null && !h2.legend, 'напевы выключены: в кодах знаков ни напевов, ни легенды');
+    const rx = await refCardText(env, 'en', 'letters', 'X');
+    ok(!rx.includes('напев'), 'напевы выключены: в карточке «Азбуки» напева нет');
+    await chantsToggle(env);
+    ok((await refCardText(env, 'en', 'letters', 'X')).includes('напев русской Ь'), 'напевы включены обратно — пометка вернулась');
+    ok(env.errs.length === 0, 'латиница: без ошибок — ' + env.errs.map(String).join(' | '));
+  }
+  // в) Латиница, напевы выключены: у героя напева нет.
+  {
+    const seed = ready('en', 25, 5, '4'); seed.settings.showChants = false;
+    const env = await bootLearn(seed);
+    const hero = await openNew(env);
+    ok(hero.includes('Открыт новый знак: X') && !hero.includes('напев'), 'напевы выключены: у нового знака напева нет');
+  }
+  // г) Русская азбука — как была: «напев: …», без «русской», «Ж ·» и легенды.
+  {
+    const env = await bootLearn(ready('ru', 25, 5, '4'));
+    const hero = await openNew(env);
+    const opened = (hero.match(/Открыт новый знак: (\S)/) || [])[1];
+    const own = (await import('../app/js/data.js')).chantOf(opened);
+    ok(own && hero.includes(`напев «${own.chant}»`) && !hero.includes('(как'), `русская, новый знак ${opened}: напев без пометки`);
+    const ruT = (await import('../app/js/data.js')).KOCH_ORDER_RU[3]; // М — в наборе с первого дня
+    const wrongRu = await wrongOn(env, ruT);
+    ok(wrongRu === `напев: ${(await import('../app/js/data.js')).chantOf(ruT).chant}`, `русская, ошибка на ${ruT}: «напев: …»`);
+    ok(await wrongOn(env, '2') === `напев: ${chantOfDigit('2')}`, 'русская, ошибка на цифре: «напев: …»');
+    const h = await helpText(env);
+    ok(!h.legend && !h.text.includes(' · ') && h.row('Ж') === 'же-ле-зис-тоо', 'русская, коды знаков: без «·» и легенды');
+    const rz = await refCardText(env, 'ru', 'letters', 'Ж');
+    ok(rz.includes('напев: же-ле-зис-тоо') && !rz.includes('русской'), 'русская, «Азбука» → Ж: «напев: же-ле-зис-тоо»');
+    await chantsToggle(env);
+    ok(await wrongOn(env, ruT) === null, 'русская, напевы выключены: в разборе напева нет');
+    const h2 = await helpText(env);
+    ok(h2.row('Ж') === null, 'русская, напевы выключены: в кодах знаков напевов нет');
+    ok(!(await refCardText(env, 'ru', 'letters', 'Ж')).includes('напев'), 'русская, напевы выключены: в «Азбуке» напева нет');
+    ok(env.errs.length === 0, 'русская: без ошибок — ' + env.errs.map(String).join(' | '));
+  }
+  global.setTimeout = realSetTimeout;
+}
+
 assert.equal(errors.length, 0, 'необработанные ошибки: ' + errors.map(String).join(' | '));
 console.log(`\nДымовой тест пройден: ${pass} проверок, ошибок ${errors.length}`);
