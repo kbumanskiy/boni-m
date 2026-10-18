@@ -841,8 +841,10 @@ let R = null; // состояние упражнения
 // без «принята», рекорда, вехи и очков. Список чисел — LIMITS.radiogramGroups (timing.js).
 // Смешанный кэш при обновлении: если timing.js старый (нет списка или оценки длительности),
 // кнопку «Длинная» не рисуем вовсе — «Короткая» и «Минута» открываются как в v25.
+// То же для старого radiogram.js: без функций разбора «Длинная» не дошла бы до результата.
 function longAvailable() {
-  return Array.isArray(LIMITS.radiogramGroups?.options) && typeof TM.estimateRadiogramSeconds === 'function';
+  return Array.isArray(LIMITS.radiogramGroups?.options) && typeof TM.estimateRadiogramSeconds === 'function'
+    && typeof RG.sentPrefix === 'function' && typeof RG.percentCorrect === 'function' && typeof RG.errorList === 'function';
 }
 function longOn() { return longAvailable() && state.settings.radiogramLong === true; }
 function longGroups() {

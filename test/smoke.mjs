@@ -982,6 +982,8 @@ Object.defineProperty(document, 'hidden', { configurable: true, get: () => false
         const m = /^\.\/js\/(timing|audio|support|data)\.js$/.exec(spec);
         if (m) return { url: fx(`${m[1]}.js`), shortCircuit: true };
       }
+      // Новый app.js и новый timing.js, но старый radiogram.js (нет функций разбора «Длинной»).
+      if (parent.includes('app.js?oldrg') && spec === './js/radiogram.js') return { url: fx('radiogram.js'), shortCircuit: true };
       // Старый app.js (v25) с новыми модулями: его ./js/* — настоящие файлы app/js/.
       if (parent.startsWith(fx('app.js')) && spec.startsWith('./js/')) return { url: appDir + spec.slice(2), shortCircuit: true };
       return next(spec, ctx);
@@ -1071,6 +1073,23 @@ Object.defineProperty(document, 'hidden', { configurable: true, get: () => false
     ok(await receiveToResult(env, 'short'), 'новый app.js + старый timing.js: «Короткая» — полный приём до разбора');
     ok(await receiveToResult(env, 'minute'), 'новый app.js + старый timing.js: «Минута» — полный приём до разбора');
     ok(env.errs.length === 0, 'новый app.js + старые модули: без ошибок — ' + env.errs.map(String).join(' | '));
+  }
+
+  // б2) новый app.js и timing.js, старый radiogram.js: «Длинную» без её разбора не предлагаем.
+  {
+    const OldRG = await import(fx('radiogram.js'));
+    ok(!OldRG.percentCorrect && !OldRG.sentPrefix && !OldRG.errorList,
+      'старый radiogram.js действительно старый: нет percentCorrect, sentPrefix, errorList');
+    const env = await boot('../app/app.js?oldrg', seedRg);
+    ok(!env.crash && env.$w('#radiogram'), `новый app.js + старый radiogram.js: главная открылась${env.crash ? ' — ' + env.crash.message : ''}`);
+    env.cw('#radiogram'); await sleep(10);
+    ok(!env.$w('[data-dur="long"]') && env.$w('[data-dur="short"]') && env.$w('[data-dur="minute"]'),
+      'новый app.js + старый radiogram.js: «Длинной» нет, «Короткая» и «Минута» есть');
+    env.cw('#back'); await sleep(10);
+    ok(env.st().settings.radiogramLong === true && env.st().settings.radiogramGroups === 50,
+      'новый app.js + старый radiogram.js: выбор «Длинная/50» в хранилище не потерян');
+    ok(await receiveToResult(env, 'short'), 'новый app.js + старый radiogram.js: «Короткая» — полный приём до разбора');
+    ok(env.errs.length === 0, 'новый app.js + старый radiogram.js: без ошибок — ' + env.errs.map(String).join(' | '));
   }
 
   // в) старый app.js (v25) с новыми модулями.

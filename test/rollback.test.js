@@ -25,6 +25,7 @@ const FIXTURES = {
   'support.js': ['83baf8eef07e80a09c2d63ddca5ae3d12ef6c43269a9134e9a47e9e3fb1bb770', '66d7c617504a40852eec6af58d5a2294eeb61eb562c280d3a0c8bf8476475e45'],
   'audio.js':   ['6055942f3229622e18f980888d13cad43aa52d987e023b420ad0ceffda0c5af4', 'c64916e462225e97a78f6865dfa1b313e2f8248fff2846c29e10e120c74ded46'],
   'data.js':    ['26eec83dff1e32ecb3e691f99dfa91cbdce279484df6f261b83137df155844a6', '5cc101ed7d614fa08292bf2e918c31f34b1511ec5baf3666164571c831aed33e'],
+  'radiogram.js': ['70ab5fd4b94377d0c3b625fb207b6916c3bfe47044dfa0eaaeca94effe631b76', '150d35c695a3f1bd02abf2bd821d76a77d4ede2a57b20da3bec96f32b476fd58'],
   'app.js':     ['11d31e1f1a7a4c16d098bb4d65ef6cec3c5d41d761302cdfb0290f03dad3660a', '1a3b84159b561fa563ffa00f70becad64f3bfb87ba77abe48dd6059fccfdb553'],
 };
 const sha = (buf) => createHash('sha256').update(buf).digest('hex');
