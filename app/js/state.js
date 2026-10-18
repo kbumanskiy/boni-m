@@ -206,7 +206,11 @@ function keepBroken(store, raw) {
     list = list.filter((k) => typeof k === 'string' && k.startsWith(BROKEN_PREFIX) && store.getItem(k) !== null);
     // Та же строка уже лежит — новый слот не нужен.
     if (list.some((k) => store.getItem(k) === raw)) return true;
-    const key = `${BROKEN_PREFIX}${localDay()}_${hash4(raw)}`;
+    // Короткий хэш может совпасть у разных строк — тогда свободный ключ с суффиксом,
+    // чтобы новая копия не затёрла чужую.
+    const base = `${BROKEN_PREFIX}${localDay()}_${hash4(raw)}`;
+    let key = base;
+    for (let n = 2; store.getItem(key) !== null && store.getItem(key) !== raw; n++) key = `${base}_${n}`;
     if (store.getItem(key) === raw) return true;
     list = list.filter((k) => k !== key);
     while (list.length > BROKEN_MAX - 1) {

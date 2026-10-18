@@ -5,6 +5,7 @@ import {
   defaultState, migrate, load, save, needsOnboarding, STORAGE_KEY, saveBlocked,
 } from '../app/js/state.js';
 import { LIMITS } from '../app/js/timing.js';
+import * as V25 from '../fixtures/v25/state.js';
 
 // Мок localStorage.
 function mockStore(initial = null) {
@@ -320,6 +321,19 @@ test('вторая, другая поломка при занятом перво
   assert.equal(save(defaultState(), st), true);
 });
 
+test('две разные поломки с одинаковым коротким хэшем в один день → обе копии целы', () => {
+  // У этих строк совпадают первые четыре знака FNV-1a (6ebf) — ключ слота был бы один.
+  const a = '{"progress":{"ru":{"learnedCount":3}}';
+  const b = '{"progress":{"ru":{"learnedCount":489}}';
+  const st = mapStore({ [STORAGE_KEY]: a });
+  load(st);
+  st.setItem(STORAGE_KEY, b);
+  load(st);
+  assert.equal(slots(st).length, 2, 'вторая копия не затёрла первую');
+  assert.deepEqual(slots(st).map((k) => st.getItem(k)).sort(), [a, b].sort());
+  assert.equal(save(defaultState(), st), true);
+});
+
 test('та же нечитаемая строка второй раз → новый слот не создаётся', () => {
   const st = mapStore({ [STORAGE_KEY]: 'битое' });
   load(st);
@@ -365,12 +379,18 @@ test('длина тире: умолчание 3; старое состояние
     profile: { name: 'Бонислав', callsign: 'Boney M', points: 5 } };
   const s = migrate(old);
   assert.equal(s.settings.dahRatio, 3);
-  const want = migrate(old);
-  delete want.settings.dahRatio;
+  // Сверка с независимым образцом: миграция v25 того же состояния (там dahRatio нет вовсе).
+  const want = V25.migrate(structuredClone(old));
   const got = structuredClone(s);
   delete got.settings.dahRatio;
-  assert.deepEqual(got, want);
+  delete got.settings.radiogramLong; delete got.settings.radiogramGroups; // поля v26, в v25 их нет
+  delete want.settings.radiogramLong; delete want.settings.radiogramGroups;
+  assert.deepEqual(got, want, 'кроме полей v26 миграция совпадает с v25');
   assert.equal(s.settings.charWpm, 20);
+  assert.equal(s.settings.effWpm, 10);
+  assert.equal(s.settings.radiogramLong, true);
+  assert.equal(s.settings.radiogramGroups, 50);
+  assert.equal(s.profile.points, 5);
   assert.equal(s.profile.callsign, 'Boney M');
 });
 
