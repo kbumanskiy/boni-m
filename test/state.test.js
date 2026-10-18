@@ -98,7 +98,9 @@ test('переполнение квоты при сохранении не ро�
 // и делалось. Тест проверяет край каждого регулятора: что предложено на экране,
 // то и должно сохраниться.
 test('края всех регуляторов переживают сохранение (границы UI = границы миграции)', () => {
-  for (const [key, { min, max }] of Object.entries(LIMITS)) {
+  for (const [key, lim] of Object.entries(LIMITS)) {
+    if (lim.options) continue; // список значений, а не диапазон — проверяется отдельно ниже
+    const { min, max } = lim;
     for (const edge of [min, max]) {
       // effWpm сверху зажимается скоростью знака — даём ей потолок.
       const raw = { settings: { charWpm: LIMITS.charWpm.max, [key]: edge } };
@@ -201,4 +203,81 @@ test('«Я уже знаю азбуку»: по умолчанию выключ�
   const loaded = load(store);
   assert.equal(loaded.settings.knowsAll, true);
   assert.equal(loaded.progress.ru.learnedCount, 0, 'отметка не трогает прогресс');
+});
+
+// ——— Длинная радиограмма: radiogramLong / radiogramGroups (ТЗ-длинные-радиограммы.md, 2.2, 4.3) ———
+const G_OPTS = LIMITS.radiogramGroups.options;
+
+test('длинная радиограмма: умолчания — выключена, 30 групп', () => {
+  const s = defaultState();
+  assert.equal(s.settings.radiogramLong, false);
+  assert.equal(s.settings.radiogramGroups, LIMITS.radiogramGroups.def);
+  assert.equal(s.settings.radiogramGroups, 30);
+});
+
+test('длинная радиограмма: старое состояние без полей → умолчания, остальное как было', () => {
+  const old = { profile: { name: 'Бонислав', points: 412 },
+    settings: { radiogramCpm: 110, radiogramKind: 'mixed', radiogramFull: true, knowsAll: true },
+    records: { radiogramCpm: 100 } };
+  const s = migrate(old);
+  assert.equal(s.settings.radiogramLong, false);
+  assert.equal(s.settings.radiogramGroups, 30);
+  assert.equal(s.settings.radiogramCpm, 110);
+  assert.equal(s.settings.radiogramKind, 'mixed');
+  assert.equal(s.settings.radiogramFull, true);
+  assert.equal(s.settings.knowsAll, true);
+  assert.equal(s.records.radiogramCpm, 100);
+  assert.equal(s.profile.points, 412);
+});
+
+test('длинная радиограмма: мусор → умолчания (белый список, без зажима)', () => {
+  for (const junk of [37, '30', -1, null, 1e9, NaN, 30.5, {}, []]) {
+    assert.equal(migrate({ settings: { radiogramGroups: junk } }).settings.radiogramGroups, 30, `мусор ${String(junk)}`);
+  }
+  for (const junk of ['true', 1, 'да', {}, null]) {
+    assert.equal(migrate({ settings: { radiogramLong: junk } }).settings.radiogramLong, false, `мусор ${String(junk)}`);
+  }
+});
+
+test('длинная радиограмма: каждое значение из списка и выбор «Длинная» переживают сохранение', () => {
+  for (const g of G_OPTS) {
+    const store = mockStore();
+    const s = defaultState();
+    s.settings.radiogramLong = true;
+    s.settings.radiogramGroups = g;
+    save(s, store);
+    const back = load(store);
+    assert.equal(back.settings.radiogramLong, true);
+    assert.equal(back.settings.radiogramGroups, g, `значение ${g}`);
+  }
+});
+
+test('длинная радиограмма: radiogramFull и radiogramLong хранятся независимо', () => {
+  for (const full of [true, false]) {
+    const s = migrate({ settings: { radiogramFull: full, radiogramLong: true, radiogramGroups: 50 } });
+    assert.equal(s.settings.radiogramFull, full);
+    assert.equal(s.settings.radiogramLong, true);
+  }
+});
+
+test('миграция идемпотентна: migrate(migrate(x)) = migrate(x)', () => {
+  const v25 = { version: 2, profile: { name: 'Бонислав', callsign: 'Boney M', points: 412 },
+    progress: { ru: { learnedCount: 27, digitsLearned: 6, perChar: { 'Е': { correct: 9, total: 10 } },
+      recent: [1, 0, 1], parked: ['Ь'], lastFirst: 'Щ' } },
+    settings: { radiogramCpm: 110, radiogramFull: true, theme: 'dark', metrics: false, knowsAll: true },
+    records: { radiogramCpm: 100 }, totalSeconds: 18000,
+    history: [{ date: '2026-10-01T10:00', answers: 20, accuracyPct: 91 }],
+    milestones: { first4: true, radiogram: true } };
+  const junk = { settings: { radiogramGroups: 37, radiogramLong: 'да', charWpm: 999 }, history: 'x', puzzle: [1] };
+  for (const x of [{}, v25, junk, defaultState()]) {
+    const once = migrate(x);
+    assert.deepEqual(migrate(once), once);
+    assert.deepEqual(migrate(JSON.parse(JSON.stringify(once))), once);
+  }
+});
+
+test('рекорд радиограммы не меняется миграцией ни при каких новых полях', () => {
+  for (const extra of [{}, { radiogramLong: true, radiogramGroups: 50 }, { radiogramLong: 'x', radiogramGroups: 7 }]) {
+    assert.equal(migrate({ records: { radiogramCpm: 120 }, settings: extra }).records.radiogramCpm, 120);
+  }
 });

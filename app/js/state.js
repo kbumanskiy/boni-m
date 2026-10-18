@@ -28,6 +28,10 @@ export function defaultState() {
       // Контрольная радиограмма: своя скорость (её крутят отдельно от учебной),
       // вид текста и длительность захода.
       radiogramCpm: 60, radiogramKind: 'letters', radiogramFull: false,
+      // «Длинная» — тренировка с фиксированным числом групп, не по правилам соревнований.
+      // radiogramFull при её выборе не трогается, чтобы откат на v25 видел прежний выбор
+      // «Короткая»/«Минута». Список допустимых чисел — LIMITS.radiogramGroups (timing.js).
+      radiogramLong: false, radiogramGroups: 30,
       theme: 'auto',    // оформление: 'auto' (как в телефоне) | 'light' | 'dark'
       // Анонимная статистика (минуты занятия и номер установки, см. js/metrics.js).
       // Включена по умолчанию, выключается одним касанием в настройках.
@@ -105,6 +109,12 @@ export function migrate(raw) {
     s.settings.radiogramCpm = clampNum(r.radiogramCpm, LIMITS.radiogramCpm.min, LIMITS.radiogramCpm.max, 60);
     s.settings.radiogramKind = ['letters', 'digits', 'mixed'].includes(r.radiogramKind) ? r.radiogramKind : 'letters';
     s.settings.radiogramFull = r.radiogramFull === true;
+    s.settings.radiogramLong = r.radiogramLong === true;
+    // Белый список, без зажима в диапазон: 37 из подсунутого файла копии станет 30.
+    // ?. — на случай смешанного кэша при обновлении: новый state.js со старым timing.js,
+    // где radiogramGroups ещё нет. Исключение здесь превратилось бы в пустое состояние.
+    s.settings.radiogramGroups = LIMITS.radiogramGroups?.options?.includes(r.radiogramGroups)
+      ? r.radiogramGroups : (LIMITS.radiogramGroups?.def ?? 30);
     s.settings.theme = ['light', 'dark'].includes(r.theme) ? r.theme : 'auto';
     s.settings.metrics = r.metrics !== false;
     s.settings.knowsAll = r.knowsAll === true;

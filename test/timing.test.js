@@ -4,7 +4,9 @@ import assert from 'node:assert/strict';
 import {
   charTiming, ditSeconds, codeToSchedule, codeDuration, clampEff,
   keyThresholds, classifyHold, classifyGap, slowerEff, LIMITS,
+  sequenceTimeline, estimateRadiogramSeconds,
 } from '../app/js/timing.js';
+import { CODE_BY_CHAR, DIGIT_ORDER, KOCH_ORDER_RU } from '../app/js/data.js';
 
 const approx = (a, b, eps = 1e-9) => Math.abs(a - b) < eps;
 
@@ -124,4 +126,50 @@ test('«Медленнее» никогда не быстрее обычного
   }
   assert.equal(slowerEff(min, 18), min, 'на минимуме — не быстрее (раньше давало 5)');
   assert.equal(slowerEff(9, 18), 6, 'обычный случай: на 3 медленнее');
+});
+
+// ——— Длинная радиограмма (ТЗ-длинные-радиограммы.md, 2.1, 2.7, 3.2) ———
+
+// Единственное место в тестах, где список записан числами: это решение выпуска.
+// Запасной путь «50 заикается» меняет ровно эту строку и LIMITS (раздел 8 ТЗ).
+test('число групп длинной радиограммы — 20, 30, 50; умолчание из списка', () => {
+  assert.deepEqual(LIMITS.radiogramGroups.options, [20, 30, 50]);
+  assert.equal(LIMITS.radiogramGroups.def, 30);
+  assert.ok(LIMITS.radiogramGroups.options.includes(LIMITS.radiogramGroups.def));
+});
+
+const codeRu = (ch) => CODE_BY_CHAR.ru.get(ch) || '';
+
+test('план передачи: «E» на 20 WPM — точка плюс пауза после знака, как у playSequence', () => {
+  const t = charTiming(20, 20);
+  const tl = sequenceTimeline(['E'], () => '.', 20, 20);
+  assert.deepEqual(tl.starts, [0]);
+  assert.ok(approx(tl.total, t.dit + t.charGap), `total=${tl.total}`);
+  assert.ok(approx(tl.total, 0.24, 1e-9));
+});
+
+test('план передачи: «EE» — второй знак после точки и паузы', () => {
+  const t = charTiming(20, 20);
+  const tl = sequenceTimeline(['E', 'E'], () => '.', 20, 20);
+  assert.ok(approx(tl.starts[1], t.dit + t.charGap));
+});
+
+test('план передачи: пробел добавляет паузу слова и не даёт записи; неизвестный знак пропускается', () => {
+  const t = charTiming(20, 20);
+  const tl = sequenceTimeline(['E', ' ', '?', 'E'], (ch) => (ch === 'E' ? '.' : ''), 20, 20);
+  assert.equal(tl.starts.length, 2);
+  assert.ok(approx(tl.starts[1], t.dit + t.charGap + t.wordGap));
+});
+
+test('оценка длительности по набору: 50 групп цифр на 40 зн/мин — около 11,5 минуты, буквы короче', () => {
+  const digits = estimateRadiogramSeconds(DIGIT_ORDER, codeRu, 50, 8);
+  assert.ok(Math.abs(digits / 60 - 11.5) <= 0.5, `цифры: ${(digits / 60).toFixed(2)} мин`);
+  const letters = estimateRadiogramSeconds(KOCH_ORDER_RU.slice(0, 20), codeRu, 50, 8);
+  assert.ok(letters < digits, 'буквы короче цифр');
+  // Сверка с настоящим планом передачи: оценка — это среднее, а не случайный текст.
+  const text = [];
+  for (let g = 0; g < 50; g++) { if (g) text.push(' '); for (let i = 0; i < 5; i++) text.push(DIGIT_ORDER[(g * 5 + i) % 10]); }
+  const real = sequenceTimeline(text, codeRu, 8, 8).total;
+  assert.ok(Math.abs(real - digits) < 1, `оценка ${digits.toFixed(1)} с, план ${real.toFixed(1)} с`);
+  assert.equal(estimateRadiogramSeconds([], codeRu, 50, 8), 0);
 });

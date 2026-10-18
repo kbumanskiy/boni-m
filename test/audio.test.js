@@ -12,7 +12,7 @@ const freshAudio = () => import(`../app/js/audio.js?case=${++seq}`);
 // Поддельная звуковая система браузера: запоминает, что было создано и запущено.
 function fakeEnv({ audioSession = true, startState = 'running', ios = true,
                    wakeDelay = 60, neverWakes = false, legacyResume = false } = {}) {
-  const log = { started: [], media: [], sessionTypes: [] };
+  const log = { started: [], media: [], sessionTypes: [], stoppedNow: 0 };
   const ctxRef = { value: null };
 
   class FakeParam {
@@ -48,7 +48,8 @@ function fakeEnv({ audioSession = true, startState = 'running', ios = true,
       const osc = Object.assign(new FakeNode(), {
         type: '', frequency: new FakeParam(),
         start(t) { log.started.push({ at: t, ctxState: ctx.state, ctxTime: ctx.currentTime }); },
-        stop() {}, onended: null,
+        // stop() без времени — немедленная остановка (stopAll), со временем — плановая.
+        stop(t) { if (t === undefined) log.stoppedNow++; }, onended: null,
       });
       return osc;
     }
@@ -408,5 +409,55 @@ test('audioStatus: «running» после доигранного знака и �
       { onDone: (p) => seen.push([p, A.audioStatus()]) });
     env.log.runFrames(80);
     assert.deepEqual(seen.at(-1), [true, 'running']);
+  } finally { env.restore(); }
+});
+
+// ——— План передачи и настоящая очередь звука (длинная радиограмма, раздел 2.7) ———
+// Полоса и «Осталось около…» считаются по sequenceTimeline из timing.js, а звук ставит
+// playSequence. Тест держит их совпадение: разойдутся — полоса врёт.
+test('план передачи совпадает с тем, что реально запланировал playSequence (250 знаков)', async () => {
+  const env = fakeEnv({ startState: 'running', ios: false });
+  try {
+    const A = await freshAudio();
+    const { makeRadiogram } = await import('../app/js/radiogram.js');
+    const { sequenceTimeline } = await import('../app/js/timing.js');
+    const { CODE_BY_CHAR, KOCH_ORDER_RU, DIGIT_ORDER } = await import('../app/js/data.js');
+    const codeOf = (ch) => CODE_BY_CHAR.ru.get(ch) || '';
+    let rnd = 7; const next = () => { rnd = (rnd * 1103515245 + 12345) % 2147483648; return rnd / 2147483648; };
+    const text = [...makeRadiogram([...KOCH_ORDER_RU, ...DIGIT_ORDER], 50, next)];
+    const wpm = 225 / 5;
+    const done = [];
+    A.playSequence(text, codeOf, { ...SET, charWpm: wpm, effWpm: wpm }, { onDone: (p) => done.push(p) });
+    const chars = text.filter((c) => c !== ' ');
+    const tones = chars.reduce((n, c) => n + codeOf(c).length, 0);
+    assert.equal(chars.length, 250);
+    assert.equal(env.log.started.length, tones, 'по осциллятору на каждую точку и тире');
+    const tl = sequenceTimeline(text, codeOf, wpm, wpm);
+    assert.equal(tl.starts.length, 250);
+    let k = 0;
+    const t0 = env.log.started[0].at;
+    chars.forEach((c, i) => {
+      const at = env.log.started[k].at - t0;
+      assert.ok(Math.abs(at - tl.starts[i]) < 1e-6, `знак ${i}: звук ${at}, план ${tl.starts[i]}`);
+      k += codeOf(c).length;
+    });
+    env.log.runFrames(4000, 0.05);
+    env.log.runFrames(10, 0.05);
+    assert.deepEqual(done, [true], 'onDone(true) ровно один раз');
+  } finally { env.restore(); }
+});
+
+test('stopAll посреди длинной передачи: onDone не приходит, звук остановлен', async () => {
+  const env = fakeEnv({ startState: 'running', ios: false });
+  try {
+    const A = await freshAudio();
+    const done = [];
+    const text = [...'ЖЖЖЖЖ '.repeat(50).trim()];
+    A.playSequence(text, () => '...-', { ...SET, charWpm: 8, effWpm: 8 }, { onDone: (p) => done.push(p) });
+    env.log.runFrames(20, 0.05);
+    A.stopAll();
+    env.log.runFrames(4000, 0.5);
+    assert.deepEqual(done, [], 'оборванная передача не отчитывается о конце');
+    assert.equal(env.log.stoppedNow, env.log.started.length, 'каждый запланированный тон остановлен');
   } finally { env.restore(); }
 });

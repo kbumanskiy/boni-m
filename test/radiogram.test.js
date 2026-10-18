@@ -5,7 +5,9 @@ import assert from 'node:assert/strict';
 import {
   makeRadiogram, normalize, compare, accepted, score, groupsFor, nextSpeed,
   GROUP_SIZE, MAX_ERRORS, SPEED_STEP, MIXED_PUNCT, chooseSet,
+  percentCorrect, sentPrefix, errorList,
 } from '../app/js/radiogram.js';
+import { KOCH_ORDER_RU } from '../app/js/data.js';
 
 // Повторяемый источник случайности: тест не должен зависеть от везения.
 function seeded(seed = 1) {
@@ -124,4 +126,86 @@ test('набор знаков: без отметки — только освое
   // Исходные порядки не портятся: набор — копия.
   chooseSet({ ...all, kind: 'letters' }).push('X');
   assert.equal(order.length, 6);
+});
+
+// ——— Длинная радиограмма: тренировка 20/30/50 групп (ТЗ-длинные-радиограммы.md) ———
+
+test('процент верных: (T − E) / T, не отрицательный при мусоре', () => {
+  assert.equal(percentCorrect(150, 0), 100);
+  assert.equal(percentCorrect(150, 3), 98);
+  assert.equal(percentCorrect(150, 150), 0);
+  assert.equal(percentCorrect(150, 400), 0, 'лишние знаки не уводят процент в минус');
+  assert.equal(percentCorrect(0, 0), null, 'нечего разбирать — процента нет, деления на ноль нет');
+  assert.equal(percentCorrect(3, 1), 67, 'округление до целого');
+});
+
+test('переданная часть: первые n знаков, заново по пять', () => {
+  assert.equal(sentPrefix('ABCDE FGHIJ', 7), 'ABCDE FG');
+  assert.equal(sentPrefix('ABCDE FGHIJ', 0), '');
+  assert.equal(sentPrefix('ABCDE FGHIJ', -3), '');
+  assert.equal(sentPrefix('ABCDE FGHIJ', 99), 'ABCDE FGHIJ');
+  assert.equal(sentPrefix('ABCDE FGHIJ', 10), 'ABCDE FGHIJ');
+  assert.equal(sentPrefix('ab Ø\nde fgh', 6), 'AB0DE F', 'регистр, Ø и пробелы нормализуются');
+});
+
+test('«Где ошибки»: номера групп для замены, пропуска и лишнего', () => {
+  // Группы: ABCDE FGHIJ. Замена C→X (группа 1), пропуск H (группа 2),
+  // лишний Z на стыке после E (относится к группе 1 — последний переданный перед ним).
+  const r = compare('ABCDE FGHIJ', 'ABXDEZFGIJ');
+  const { items, more } = errorList(r.cells);
+  assert.equal(more, 0);
+  assert.deepEqual(items.map((x) => [x.group, x.type]), [[1, 'wrong'], [1, 'extra'], [2, 'missed']]);
+  assert.deepEqual(items[0], { group: 1, type: 'wrong', expected: 'C', got: 'X' });
+  assert.deepEqual(items[1], { group: 1, type: 'extra', expected: '', got: 'Z' });
+  assert.deepEqual(items[2], { group: 2, type: 'missed', expected: 'H', got: '' });
+});
+
+test('«Где ошибки»: лишнее в самом начале — первая группа', () => {
+  const r = compare('ABCDE FGHIJ', 'QABCDEFGHIJ');
+  assert.deepEqual(errorList(r.cells).items, [{ group: 1, type: 'extra', expected: '', got: 'Q' }]);
+});
+
+test('«Где ошибки»: limit режет список, more — сколько осталось', () => {
+  const sent = 'ABCDE FGHIJ KLMNO PQRST';
+  const r = compare(sent, 'XXXXXXXXXXXXXXXXXXXX'); // 20 замен
+  const { items, more } = errorList(r.cells, 10);
+  assert.equal(items.length, 10);
+  assert.equal(more, 10);
+  assert.deepEqual(items.map((x) => x.group), [1, 1, 1, 1, 1, 2, 2, 2, 2, 2]);
+  assert.equal(errorList(r.cells).items.length, 10, 'по умолчанию — десять');
+  assert.deepEqual(errorList(compare(sent, sent).cells), { items: [], more: 0 });
+});
+
+test('длинная на тесном наборе: 50 групп по пять, трёх одинаковых подряд нет', () => {
+  for (let seed = 1; seed <= 30; seed++) {
+    const text = makeRadiogram(['A', 'B'], 50, seeded(seed));
+    const groups = text.split(' ');
+    assert.equal(groups.length, 50);
+    assert.ok(groups.every((g) => g.length === GROUP_SIZE));
+    assert.ok(!/(.)\1\1/.test(normalize(text)), `сид ${seed}: три одинаковых подряд`);
+  }
+});
+
+test('длинная на реальном наборе: 20 первых букв курса — только они', () => {
+  const set = KOCH_ORDER_RU.slice(0, 20);
+  const plain = normalize(makeRadiogram(set, 50, seeded(3)));
+  assert.equal(plain.length, 250);
+  assert.ok([...plain].every((ch) => set.includes(ch)));
+});
+
+test('сверка 250 знаков — быстро, даже против 600 знаков мусора', () => {
+  const sent = makeRadiogram(KOCH_ORDER_RU, 50, seeded(5));
+  const t0 = performance.now();
+  compare(sent, sent);
+  compare(sent, 'Ж'.repeat(600));
+  const ms = performance.now() - t0;
+  assert.ok(ms < 200, `сверка заняла ${ms.toFixed(1)} мс`);
+});
+
+test('одна пропущенная буква в 250 знаках — ровно одна ошибка, без лавины', () => {
+  const sent = makeRadiogram(KOCH_ORDER_RU, 50, seeded(9));
+  const plain = normalize(sent);
+  const r = compare(sent, plain.slice(0, 120) + plain.slice(121));
+  assert.equal(r.errors, 1);
+  assert.equal(r.total, 250);
 });

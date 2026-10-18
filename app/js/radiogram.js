@@ -145,3 +145,44 @@ export function score(cpm, errors) {
 export function nextSpeed(cpm, max = Infinity) {
   return Math.min(max, Math.round(cpm) + SPEED_STEP);
 }
+
+// ——— Длинная радиограмма: тренировка 20/30/50 групп, не по правилам ———
+// (ТЗ-длинные-радиограммы.md, решение 16.10.2026). «Принята / не принята» здесь нет:
+// порог «пять ошибок» в правилах рассчитан на минуту, а на 50 группах это 98%.
+// Вместо вердикта — процент верных.
+
+// Процент верных: T — сколько знаков передано (разбирается), E — ошибки по выравниванию,
+// лишние знаки тоже считаются. Поэтому не correct/total: при сплошном мусоре в конце
+// тот оставался бы высоким. Ниже нуля не опускается; нечего разбирать — null.
+export function percentCorrect(total, errors) {
+  if (!(total > 0)) return null;
+  return Math.max(0, Math.round((100 * (total - errors)) / total));
+}
+
+// Переданная часть, когда приём закончили раньше конца передачи: первые n знаков,
+// заново разбитые по пять (разбор идёт по тому, что прозвучало).
+export function sentPrefix(text, n) {
+  const plain = normalize(text);
+  if (!(n > 0)) return '';
+  return plain.slice(0, Math.floor(n))
+    .replace(new RegExp(`(.{${GROUP_SIZE}})`, 'g'), '$1 ').trim();
+}
+
+// Список «Где ошибки» для разбора: на телефоне подсказку при наведении не увидеть,
+// а номер группы находится в разборе сразу. Номер группы считается по переданным знакам;
+// лишний знак относится к группе последнего переданного перед ним (или к первой).
+export function errorList(cells, limit = 10) {
+  const all = [];
+  let shown = 0;
+  for (const c of cells) {
+    if (c.type === 'extra') {
+      all.push({ group: Math.max(1, Math.ceil(shown / GROUP_SIZE)), type: 'extra', expected: '', got: c.got });
+      continue;
+    }
+    shown++;
+    if (c.type !== 'ok') {
+      all.push({ group: Math.ceil(shown / GROUP_SIZE), type: c.type, expected: c.expected, got: c.got });
+    }
+  }
+  return { items: all.slice(0, limit), more: Math.max(0, all.length - limit) };
+}

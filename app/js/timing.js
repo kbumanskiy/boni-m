@@ -30,6 +30,10 @@ export const LIMITS = {
   // Контрольная радиограмма считается прямо в знаках в минуту (так в правилах
   // радиоспорта), поэтому и границы здесь в них же, а не в WPM.
   radiogramCpm: { min: 40, max: 225 },  // ниже 0,15 морзянку уже не слышно — глушить нечем, есть кнопка выхода
+  // «Длинная» радиограмма — тренировка с числом групп на выбор (не по правилам).
+  // Не диапазон, а список: читают его экран и миграция (белый список, без зажима).
+  // Уменьшить список — запасной путь, если на старом телефоне длинная очередь звука заикается.
+  radiogramGroups: { options: [20, 30, 50], def: 30 },
 };
 
 // §5/§13: интерфейс физически не даёт выставить E > C.
@@ -152,4 +156,35 @@ export function classifyGap(gapSeconds, keyWpm) {
   if (gapSeconds >= wordGapMin) return 'word';
   if (gapSeconds >= charGapMin) return 'char';
   return 'intra';
+}
+
+// ——— План передачи (контрольная радиограмма) ———
+// Когда начинается каждый звучащий знак и сколько длится вся передача. Цикл ПОВТОРЯЕТ цикл
+// playSequence в audio.js: расписание знака, пауза знака после каждого, пауза слова на
+// пробеле, неизвестный знак пропускается. Совпадение держит тест на поддельном аудиоконтексте.
+// Начальная задержка playSequence (0,1 с) сюда НЕ входит: отсчёт от начала первого знака,
+// а total — момент onDone(true) минус эта задержка.
+export function sequenceTimeline(chars, codeOf, charWpm, effWpm) {
+  const tmg = charTiming(charWpm, effWpm);
+  const starts = [];
+  let t = 0;
+  for (const ch of chars) {
+    if (ch === ' ') { t += tmg.wordGap; continue; }
+    const code = codeOf(ch);
+    if (!code) continue;
+    starts.push(t);
+    t += codeDuration(code, charWpm, effWpm) + tmg.charGap;
+  }
+  return { starts, total: t };
+}
+
+// Оценка длительности длинной радиограммы для подсказки на экране подготовки: средняя
+// длительность знака ПО ВЫБРАННОМУ НАБОРУ (цифры почти вдвое длиннее букв) × число знаков
+// плюс паузы между группами. Округление до полуминуты — дело экрана.
+export function estimateRadiogramSeconds(set, codeOf, groups, wpm, groupSize = 5) {
+  const codes = [...set].map((ch) => codeOf(ch)).filter(Boolean);
+  if (!codes.length || !(groups > 0)) return 0;
+  const tmg = charTiming(wpm, wpm);
+  const avg = codes.reduce((s, c) => s + codeDuration(c, wpm, wpm) + tmg.charGap, 0) / codes.length;
+  return avg * groups * groupSize + (groups - 1) * tmg.wordGap;
 }
