@@ -1888,7 +1888,7 @@ function renderReference() {
       <button data-s="digits" class="${refSection === 'digits' ? 'active' : ''}">Цифры</button>
       <button data-s="punct" class="${refSection === 'punct' ? 'active' : ''}">Знаки</button>
     </div>
-    <div class="grid" id="grid">${items.map((it) => `
+    <div class="grid${refSection === 'punct' ? ' punct' : ''}" id="grid">${items.map((it) => `
       <button class="cell" data-c="${esc(it.char)}">
         <span>${esc(glyphText(it.char))}</span>
         <small>${visualCode(it.code)}</small>
