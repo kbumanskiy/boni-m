@@ -675,9 +675,21 @@ Object.defineProperty(document, 'hidden', { configurable: true, get: () => false
   await sleep(1700);
   ok(!document.querySelector('#pz-opts'), 'звук не проснулся — варианты не открываются');
   ok(document.querySelector('#pz-fb').textContent === 'Нажмите «Слушать» ещё раз.', 'звук не проснулся — «Нажмите «Слушать» ещё раз.»');
+  // «Учиться» на том же спящем звуке: надпись А, кнопки закрыты (ТЗ, раздел 10.6.5).
+  click('#back'); await sleep(5);
+  click('#back'); await sleep(5);
+  const answersBefore = JSON.stringify(saved().progress.ru.perChar);
+  click('[data-tab="learn"]');
+  await sleep(1700);
+  ok(document.querySelector('#fb').textContent.includes('Звук не включился')
+    && document.querySelector('#fb').textContent.includes('Послушать ещё раз'), '«Учиться», звук не проснулся: «Звук не включился… Послушать ещё раз»');
+  ok([...document.querySelectorAll('#opts .opt')].every((b) => b.disabled), '«Учиться», звук не проснулся: кнопки закрыты');
+  document.querySelector('#opts .opt').click(); await sleep(5);
+  ok(JSON.stringify(saved().progress.ru.perChar) === answersBefore, '«Учиться», звук не проснулся: ответ не засчитан');
   sleepy.resumeHangs = false; sleepy.state = 'running';
-  click('#back'); await sleep(5);
-  click('#back'); await sleep(5);
+  click('#again');
+  ok(await waitFor(() => [...document.querySelectorAll('#opts .opt')].some((b) => !b.disabled)), '«Послушать ещё раз» после пробуждения — кнопки открылись');
+  click('#exit'); await sleep(10);
 }
 
 // Смешанный кэш при обновлении: новый app.js со СТАРЫМ state.js, который поля puzzle не знает

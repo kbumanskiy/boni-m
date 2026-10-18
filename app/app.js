@@ -504,9 +504,13 @@ function playTarget() {
       // в приложение касания не было. Кнопки с буквами НЕ открываем — ответ вслепую
       // записался бы папе в статистику как настоящий и испортил бы порядок обучения.
       // Выход один и он всегда доступен: «Послушать ещё раз» — это и есть касание.
-      if (!played) {
+      // «Прозвучал» — это played И живой звук: без Web Audio (или если он не создался)
+      // onDone(true) приходит сразу, а знака никто не слышал. Раньше такой ответ тихо
+      // засчитывался; теперь честная надпись (решение 16.10.2026, РЕШЕНИЯ.md).
+      const st = A.audioStatus ? A.audioStatus() : 'running';
+      if (!(played && st === 'running')) {
         if (!L.awaiting) {
-          $('#fb').textContent = 'Нажмите «Послушать ещё раз»';
+          $('#fb').innerHTML = noSoundNote('Послушать ещё раз');
           $('#fb').className = 'feedback center';
         }
         return;
@@ -1111,12 +1115,15 @@ function drawRadiogramStopped() {
 function noSoundNote(again) {
   const st = A.audioStatus ? A.audioStatus() : 'running';
   if (st === 'unsupported') {
-    return `<b class="nosound">В этом браузере нет звука.</b> Учиться на слух в нём не получится —
-      откройте приложение в Chrome. Учтите: прогресс в другом браузере свой, перенести его
-      можно резервной копией из настроек.`;
+    // Совет «откройте в Chrome» обязан предупредить: у другого браузера своё хранилище,
+    // и прогресс там начнётся с нуля — перенести его можно резервной копией.
+    return `<b class="nosound">В этом браузере нет звука.</b>
+      <span class="nosound-more">Учиться на слух в нём не получится — откройте приложение
+      в Chrome. Прогресс там будет свой: перенести его можно резервной копией из настроек.</span>`;
   }
-  return `<b class="nosound">Звук не включился.</b> Проверьте громкость и беззвучный режим,
-    затем нажмите «${again}». Если не помогло — перезагрузите телефон.`;
+  return `<b class="nosound">Звук не включился.</b>
+    <span class="nosound-more">Проверьте громкость и беззвучный режим, затем нажмите
+    «${again}». Если не помогло — перезагрузите телефон.</span>`;
 }
 
 function finishRadiogram() {
@@ -2134,6 +2141,7 @@ function renderSettings() {
       <input type="file" id="file" accept="application/json" class="hidden">
     </div>
     <button class="linkbtn danger" id="reset">Начать обучение заново</button>
+    <p class="muted center hint" id="about">${aboutText()}</p>
     ${ST.saveBlocked?.() ? `<p class="muted center hint" id="savewarn">Прогресс сейчас не сохраняется — напишите автору через «Журнал».</p>` : ''}`;
   $('#back').addEventListener('click', () => go(settingsFrom));
   wireKnows(s);
@@ -2143,12 +2151,14 @@ function renderSettings() {
   $('#s-call').addEventListener('input', (e) => { state.profile.callsign = normalizeCallsign(e.target.value); persist(); });
   $('#s-call').addEventListener('change', (e) => { e.target.value = normalizeCallsign(e.target.value); });
   // Звук пробуем сразу: настройка, которую не слышно, настраивается вслепую.
-  wireSpeedSliders(() => A.playCode('-.-', state.settings, {}));
+  // Образец обновляет только строку «Версия · Звук» — без перерисовки экрана (увела бы фокус).
+  const sample = () => A.playCode('-.-', state.settings, { onDone: refreshAbout });
+  wireSpeedSliders(sample);
   $('#key').addEventListener('input', (e) => { s.keyWpm = +e.target.value; persist(); renderSettings(); });
   $('#tone').addEventListener('input', (e) => { s.toneHz = +e.target.value; $('#tone-val').textContent = `${s.toneHz} Гц`; persist(); });
   $('#vol').addEventListener('input', (e) => { s.volume = +e.target.value; persist(); });
-  $('#tone').addEventListener('change', () => A.playCode('-.-', state.settings, {}));
-  $('#vol').addEventListener('change', () => A.playCode('-.-', state.settings, {}));
+  $('#tone').addEventListener('change', sample);
+  $('#vol').addEventListener('change', sample);
   $('#chants').addEventListener('click', () => { s.showChants = !s.showChants; persist(); renderSettings(); });
   $('#vib').addEventListener('click', () => { s.vibration = !s.vibration; persist(); renderSettings(); });
   $('#ansnd').addEventListener('click', () => { s.answerSound = s.answerSound === false; persist(); renderSettings(); });
@@ -2168,6 +2178,16 @@ function renderSettings() {
     }
   });
 }
+
+// Строка внизу настроек: какая версия стоит и что известно о звуке. По ней проверяют,
+// приехало ли обновление, и что ответить на письмо «звука нет». Отрисовка звук не будит.
+const SOUND_WORD = { idle: 'ещё не проверялся', running: 'работает', asleep: 'не включился',
+  failed: 'не включился', unsupported: 'не поддерживается' };
+function aboutText() {
+  const st = A.audioStatus ? A.audioStatus() : 'idle';
+  return `Версия: ${APP_VERSION} · Звук: ${SOUND_WORD[st] || SOUND_WORD.idle}`;
+}
+function refreshAbout() { const el = $('#about'); if (el) el.textContent = aboutText(); }
 
 // «Как пользоваться» — ссылка на инструкцию на сайте (ТЗ-длинные-радиограммы.md, 2.11).
 // Вторая карточка настроек, сразу после «Кто в эфире»: начало экрана папы не сдвигается.

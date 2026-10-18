@@ -10,6 +10,7 @@ const ROOT = new URL('../app/', import.meta.url).pathname;
 const MIME={'.html':'text/html','.js':'text/javascript','.css':'text/css','.webp':'image/webp','.png':'image/png','.webmanifest':'application/manifest+json'};
 // INJECT_GUIDE — подмена адреса инструкции в support.js, как в screens.mjs (кадр settingsguide).
 let INJECT_GUIDE=false;
+
 const server=createServer(async(req,res)=>{const f=join(ROOT,normalize(req.url.split('?')[0]==='/'?'/index.html':req.url.split('?')[0]));
   try{let b=await readFile(f);
     if(INJECT_GUIDE&&f.endsWith('/js/support.js')) b=Buffer.from(String(b).replace("export const GUIDE_URL = '';","export const GUIDE_URL = 'https://example.org/instrukciya/';"));
@@ -69,6 +70,27 @@ for (const inject of [false, true]) {
   await c2.close();
 }
 INJECT_GUIDE=false;
+
+// Замер learnsilent («Послушать ещё раз» и сетка букв выше нижнего меню на 360×780):
+// на заведомо длинной надписи он обязан сработать.
+{
+  const c3=await browser.newContext({viewport:{width:360,height:780}});
+  await c3.addInitScript(()=>localStorage.setItem('boni_m_state',JSON.stringify({version:2,profile:{name:'Тест',callsign:'',points:0},
+    progress:{ru:{learnedCount:9,digitsLearned:0,perChar:{},recent:[],parked:[],lastFirst:null}}})));
+  await c3.addInitScript(CHECK_LAYOUT);
+  const p3=await c3.newPage();
+  await p3.goto(base,{waitUntil:'networkidle'}); await p3.waitForTimeout(250);
+  await p3.click('[data-tab="learn"]'); await p3.waitForTimeout(400);
+  const sels=['#again','#opts .opt:last-child'];
+  const clean=await p3.evaluate((x)=>checkAboveNav(x),sels);
+  await p3.evaluate(()=>{document.querySelector('#fb').innerHTML='<b>Звук не включился.</b><span class="nosound-more">'+'Очень длинное пояснение. '.repeat(30)+'</span>';});
+  const long=await p3.evaluate((x)=>checkAboveNav(x),sels);
+  const found=clean.length===0&&long.length>0;
+  console.log(`${found?'✓':'✗'} ловится: длинная надпись выдавливает «Послушать ещё раз» под меню${found?'  → «'+long[0]+'»':'  — НЕ ПОЙМАНО (чисто до: '+clean.length+')'}`);
+  found?ok++:bad++;
+  await c3.close();
+}
+
 
 console.log(`\n${bad?'✗ проверка неполная':'✓ проверка рабочая'}: поймано ${ok} из ${ok+bad}`);
 await browser.close(); server.close();

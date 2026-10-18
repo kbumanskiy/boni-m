@@ -36,6 +36,19 @@ const CHECK_LAYOUT = () => {
     return out;
   };
 
+  // Кнопки, которые обязаны стоять целиком выше нижнего меню без прокрутки (кадр learnsilent:
+  // надпись «Звук не включился» не должна выдавить «Послушать ещё раз» и сетку букв под меню).
+  window.checkAboveNav = (selectors) => {
+    const nav = document.querySelector('nav#tabs');
+    const top = nav ? nav.getBoundingClientRect().top : innerHeight;
+    return selectors.flatMap((sel) => {
+      const el = document.querySelector(sel);
+      if (!el) return [`нет элемента ${sel} для замера над меню`];
+      const b = el.getBoundingClientRect().bottom;
+      return b > top + 0.5 ? [`${sel} уходит под нижнее меню (низ ${Math.round(b)}, меню с ${Math.round(top)})`] : [];
+    });
+  };
+
   // Доступность: экранный диктор и клавиатура. Папа пользуется пальцем, но зрение
   // с возрастом слабеет — рано или поздно понадобится увеличение и озвучивание.
   window.checkA11y = () => {

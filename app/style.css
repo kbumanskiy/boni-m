@@ -663,3 +663,5 @@ textarea{
 .seg.dur button{flex:1 1 auto; min-width:0; padding:0 6px; font-size:17px;}
 /* «Контрольная радиограмма» на 360 точках: слово «радиограмма» не помещается рядом с «Назад». */
 @media (max-width:370px){ .screenbar.rg-setup h2{font-size:24px;} }
+/* «Звук не включился»: главная фраза крупно, пояснение — приглушённой строкой под ней. */
+.nosound-more{display:block; font-size:18px; font-weight:400; color:var(--text-dim); margin-top:4px; line-height:1.35;}

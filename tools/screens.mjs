@@ -152,6 +152,13 @@ const NO_AUDIO = new Set(['puzzlecats', 'puzzleq', 'puzzleqwrong', 'puzzleqpics'
 // минутами. Поэтому — ускоренный поддельный контекст (как test/fake-audio.mjs, ×1000).
 // Только для разбора: у «приёма» и «обрыва» передача обязана ещё идти в момент снимка.
 const FAST_AUDIO = new Set(['radiogramlongresult']);
+// «Спящий» звук: контекст есть, но не просыпается (айфон без касания) — кадр learnsilent.
+const SLEEPY_AUDIO = new Set(['learnsilent']);
+const SLEEPY_AUDIO_SCRIPT = () => {
+  class Sleepy { constructor() { this.state = 'suspended'; this.currentTime = 0; this.destination = {}; }
+    resume() { return new Promise(() => {}); } close() { return Promise.resolve(); } }
+  window.AudioContext = Sleepy; window.webkitAudioContext = Sleepy;
+};
 const FAST_AUDIO_SCRIPT = () => {
   class Param { constructor() { this.value = 0; } setValueAtTime(v) { this.value = v; return this; }
     linearRampToValueAtTime(v) { this.value = v; return this; } cancelScheduledValues() { return this; } }
@@ -174,7 +181,9 @@ const CLEAN = new Set(['onboarding', 'onboardstart']);
 const SMALL = { width: 360, height: 780 };
 const VIEWPORT = Object.fromEntries([...FOLD, ...NO_AUDIO, 'onboardstart',
   // Длинная радиограмма: на узком телефоне выше риск вылезти за край.
-  'radiogramlong', 'radiogramlongwork', 'radiogramlongresult', 'radiogramlongstopped'].map((n) => [n, SMALL]));
+  'radiogramlong', 'radiogramlongwork', 'radiogramlongresult', 'radiogramlongstopped',
+  // «Звук не включился» на самом тесном телефоне.
+  'learnsilent'].map((n) => [n, SMALL]));
 
 // Верный ответ на вопрос, который сейчас на экране: id берём из сохранённой колоды.
 async function rightAnswer(page, cat) {
@@ -235,20 +244,14 @@ const SCREENS = {
                                await page.click('[data-a="en"]'); await page.waitForTimeout(250); },
   refcard:   async (page) => { await page.click('[data-tab="ref"]'); await page.waitForTimeout(200);
                                await page.click('.cell'); await page.waitForTimeout(250); },
-  // Звук не проснулся (айфон после возврата в приложение): кнопки с буквами закрыты,
-  // а подпись зовёт нажать «Послушать ещё раз». Состояние недостижимо кликами — контекст
-  // тут обязан НЕ просыпаться, — поэтому ставим подпись напрямую. Проверять надо: длинная
-  // подпись переносится на три строки и выдавливает за экран ту самую кнопку, на которую
-  // она же и показывает.
+  // Звук не проснулся (айфон после возврата в приложение): кнопки с буквами закрыты, под
+  // лампой «Звук не включился» и пояснение. Состояние настоящее: контекст подменён на
+  // «спящий» (SLEEPY_AUDIO), и приложение само приходит к надписи через 1,5 с. Проверять
+  // надо на 360×780: длинная надпись не должна выдавить за меню ту самую кнопку, на которую
+  // она показывает, и сетку букв (свой замер — checkAboveNav в page-checks.mjs).
   learnsilent: async (page) => {
-    await page.click('[data-tab="learn"]'); await page.waitForTimeout(900);
-    await page.evaluate(() => {
-      const fb = document.querySelector('#fb');
-      fb.textContent = 'Нажмите «Послушать ещё раз»';
-      fb.className = 'feedback center';
-      document.querySelectorAll('#opts .opt').forEach((b) => { b.disabled = true; });
-      document.querySelector('#opts').classList.add('playing');
-    });
+    await page.click('[data-tab="learn"]');
+    await page.waitForFunction(() => /Звук не включился/.test(document.querySelector('#fb')?.textContent || ''), null, { timeout: 5000 });
     await page.waitForTimeout(200);
   },
   // Разбор ошибки: жмём варианты, пока не попадётся неверный — это состояние надо видеть.
@@ -500,6 +503,7 @@ for (const theme of ['light', 'dark']) {
       }, seed);
     }
     if (FAST_AUDIO.has(name)) await ctx.addInitScript(FAST_AUDIO_SCRIPT);
+    if (SLEEPY_AUDIO.has(name)) await ctx.addInitScript(SLEEPY_AUDIO_SCRIPT);
     if (NO_AUDIO.has(name)) {
       await ctx.addInitScript(() => { window.AudioContext = undefined; window.webkitAudioContext = undefined; });
     }
@@ -519,6 +523,7 @@ for (const theme of ['light', 'dark']) {
       ...await page.evaluate(() => checkA11y()),
     ];
     if (FOLD.has(name)) problems.push(...await foldCheck(page, name));
+    if (name === 'learnsilent') problems.push(...await page.evaluate(() => checkAboveNav(['#again', '#opts .opt:last-child'])));
     if (name.startsWith('home')) problems.push(...await tapCheck(page));
     // Наложение заголовка на кнопки шапки: замер «за край экрана» его не видит.
     problems.push(...await page.evaluate(() => [...document.querySelectorAll('#screen .screenbar')].flatMap((bar) => {
