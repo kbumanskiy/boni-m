@@ -25,8 +25,8 @@
 «Я уже знаю азбуку» (пункт 12).
 
 🟡 **`morse-v26` собран на `dev`, не выложен** (19 октября 2026): длинные радиограммы, «Звук не
-включился», напевы латиницы, знак «(» (пункт 13). Плюс регулятор «Длина тире» (письмо Николая, H4). Автотесты: `npm test` 241,
-smoke 290, smoke-radiogram-audio 45, smoke-upgrade 46, smoke-upgrade-v25 22, smoke-nosound 18,
+включился», напевы латиницы, знак «(» (пункт 13). Плюс регулятор «Длина тире» (письмо Николая, H4). Автотесты: `npm test` 242,
+smoke 296, smoke-radiogram-audio 45, smoke-upgrade 46, smoke-upgrade-v25 22, smoke-nosound 18,
 скриншоты 54 состояния × 2 темы, selfcheck 9 — зелёные. Выкладка — только по команде
 Кости, после ручной приёмки этапа 1 ([`ACCEPTANCE.md`](ACCEPTANCE.md)).
 
@@ -121,7 +121,7 @@ PWA с офлайном (service worker, cache-first). Прогресс — `loc
    3 / 3,5 / 4 точки (`LIMITS.dahRatio`), поле `settings.dahRatio`. `audio.js` поле **не читает** —
    длину тире берёт только из `dahUnits`, который добавляет `withDah()` в учебных вызовах `app.js`;
    **радиограмму в `withDah` не оборачивать** (тире всегда 3). Рисунки и пороги «Ключа» — 1:3,
-   Фарнсуорт не компенсируется. Проверки: `npm test` 241, smoke 290, smoke-radiogram-audio 45,
+   Фарнсуорт не компенсируется. Проверки: `npm test` 242, smoke 296, smoke-radiogram-audio 45,
    smoke-upgrade 46, smoke-upgrade-v25 22, smoke-nosound 18, кадры 54 × 2 темы, selfcheck 9.
 
 **Что делать дальше — бэклог в [`ДОРАБОТКИ.md`](ДОРАБОТКИ.md)** (там же разбор всех
