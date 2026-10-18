@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  defaultState, migrate, load, save, needsOnboarding, STORAGE_KEY,
+  defaultState, migrate, load, save, needsOnboarding, STORAGE_KEY, saveBlocked,
 } from '../app/js/state.js';
 import { LIMITS } from '../app/js/timing.js';
 
@@ -280,4 +280,78 @@ test('рекорд радиограммы не меняется миграцие
   for (const extra of [{}, { radiogramLong: true, radiogramGroups: 50 }, { radiogramLong: 'x', radiogramGroups: 7 }]) {
     assert.equal(migrate({ records: { radiogramCpm: 120 }, settings: extra }).records.radiogramCpm, 120);
   }
+});
+
+// ——— Нечитаемая запись не затирается молча (ТЗ-длинные-радиограммы.md, 7.3) ———
+// Полноценное хранилище: несколько ключей, удаление, перечисление.
+function mapStore(entries = {}, { failOn = null } = {}) {
+  const m = new Map(Object.entries(entries));
+  return {
+    getItem: (k) => (m.has(k) ? m.get(k) : null),
+    setItem: (k, v) => { if (failOn && failOn(k)) throw new Error('QuotaExceeded'); m.set(k, String(v)); },
+    removeItem: (k) => { m.delete(k); },
+    key: (i) => [...m.keys()][i] ?? null,
+    get length() { return m.size; },
+    _map: m,
+  };
+}
+const slots = (st) => [...st._map.keys()].filter((k) => k.startsWith(STORAGE_KEY + '_broken_')).sort();
+
+test('битый JSON: исходник копируется в аварийный слот, после этого save пишет', () => {
+  const st = mapStore({ [STORAGE_KEY]: '{"progress": битое' });
+  const s = load(st);
+  assert.equal(s.progress.ru.learnedCount, 0, 'в памяти — пустое состояние');
+  assert.equal(slots(st).length, 1);
+  assert.equal(st.getItem(slots(st)[0]), '{"progress": битое', 'копия — слово в слово');
+  assert.match(slots(st)[0], /^boni_m_state_broken_\d{4}-\d{2}-\d{2}_[0-9a-f]{4}$/);
+  assert.equal(saveBlocked(st), false);
+  assert.equal(save(s, st), true, 'копия подтверждена — основной ключ можно писать');
+});
+
+test('вторая, другая поломка при занятом первом слоте → новый слот, save пишет', () => {
+  const st = mapStore({ [STORAGE_KEY]: 'битое-1' });
+  load(st);
+  st.setItem(STORAGE_KEY, 'битое-2');
+  load(st);
+  assert.equal(slots(st).length, 2);
+  assert.deepEqual(slots(st).map((k) => st.getItem(k)).sort(), ['битое-1', 'битое-2']);
+  assert.equal(save(defaultState(), st), true);
+});
+
+test('та же нечитаемая строка второй раз → новый слот не создаётся', () => {
+  const st = mapStore({ [STORAGE_KEY]: 'битое' });
+  load(st);
+  load(st);
+  assert.equal(slots(st).length, 1);
+});
+
+test('четвёртая поломка → слотов три, самый старый удалён', () => {
+  const st = mapStore();
+  for (const raw of ['битое-1', 'битое-2', 'битое-3', 'битое-4']) { st.setItem(STORAGE_KEY, raw); load(st); }
+  const vals = slots(st).map((k) => st.getItem(k)).sort();
+  assert.deepEqual(vals, ['битое-2', 'битое-3', 'битое-4']);
+});
+
+test('читаемая запись в аварийный слот не попадает', () => {
+  const st = mapStore({ [STORAGE_KEY]: JSON.stringify({ profile: { name: 'Бонислав' } }) });
+  assert.equal(load(st).profile.name, 'Бонислав');
+  assert.equal(slots(st).length, 0);
+});
+
+test('копия не записалась (квота) → основной ключ не трогаем, saveBlocked() === true', () => {
+  const st = mapStore({ [STORAGE_KEY]: 'битое' }, { failOn: (k) => k !== STORAGE_KEY });
+  load(st);
+  assert.equal(saveBlocked(st), true);
+  assert.equal(save(defaultState(), st), false);
+  assert.equal(st.getItem(STORAGE_KEY), 'битое', 'исходник цел');
+});
+
+test('запрет записи привязан к хранилищу и снимается следующей удачной загрузкой', () => {
+  const bad = mapStore({ [STORAGE_KEY]: 'битое' }, { failOn: (k) => k !== STORAGE_KEY });
+  load(bad);
+  const good = mapStore();
+  assert.equal(save(defaultState(), good), true, 'чужое хранилище не заблокировано');
+  bad._map.set(STORAGE_KEY, JSON.stringify(defaultState()));
+  load(bad);
+  assert.equal(saveBlocked(bad), false);
 });

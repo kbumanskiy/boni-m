@@ -1,6 +1,10 @@
 // Школа Морзе 73 — контроллер интерфейса. Чистая логика — в js/*, здесь только экраны и события.
 import * as DATA from './js/data.js';
 import { load, save, needsOnboarding } from './js/state.js';
+// Новые экспорты соседних модулей — только через пространство имён и с запасным путём:
+// при смешанном кэше обновления рядом может оказаться старый модуль, и именованный импорт
+// несуществующего экспорта не дал бы запуститься всему приложению.
+import * as ST from './js/state.js';
 import { clampEff, slowerEff, charTiming, classifyHold, keyThresholds, cpm, LIMITS } from './js/timing.js';
 import * as P from './js/progress.js';
 import * as G from './js/gamify.js';
@@ -1852,7 +1856,8 @@ function renderSettings() {
       <button class="btn secondary" id="restore">${ICON.restore(24)} Восстановить из копии</button>
       <input type="file" id="file" accept="application/json" class="hidden">
     </div>
-    <button class="linkbtn danger" id="reset">Начать обучение заново</button>`;
+    <button class="linkbtn danger" id="reset">Начать обучение заново</button>
+    ${ST.saveBlocked?.() ? `<p class="muted center hint" id="savewarn">Прогресс сейчас не сохраняется — напишите автору через «Журнал».</p>` : ''}`;
   $('#back').addEventListener('click', () => go(settingsFrom));
   wireKnows(s);
   // Пишем сразу по вводу, но экран НЕ перерисовываем: перерисовка увела бы курсор

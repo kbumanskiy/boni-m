@@ -166,15 +166,74 @@ function getStorage(storage) {
   try { return globalThis.localStorage || null; } catch { return null; }
 }
 
-// Загрузка: всё в try/catch, любой сбой → дефолт.
+// ——— Нечитаемая запись не затирается молча (ТЗ-длинные-радиограммы.md, 7.3) ———
+// Если сохранённое состояние не читается (битый JSON, ошибка миграции, смешанный кэш при
+// обновлении), load отдаёт пустое состояние, а следующее сохранение перезаписало бы
+// исходник — прогресс пропал бы без следа. Поэтому сырую строку сначала кладём в свой
+// слот boni_m_state_broken_<дата>_<хэш>, до трёх слотов (самые старые удаляются).
+// Порядок слотов — в отдельном списке: ключи одного дня по имени по времени не сортируются.
+// Основной ключ перезаписывать можно, только если копия подтверждена (записана и прочитана
+// обратно или уже лежала). Не записалась физически — в этом сеансе основной ключ не трогаем,
+// а экран настроек об этом говорит (saveBlocked).
+const BROKEN_PREFIX = STORAGE_KEY + '_broken_';
+const BROKEN_LIST = STORAGE_KEY + '_brokenlist';
+const BROKEN_MAX = 3;
+const blocked = new WeakSet(); // хранилища, в которые в этом сеансе писать нельзя
+
+function localDay(d = new Date()) {
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+function hash4(str) {
+  let h = 0x811c9dc5; // FNV-1a
+  for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
+  return h.toString(16).padStart(8, '0').slice(0, 4);
+}
+
+// Сохранить нечитаемую строку в аварийный слот. true — копия подтверждена.
+function keepBroken(store, raw) {
+  try {
+    let list;
+    try { list = JSON.parse(store.getItem(BROKEN_LIST) || '[]'); } catch { list = []; }
+    if (!Array.isArray(list)) list = [];
+    list = list.filter((k) => typeof k === 'string' && k.startsWith(BROKEN_PREFIX) && store.getItem(k) !== null);
+    // Та же строка уже лежит — новый слот не нужен.
+    if (list.some((k) => store.getItem(k) === raw)) return true;
+    const key = `${BROKEN_PREFIX}${localDay()}_${hash4(raw)}`;
+    if (store.getItem(key) === raw) return true;
+    list = list.filter((k) => k !== key);
+    while (list.length > BROKEN_MAX - 1) {
+      const old = list.shift();
+      try { store.removeItem(old); } catch {}
+    }
+    store.setItem(key, raw);
+    if (store.getItem(key) !== raw) return false;
+    list.push(key);
+    try { store.setItem(BROKEN_LIST, JSON.stringify(list)); } catch {}
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// Запрещена ли в этом сеансе запись основного ключа (копия нечитаемой записи не легла).
+export function saveBlocked(storage) {
+  const store = getStorage(storage);
+  return !!store && blocked.has(store);
+}
+
+// Загрузка: всё в try/catch, любой сбой → дефолт (но исходник сначала в аварийный слот).
 export function load(storage) {
   const store = getStorage(storage);
   if (!store) return defaultState();
+  blocked.delete(store);
+  let raw = null;
   try {
-    const raw = store.getItem(STORAGE_KEY);
+    raw = store.getItem(STORAGE_KEY);
     if (!raw) return defaultState();
     return migrate(JSON.parse(raw));
   } catch {
+    try { if (raw && !keepBroken(store, raw)) blocked.add(store); } catch { blocked.add(store); }
     return defaultState();
   }
 }
@@ -183,6 +242,7 @@ export function load(storage) {
 export function save(state, storage) {
   const store = getStorage(storage);
   if (!store) return false;
+  if (blocked.has(store)) return false; // исходник цел, пока его копия не легла
   try {
     store.setItem(STORAGE_KEY, JSON.stringify(state));
     return true;
