@@ -17,6 +17,17 @@ let rafId = null;
 // а брошенный цикл ожидания достукивался до экрана, которого уже нет.
 let generation = 0;
 
+// Что известно о звуке (раздел 10 ТЗ длинных радиограмм). Только для честной надписи
+// и строки в настройках — на планирование тонов не влияет:
+//   'idle'        — ещё ничего не играли;
+//   'running'     — последний знак или передача доиграли до конца по часам аудио;
+//   'asleep'      — контекст не проснулся за отведённое время (айфон без касания);
+//   'failed'      — контекст не создался или бросил исключение;
+//   'unsupported' — Web Audio в браузере нет вовсе.
+// Статус ставится ДО вызова onDone: обработчик в app.js читает его прямо внутри колбэка.
+let status = 'idle';
+export function audioStatus() { return status; }
+
 // Беззвучный WAV прямо в коде: файлов в проекте нет, офлайн не ломается.
 const SILENT_WAV = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YQQAAAAAAAAA';
 let unlocked = false;
@@ -64,7 +75,7 @@ export function ensureAudio() {
     unlockSilentSwitch(); // до создания контекста: категория должна быть выбрана заранее
     if (!ctx) {
       const AC = window.AudioContext || window.webkitAudioContext;
-      if (!AC) return null;
+      if (!AC) { status = 'unsupported'; return null; }
       ctx = new AC();
     }
     // Не только 'suspended': у Safari есть ещё состояние 'interrupted' (был звонок,
@@ -76,6 +87,7 @@ export function ensureAudio() {
     }
   } catch {
     ctx = null;
+    status = 'failed';
   }
   return ctx;
 }
@@ -148,7 +160,7 @@ export function playCode(code, settings, { onFlash, onDone } = {}) {
     if (mine !== generation) return; // нас уже сменили другим знаком или уходом с экрана
     // Разбудить контекст не удалось (айфон позволяет это только по касанию). Молчим,
     // но управление возвращаем сразу: иначе занятие зависнет с серыми кнопками.
-    if (!awake) { if (onFlash) onFlash(null); if (onDone) onDone(false); return; }
+    if (!awake) { status = 'asleep'; if (onFlash) onFlash(null); if (onDone) onDone(false); return; }
 
     const { toneHz = 600, volume = 0.5, charWpm = 18, effWpm = 9 } = settings;
     const sched = codeToSchedule(code, charWpm, effWpm);
@@ -176,6 +188,7 @@ export function playCode(code, settings, { onFlash, onDone } = {}) {
         idx++;
       }
       if (now >= endTime) {
+        status = 'running';
         if (onFlash) onFlash(null);
         if (onDone) onDone(true);
         return;
@@ -203,7 +216,7 @@ export function playSequence(chars, codeOf, settings, { onDone, onFlash, onChar 
 
   whenRunning(c, (awake) => {
     if (mine !== generation) return;
-    if (!awake) { if (onFlash) onFlash(false); if (onDone) onDone(false); return; }
+    if (!awake) { status = 'asleep'; if (onFlash) onFlash(false); if (onDone) onDone(false); return; }
 
     const { toneHz = 600, volume = 0.5, charWpm = 18, effWpm = 9 } = settings;
     const tmg = charTiming(charWpm, effWpm);
@@ -237,6 +250,7 @@ export function playSequence(chars, codeOf, settings, { onDone, onFlash, onChar 
         if ('ch' in e) { if (onChar) onChar(e.ch); } else if (onFlash) onFlash(e.on);
       }
       if (now >= endTime) {
+        status = 'running';
         if (onFlash) onFlash(false);
         if (onChar) onChar(null);
         if (onDone) onDone(true);

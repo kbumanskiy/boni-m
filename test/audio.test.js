@@ -345,3 +345,68 @@ test('последовательность: без Web Audio — onDone(true), �
     assert.deepEqual(done, [true]);
   } finally { env.restore(); }
 });
+
+// ——— Состояние звука (раздел 10 ТЗ длинных радиограмм) ———
+// По нему app.js решает, прозвучал ли знак на самом деле. Статус обязан быть верным
+// уже ВНУТРИ onDone: обработчик читает его там же, а не после.
+test('audioStatus: «idle» до первого звука', async () => {
+  const env = fakeEnv({ startState: 'running' });
+  try {
+    const A = await freshAudio();
+    assert.equal(A.audioStatus(), 'idle');
+  } finally { env.restore(); }
+});
+
+test('audioStatus: «unsupported» без Web Audio — и уже внутри onDone', async () => {
+  const env = fakeEnv({ startState: 'running' });
+  try {
+    globalThis.window.AudioContext = undefined;
+    const A = await freshAudio();
+    const seen = [];
+    A.playCode('.-', SET, { onDone: (p) => seen.push([p, A.audioStatus()]) });
+    assert.deepEqual(seen, [[true, 'unsupported']], 'контракт onDone прежний: true, но статус честный');
+    A.playSequence(['А'], () => '.-', SET, { onDone: (p) => seen.push([p, A.audioStatus()]) });
+    assert.deepEqual(seen.at(-1), [true, 'unsupported']);
+  } finally { env.restore(); }
+});
+
+test('audioStatus: «failed», если конструктор звука бросил исключение', async () => {
+  const env = fakeEnv({ startState: 'running' });
+  try {
+    globalThis.window.AudioContext = class { constructor() { throw new Error('NotAllowed'); } };
+    const A = await freshAudio();
+    const seen = [];
+    A.playCode('.-', SET, { onDone: (p) => seen.push([p, A.audioStatus()]) });
+    assert.deepEqual(seen, [[true, 'failed']]);
+  } finally { env.restore(); }
+});
+
+test('audioStatus: «asleep», если контекст не проснулся за 1,5 с', async () => {
+  const env = fakeEnv({ startState: 'suspended', neverWakes: true });
+  try {
+    const A = await freshAudio();
+    const seen = [];
+    A.playCode('.-', SET, { onDone: (p) => seen.push([p, A.audioStatus()]) });
+    await new Promise((r) => setTimeout(r, 1800));
+    assert.deepEqual(seen, [[false, 'asleep']]);
+    A.playSequence(['А'], () => '.-', SET, { onDone: (p) => seen.push([p, A.audioStatus()]) });
+    await new Promise((r) => setTimeout(r, 1800));
+    assert.deepEqual(seen.at(-1), [false, 'asleep']);
+  } finally { env.restore(); }
+});
+
+test('audioStatus: «running» после доигранного знака и доигранной последовательности', async () => {
+  const env = fakeEnv({ startState: 'running' });
+  try {
+    const A = await freshAudio();
+    const seen = [];
+    A.playCode('.-', SET, { onDone: (p) => seen.push([p, A.audioStatus()]) });
+    assert.equal(A.audioStatus(), 'idle', 'пока знак не доиграл — «работает» ещё не доказано');
+    env.log.runFrames();
+    assert.deepEqual(seen, [[true, 'running']]);
+    A.playSequence([...'А Б'], (ch) => ({ 'А': '.-', 'Б': '-...' })[ch], { ...SET, charWpm: 40, effWpm: 40 },
+      { onDone: (p) => seen.push([p, A.audioStatus()]) });
+    env.log.runFrames(80);
+    assert.deepEqual(seen.at(-1), [true, 'running']);
+  } finally { env.restore(); }
+});

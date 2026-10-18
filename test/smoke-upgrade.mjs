@@ -6,6 +6,7 @@
 import { JSDOM } from 'jsdom';
 import { readFileSync } from 'node:fs';
 import assert from 'node:assert/strict';
+import { makeFakeAudio } from './fake-audio.mjs';
 
 const html = readFileSync(new URL('../app/index.html', import.meta.url), 'utf8');
 const dom = new JSDOM(html, { url: 'https://example.com/', pretendToBeVisual: true });
@@ -54,7 +55,7 @@ window.cancelAnimationFrame = global.cancelAnimationFrame;
 window.confirm = () => true;
 window.alert = () => {};
 window.scrollTo = () => {};
-window.AudioContext = undefined;
+window.AudioContext = makeFakeAudio().AudioContext; // звук «работает» (test/fake-audio.mjs)
 window.URL.createObjectURL = () => 'blob:x';
 window.URL.revokeObjectURL = () => {};
 

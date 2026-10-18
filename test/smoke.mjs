@@ -1,11 +1,12 @@
 // Дымовой тест интерфейса через JSDOM: реальный рендер экранов и клики.
-// Ловит ошибки времени выполнения (селекторы, undefined). Звука нет — приложение
-// деградирует (playCode без AudioContext сразу вызывает onDone).
+// Ловит ошибки времени выполнения (селекторы, undefined). Звук — поддельный контекст
+// из test/fake-audio.mjs: «работает», часы идут в тысячу раз быстрее настоящих.
 import { JSDOM } from 'jsdom';
 import { readFileSync } from 'node:fs';
 import assert from 'node:assert/strict';
 import { LIMITS } from '../app/js/timing.js';
 import { migrate } from '../app/js/state.js';
+import { makeFakeAudio } from './fake-audio.mjs';
 
 const html = readFileSync(new URL('../app/index.html', import.meta.url), 'utf8');
 const dom = new JSDOM(html, { url: 'https://example.com/', pretendToBeVisual: true });
@@ -31,7 +32,8 @@ window.cancelAnimationFrame = global.cancelAnimationFrame;
 window.confirm = () => true;
 window.alert = () => {};
 window.scrollTo = () => {};
-window.AudioContext = undefined; // без звука — деградация
+const fakeAudio = makeFakeAudio();
+window.AudioContext = fakeAudio.AudioContext; // звук «работает», но быстро и беззвучно
 window.URL.createObjectURL = () => 'blob:x';
 window.URL.revokeObjectURL = () => {};
 
@@ -39,6 +41,13 @@ const fire = (el, type) => el.dispatchEvent(new window.Event(type, { bubbles: tr
 const click = (sel) => { const el = document.querySelector(sel); assert.ok(el, `нет элемента ${sel}`); el.click(); };
 const text = () => document.querySelector('#screen').textContent;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// Звук теперь идёт по часам (пусть и ускоренным), а не завершается мгновенно:
+// ждём состояния интерфейса, а не гадаем по таймеру.
+async function waitFor(cond, ms = 3000) {
+  for (let t = 0; t < ms; t += 5) { if (cond()) return true; await sleep(5); }
+  return !!cond();
+}
+const listen = async () => { click('#pz-listen'); await waitFor(() => document.querySelector('#pz-opts button')); await sleep(5); };
 
 // Сеть заглушена: в JSDOM настоящий fetch Node ушёл бы на живой приёмник. Запоминаем,
 // что приложение пыталось отправить, — на этом держится проверка «наружу ничего лишнего».
@@ -523,7 +532,7 @@ Object.defineProperty(document, 'hidden', { configurable: true, get: () => false
   ok(document.querySelectorAll('.pz-cell').length === PZ.qById('msg', saved().puzzle.msg.last).text.replace(/ /g, '').length,
     'вопрос: клеточек столько, сколько букв');
   ok(!document.querySelector('.pz-ch').textContent, 'вопрос: клеточки пустые — ответ не подсмотреть');
-  click('#pz-listen'); await sleep(10);
+  await listen();
   ok(document.querySelectorAll('#pz-opts .pz-opt').length === 3, 'вопрос: после звука — три варианта');
   ok(document.querySelector('#pz-listen').textContent.includes('Ещё раз'), 'вопрос: «Слушать» стало «Ещё раз»');
   click('#pz-slow'); await sleep(5);
@@ -551,7 +560,7 @@ Object.defineProperty(document, 'hidden', { configurable: true, get: () => false
   for (let i = 1; i < 5; i++) {
     click('#pz-next'); await sleep(5);
     ok(!document.querySelector('#pz-opts'), `вопрос ${i + 1}: до звука вариантов нет`);
-    click('#pz-listen'); await sleep(5);
+    await listen();
     const right = rightOf('msg');
     if (i === 2) {
       for (const b of [...document.querySelectorAll('#pz-opts button')].filter((x) => x.dataset.o !== right)) {
@@ -582,7 +591,7 @@ Object.defineProperty(document, 'hidden', { configurable: true, get: () => false
   // Шестерёнка из вопроса и «Назад» из настроек: не пустой экран, а выбор категорий.
   click('#puzzle'); await sleep(5);
   click('.pz-cat[data-cat="word"]'); await sleep(5);
-  click('#pz-listen'); await sleep(5);
+  await listen();
   const pics = [...document.querySelectorAll('#pz-opts .pz-pic')];
   ok(pics.length === 3 && pics.every((b) => /^Картинка \d$/.test(b.getAttribute('aria-label')) && !b.textContent.trim()),
     '«Слово»: три картинки без подписей, для диктора — «Картинка N»');
@@ -621,11 +630,11 @@ Object.defineProperty(document, 'hidden', { configurable: true, get: () => false
   click('#puzzle'); await sleep(5);
   click('.pz-cat[data-cat="story"]'); await sleep(5);
   for (let i = 0; i < 2; i++) {
-    click('#pz-listen'); await sleep(5);
+    await listen();
     optBtn(rightOf('story')).click(); await sleep(5);
     click('#pz-next'); await sleep(5);
   }
-  click('#pz-listen'); await sleep(5);
+  await listen();
   const q3 = saved().puzzle.story.last;
   const wrong3 = [...document.querySelectorAll('#pz-opts button')].find((b) => b.dataset.o !== rightOf('story')).dataset.o;
   optBtn(wrong3).click(); await sleep(5);
@@ -642,7 +651,7 @@ Object.defineProperty(document, 'hidden', { configurable: true, get: () => false
   optBtn(rightOf('story')).click(); await sleep(5);
   click('#pz-next'); await sleep(5);
   for (let i = 0; i < 2; i++) {
-    click('#pz-listen'); await sleep(5);
+    await listen();
     optBtn(rightOf('story')).click(); await sleep(5);
     click('#pz-next'); await sleep(5);
   }
@@ -653,12 +662,12 @@ Object.defineProperty(document, 'hidden', { configurable: true, get: () => false
   click('#pz-tocats'); await sleep(5);
   click('#back'); await sleep(5);
 
-  // Последним: звук не проснулся (айфон без касания). Модуль звука запоминает контекст,
-  // поэтому этот шаг обязан быть последним в файле.
-  window.AudioContext = class {
-    constructor() { this.state = 'suspended'; this.currentTime = 0; this.destination = {}; }
-    resume() { return new Promise(() => {}); }
-  };
+  // Звук не проснулся (айфон без касания). Модуль звука держит уже созданный контекст,
+  // поэтому подмена конструктора ничего не даст: усыпляем тот же экземпляр и запрещаем
+  // ему просыпаться. В конце блока будим обратно — следующие окна работают со звуком.
+  const sleepy = fakeAudio.last;
+  ok(sleepy, 'поддельный звук создан и используется приложением');
+  sleepy.state = 'suspended'; sleepy.resumeHangs = true;
   click('[data-tab="home"]'); await sleep(5);
   click('#puzzle'); await sleep(5);
   click('.pz-cat[data-cat="word"]'); await sleep(5);
@@ -666,6 +675,9 @@ Object.defineProperty(document, 'hidden', { configurable: true, get: () => false
   await sleep(1700);
   ok(!document.querySelector('#pz-opts'), 'звук не проснулся — варианты не открываются');
   ok(document.querySelector('#pz-fb').textContent === 'Нажмите «Слушать» ещё раз.', 'звук не проснулся — «Нажмите «Слушать» ещё раз.»');
+  sleepy.resumeHangs = false; sleepy.state = 'running';
+  click('#back'); await sleep(5);
+  click('#back'); await sleep(5);
 }
 
 // Смешанный кэш при обновлении: новый app.js со СТАРЫМ state.js, который поля puzzle не знает
@@ -692,7 +704,7 @@ Object.defineProperty(document, 'hidden', { configurable: true, get: () => false
   const errors2 = [];
   w2.addEventListener('error', (e) => errors2.push(e.error || e.message));
   w2.localStorage.setItem('boni_m_state', localStorage.getItem('boni_m_state'));
-  Object.assign(w2, { scrollTo: () => {}, confirm: () => true, alert: () => {}, AudioContext: undefined,
+  Object.assign(w2, { scrollTo: () => {}, confirm: () => true, alert: () => {}, AudioContext: fakeAudio.AudioContext,
     requestAnimationFrame: global.requestAnimationFrame, cancelAnimationFrame: global.cancelAnimationFrame });
   setGlobal('window', w2); setGlobal('document', w2.document);
   setGlobal('location', w2.location); setGlobal('localStorage', w2.localStorage);
@@ -719,7 +731,7 @@ Object.defineProperty(document, 'hidden', { configurable: true, get: () => false
   // Подтверждение обязано быть на странице: окно confirm() здесь — ошибка.
   let dialogs = 0;
   Object.assign(w3, { scrollTo: () => {}, confirm: () => { dialogs++; return true; }, alert: () => { dialogs++; },
-    AudioContext: undefined,
+    AudioContext: fakeAudio.AudioContext,
     requestAnimationFrame: global.requestAnimationFrame, cancelAnimationFrame: global.cancelAnimationFrame });
   setGlobal('window', w3); setGlobal('document', d3);
   setGlobal('location', w3.location); setGlobal('localStorage', w3.localStorage);
