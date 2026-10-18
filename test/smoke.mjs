@@ -787,5 +787,298 @@ Object.defineProperty(document, 'hidden', { configurable: true, get: () => false
   ok(errors3.length === 0, 'знаю азбуку: без ошибок — ' + errors3.map(String).join(' | '));
 }
 
+// 10) Длинная радиограмма (ТЗ-длинные-радиограммы.md, 4.6, пункты 1–5 и 9). Своё окно:
+// «Я уже знаю азбуку», скорость 60, рекорд 80. Звук — быстрый поддельный контекст.
+{
+  const seed = migrate({ profile: { name: 'Радист', callsign: '', points: 50 }, progress: { ru: { learnedCount: 4 } },
+    settings: { knowsAll: true, radiogramCpm: 60 }, records: { radiogramCpm: 80 },
+    milestones: { first4: true }, totalSeconds: 100 });
+  const dom5 = new JSDOM(html, { url: 'https://example.com/', pretendToBeVisual: true });
+  const w5 = dom5.window, d5 = w5.document;
+  const errors5 = [];
+  w5.addEventListener('error', (e) => errors5.push(e.error || e.message));
+  w5.localStorage.setItem('boni_m_state', JSON.stringify(seed));
+  Object.assign(w5, { scrollTo: () => {}, confirm: () => true, alert: () => {}, AudioContext: fakeAudio.AudioContext,
+    requestAnimationFrame: global.requestAnimationFrame, cancelAnimationFrame: global.cancelAnimationFrame });
+  setGlobal('window', w5); setGlobal('document', d5);
+  setGlobal('location', w5.location); setGlobal('localStorage', w5.localStorage);
+  await import('../app/app.js?long');
+  await sleep(20);
+  const st5 = () => JSON.parse(w5.localStorage.getItem('boni_m_state'));
+  const c5 = (sel) => { const el = d5.querySelector(sel); assert.ok(el, `нет элемента ${sel}`); el.click(); };
+  const t5 = () => d5.querySelector('#screen').textContent.replace(/\s+/g, ' ');
+  const opts = LIMITS.radiogramGroups.options;
+  const groupsOf = () => (w5.__rgText || '').split(' ').filter(Boolean);
+  const dbg = () => w5.__rgDebug;
+  // Передача дозвучала: ждём состояния, а не времени.
+  const waitEnded = async () => { assert.ok(await waitFor(() => dbg().ended, 8000), 'передача не дозвучала'); };
+
+  c5('#radiogram'); await sleep(10);
+  ok(d5.querySelectorAll('[data-dur]').length === 3, 'длинная: три кнопки длительности');
+  ok(d5.querySelector('[data-dur="short"]').classList.contains('active'), 'длинная: по умолчанию — «Короткая», как раньше');
+  ok(!d5.querySelector('[data-groups]'), 'длинная: ряда «Сколько групп» нет, пока не выбрана «Длинная»');
+  ok(!d5.querySelector('[data-full]'), 'длинная: прежнего селектора data-full больше нет');
+  const fullBefore = st5().settings.radiogramFull;
+  c5('[data-dur="long"]'); await sleep(10);
+  ok(d5.querySelectorAll('[data-groups]').length === opts.length, 'длинная: после выбора — ряд «Сколько групп»');
+  ok(d5.querySelector(`[data-groups="${LIMITS.radiogramGroups.def}"]`).classList.contains('active'), 'длинная: по умолчанию выбрано 30');
+  ok(t5().includes('30 групп по пять знаков') && t5().includes('Не по правилам'), 'длинная: подсказка «30 групп… Не по правилам»');
+  ok(/около [\d,]+ (минут|минуты|секунд)/.test(t5()), `длинная: оценка длительности (${t5().match(/около [^ ]+ [^ ]+/)?.[0]})`);
+  ok(st5().settings.radiogramLong === true && st5().settings.radiogramFull === fullBefore,
+    'длинная: radiogramLong сохранён, radiogramFull не тронут (ради отката)');
+  c5(`[data-groups="${opts[0]}"]`); await sleep(10);
+  ok(st5().settings.radiogramGroups === opts[0] && t5().includes(`${opts[0]} групп`), `длинная: «${opts[0]}» сохраняется, подсказка меняется`);
+  c5(`[data-groups="${opts.at(-1)}"]`); await sleep(10);
+  ok(st5().settings.radiogramGroups === opts.at(-1), `длинная: «${opts.at(-1)}» сохраняется`);
+  c5('[data-dur="minute"]'); await sleep(10);
+  ok(!d5.querySelector('[data-groups]') && st5().settings.radiogramLong === false && st5().settings.radiogramFull === true,
+    'длинная: «Минута» — ряд групп пропал, radiogramLong=false, radiogramFull=true');
+  ok(st5().settings.radiogramGroups === opts.at(-1), 'длинная: выбранное число групп помнится и при «Минуте»');
+
+  // «Минута» на приёме: строки «Осталось около…» нет.
+  c5('#start'); await sleep(10);
+  ok(!d5.querySelector('#rg-left'), 'Минута: строки оставшегося времени нет');
+  c5('#abort'); await sleep(10);
+
+  // «Длинная» на 50 группах: 50 групп по пять, время есть, числа групп — нет.
+  c5('#radiogram'); await sleep(10);
+  c5('[data-dur="long"]'); await sleep(10);
+  ok(d5.querySelector(`[data-groups="${opts.at(-1)}"]`).classList.contains('active'), 'длинная: снова «Длинная» — выбрано то, что было');
+  c5('#start'); await sleep(10);
+  ok(groupsOf().length === opts.at(-1) && groupsOf().every((g) => g.length === 5), `длинная: ${opts.at(-1)} групп по пять`);
+  ok(d5.querySelector('#rg-left') && /Осталось около|Последние секунды/.test(d5.querySelector('#rg-left').textContent),
+    `длинная: «Осталось около…» (${d5.querySelector('#rg-left')?.textContent})`);
+  const ta = d5.querySelector('#rg-input');
+  ok(ta.getAttribute('rows') === '6' && ta.getAttribute('maxlength') === '600' && ta.getAttribute('enterkeyhint') === 'done'
+    && ta.getAttribute('inputmode') === 'text', 'длинная: поле на 6 строк, maxlength 600, enterkeyhint=done, inputmode=text');
+  ok((t5().match(/\d+\s+груп/g) || []).length === 0, 'длинная: на экране приёма нет числа групп');
+  c5('#abort'); await sleep(10);
+
+  // Разбор 30 групп с одной ошибкой.
+  c5('#radiogram'); await sleep(10);
+  c5(`[data-groups="${LIMITS.radiogramGroups.def}"]`); await sleep(10);
+  const before = st5();
+  async function runLong(spoil) {
+    c5('#start'); await sleep(5);
+    await waitEnded();
+    const plain = (w5.__rgText || '').replace(/\s+/g, '');
+    d5.querySelector('#rg-input').value = spoil(plain);
+    c5('#rg-done'); await sleep(10);
+    return plain;
+  }
+  const other = (ch) => (ch === 'Ж' ? 'Х' : 'Ж');
+  await runLong((p) => p.slice(0, 7) + other(p[7]) + p.slice(8));
+  ok(!t5().includes('Радиограмма принята') && !t5().includes('не принята'), 'разбор длинной: вердикта «принята/не принята» нет');
+  ok(!d5.querySelector('.verdict'), 'разбор длинной: цветной плашки вердикта нет');
+  ok(t5().includes('Верно: 99%'), `разбор длинной: «Верно: 99%» (${t5().match(/Верно: \d+%/)?.[0]})`);
+  ok(/тренировка/i.test(t5()) && t5().includes('не по правилам'), 'разбор длинной: «тренировка» и «не по правилам»');
+  ok(t5().includes('Тренировка: 30 групп') && t5().includes('30 групп · 150 знаков'), 'разбор длинной: заголовок и «30 групп · 150 знаков»');
+  ok(d5.querySelectorAll('#rg-errors li').length === 1 && /Группа 2: передано/.test(t5()), 'разбор длинной: «Где ошибки» — «Группа 2: передано …»');
+  ok(!t5().includes('скорость минус ошибки'), 'разбор длинной: строки «скорость минус ошибки» нет');
+  const after = st5();
+  ok(after.records.radiogramCpm === before.records.radiogramCpm && after.profile.points === before.profile.points
+    && JSON.stringify(after.milestones) === JSON.stringify(before.milestones),
+    'разбор длинной: рекорд, очки и вехи не изменились');
+  ok(after.totalSeconds >= before.totalSeconds, 'разбор длинной: «Всего в эфире» не уменьшилось');
+  ok(d5.querySelectorAll('.rg-group').length === 30, 'разбор длинной: 30 неразрывных групп');
+
+  // «Быстрее» — при ≥95%; запускает снова «Длинную» с тем же числом групп.
+  ok(d5.querySelector('#faster'), 'разбор длинной: при 99% есть «Быстрее на 10»');
+  c5('#faster'); await sleep(5);
+  ok(st5().settings.radiogramCpm === 70 && groupsOf().length === 30 && dbg().phase === 'receive', '«Быстрее»: снова «Длинная», 30 групп, 70 зн/мин');
+  await waitEnded();
+  d5.querySelector('#rg-input').value = 'Ж'.repeat(40);
+  c5('#rg-done'); await sleep(10);
+  ok(!d5.querySelector('#faster'), 'разбор длинной: при плохом ответе «Быстрее» нет');
+  c5('#again'); await sleep(5);
+  ok(groupsOf().length === 30 && st5().settings.radiogramCpm === 70, '«Ещё раз»: снова «Длинная», 30 групп, та же скорость');
+  await waitEnded();
+
+  // Разметка разбора: лишние знаки на своём месте, внутри группы; длинная вставка — своей серией.
+  d5.querySelector('#rg-input').value = (() => { const p = (w5.__rgText || '').replace(/\s+/g, ''); return p.slice(0, 2) + 'Q' + p.slice(2); })();
+  c5('#rg-done'); await sleep(10);
+  const g1 = d5.querySelector('.rg-group');
+  const kids = [...g1.children];
+  ok(kids.length === 6 && kids[2].className === 'rg-extras' && kids[2].querySelector('.rg-extra')?.textContent === 'Q'
+    && kids.filter((k) => k.className !== 'rg-extras').length === 5,
+    'разметка: вставка после второго знака стоит после второго, внутри той же группы');
+  c5('#again'); await sleep(5);
+  await waitEnded();
+  {
+    const p = (w5.__rgText || '').replace(/\s+/g, '');
+    const junk = 'Q'.repeat(100);
+    d5.querySelector('#rg-input').value = junk + p.slice(0, 50) + junk + p.slice(50) + junk;
+    c5('#rg-done'); await sleep(10);
+    const runs = [...d5.querySelectorAll('.rg-extras')];
+    ok(runs.length === 3 && runs.every((r) => r.children.length === 100 && r.parentElement.classList.contains('rg-group')),
+      'разметка: вставки по 100 знаков в начале, середине и конце — три серии внутри групп');
+    ok(d5.querySelectorAll('.rg-group').length === 30, 'разметка: групп по-прежнему 30');
+  }
+
+  // Статистика наружу — те же четыре поля и после длинной радиограммы.
+  sentOut.length = 0;
+  Object.defineProperty(d5, 'hidden', { configurable: true, get: () => true });
+  d5.dispatchEvent(new w5.Event('visibilitychange'));
+  await sleep(20);
+  const ping5 = sentOut.find((r) => r.url.endsWith('/ping'));
+  ok(ping5 && JSON.parse(ping5.body).events.every((e) => Object.keys(e).sort().join() === 'day,k,min,v'),
+    'статистика после длинной: в событии только четыре поля (k, v, min, day)');
+  Object.defineProperty(d5, 'hidden', { configurable: true, get: () => false });
+  d5.dispatchEvent(new w5.Event('visibilitychange'));
+  await sleep(10);
+  c5('#leave'); await sleep(10);
+  ok(errors5.length === 0, 'длинная: без ошибок — ' + errors5.map(String).join(' | '));
+}
+
+// 11) Смешанный кэш при обновлении (ТЗ-длинные-радиограммы.md, 7.3). Пока ставится новый
+// service worker или копируются файлы на сервере, страница может получить модули разных
+// выпусков. Каждое сочетание — отдельный экземпляр приложения в своём окне; подменённые
+// модули грузятся из fixtures/v25/ (настоящий код v25, сверка хэшей — test/rollback.test.js).
+{
+  const { registerHooks } = await import('node:module');
+  const appDir = new URL('../app/', import.meta.url).href;
+  const fx = (f) => new URL(`../fixtures/v25/${f}`, import.meta.url).href;
+  const stateUrl = appDir + 'js/state.js';
+  const noNewFields = stateUrl + '?nonew';
+  registerHooks({
+    resolve(spec, ctx, next) {
+      const parent = ctx.parentURL || '';
+      // Новый app.js со старым state.js: в загруженном состоянии нет полей v26.
+      if (parent.includes('app.js?oldstate') && spec === './js/state.js') return { url: noNewFields, shortCircuit: true };
+      // Новый app.js со старыми timing.js, audio.js, support.js, data.js.
+      if (parent.includes('app.js?oldmods')) {
+        const m = /^\.\/js\/(timing|audio|support|data)\.js$/.exec(spec);
+        if (m) return { url: fx(`${m[1]}.js`), shortCircuit: true };
+      }
+      // Старый app.js (v25) с новыми модулями: его ./js/* — настоящие файлы app/js/.
+      if (parent.startsWith(fx('app.js')) && spec.startsWith('./js/')) return { url: appDir + spec.slice(2), shortCircuit: true };
+      return next(spec, ctx);
+    },
+    load(url, ctx, next) {
+      if (url === noNewFields) return { format: 'module', shortCircuit: true, source:
+        `import * as S from '${stateUrl}'; export * from '${stateUrl}';
+         export function load(...a) { const s = S.load(...a); delete s.settings.radiogramLong; delete s.settings.radiogramGroups; return s; }` };
+      return next(url, ctx);
+    },
+  });
+
+  // Общий каркас окна: своё хранилище, поддельный звук, ошибки — в свой список.
+  async function boot(tag, seedState) {
+    const d = new JSDOM(html, { url: 'https://example.com/', pretendToBeVisual: true });
+    const w = d.window;
+    const errs = [];
+    w.addEventListener('error', (e) => errs.push(e.error || e.message));
+    if (seedState) w.localStorage.setItem('boni_m_state', JSON.stringify(seedState));
+    Object.assign(w, { scrollTo: () => {}, confirm: () => true, alert: () => {}, AudioContext: fakeAudio.AudioContext,
+      requestAnimationFrame: global.requestAnimationFrame, cancelAnimationFrame: global.cancelAnimationFrame });
+    setGlobal('window', w); setGlobal('document', w.document);
+    setGlobal('location', w.location); setGlobal('localStorage', w.localStorage);
+    let crash = null;
+    try { await import(tag); } catch (e) { crash = e; }
+    await sleep(20);
+    const $w = (sel) => w.document.querySelector(sel);
+    const cw = (sel) => { const el = $w(sel); assert.ok(el, `${tag}: нет элемента ${sel}`); el.click(); };
+    const tw = () => w.document.querySelector('#screen').textContent;
+    return { w, errs, crash, $w, cw, tw, st: () => JSON.parse(w.localStorage.getItem('boni_m_state')) };
+  }
+  const seedRg = migrate({ profile: { name: 'Радист', points: 5 }, progress: { ru: { learnedCount: 22 } },
+    settings: { radiogramLong: true, radiogramGroups: 50 }, milestones: { first4: true } });
+  // Приём до разбора: старт, ждём конца передачи (или ставим «Готово» сразу), разбор.
+  async function receiveToResult(env, dur) {
+    env.cw('#radiogram'); await sleep(10);
+    if (env.$w(`[data-dur="${dur}"]`)) env.cw(`[data-dur="${dur}"]`);
+    else env.cw(`[data-full="${dur === 'minute' ? 1 : 0}"]`); // старый app.js
+    await sleep(10);
+    env.cw('#start'); await sleep(10);
+    await waitFor(() => /Передача окончена/.test(env.tw()), 6000);
+    env.$w('#rg-input').value = (env.w.__rgText || '').replace(/\s+/g, '');
+    env.cw('#rg-done'); await sleep(10);
+    const res = /Радиограмма принята/.test(env.tw());
+    env.cw('#leave'); await sleep(10);
+    return res;
+  }
+
+  // а) новый app.js, старый state.js (полей radiogramLong/radiogramGroups нет).
+  {
+    const env = await boot('../app/app.js?oldstate', seedRg);
+    ok(!env.crash && env.$w('#radiogram'), 'новый app.js + старый state.js: главная открылась');
+    env.cw('#radiogram'); await sleep(10);
+    ok(env.$w('[data-dur="short"]').classList.contains('active') && !env.$w('[data-groups]'),
+      'новый app.js + старый state.js: подготовка радиограммы открылась, «Длинная» не выбрана');
+    env.cw('#back'); await sleep(10);
+    ok(env.errs.length === 0, 'новый app.js + старый state.js: без ошибок — ' + env.errs.map(String).join(' | '));
+  }
+
+  // б) новый app.js, старые timing.js, audio.js, support.js, data.js.
+  {
+    const OldT = await import(fx('timing.js'));
+    const OldA = await import(fx('audio.js'));
+    const OldS = await import(fx('support.js'));
+    ok(OldT.LIMITS.radiogramGroups === undefined && !OldT.sequenceTimeline && !OldA.audioStatus && !OldS.guideUrl,
+      'старые модули действительно старые: нет radiogramGroups, sequenceTimeline, audioStatus, guideUrl');
+    const env = await boot('../app/app.js?oldmods', seedRg);
+    ok(!env.crash && env.$w('#continue'), `новый app.js + старые модули: главная открылась${env.crash ? ' — ' + env.crash.message : ''}`);
+    env.cw('#gear'); await sleep(10);
+    ok(env.tw().includes('Настройки') && !env.$w('#guide-card'), 'новый app.js + старые модули: настройки открылись, карточки «Как пользоваться» нет');
+    env.cw('#back'); await sleep(10);
+    env.cw('#continue'); await sleep(10);
+    ok(await waitFor(() => [...env.w.document.querySelectorAll('#opts .opt')].some((b) => !b.disabled)),
+      'новый app.js + старые модули: «Учиться» — кнопки открываются');
+    env.cw('#exit'); await sleep(10);
+    env.cw('#radiogram'); await sleep(10);
+    ok(!env.$w('[data-dur="long"]') && env.$w('[data-dur="short"]') && env.$w('[data-dur="minute"]'),
+      'новый app.js + старый timing.js: «Длинной» нет, «Короткая» и «Минута» есть');
+    env.cw('#back'); await sleep(10);
+    ok(await receiveToResult(env, 'short'), 'новый app.js + старый timing.js: «Короткая» — полный приём до разбора');
+    ok(await receiveToResult(env, 'minute'), 'новый app.js + старый timing.js: «Минута» — полный приём до разбора');
+    ok(env.errs.length === 0, 'новый app.js + старые модули: без ошибок — ' + env.errs.map(String).join(' | '));
+  }
+
+  // в) старый app.js (v25) с новыми модулями.
+  {
+    const env = await boot(fx('app.js') + '?newmods', seedRg);
+    ok(!env.crash && env.$w('#continue'), `старый app.js + новые модули: главная открылась${env.crash ? ' — ' + env.crash.message : ''}`);
+    env.cw('#continue'); await sleep(10);
+    ok(await waitFor(() => [...env.w.document.querySelectorAll('#opts .opt')].some((b) => !b.disabled)),
+      'старый app.js + новые модули: «Учиться» — кнопки открываются');
+    env.cw('#exit'); await sleep(10);
+    ok(await receiveToResult(env, 'short'), 'старый app.js + новые модули: «Короткая» — полный приём до разбора');
+    const after = env.st();
+    ok(after.settings.radiogramLong === true && after.settings.radiogramGroups === 50,
+      'старый app.js + новые модули: выбор «Длинная/50» в хранилище не потерян');
+    ok(env.errs.length === 0, 'старый app.js + новые модули: без ошибок — ' + env.errs.map(String).join(' | '));
+  }
+}
+
+// 12) Нечитаемое состояние, копия которого не легла (квота): основной ключ не затирается,
+// а в настройках честная строка (ТЗ, 7.3).
+{
+  const m = new Map([['boni_m_state', '{"profile": битое']]);
+  const store = {
+    getItem: (k) => (m.has(k) ? m.get(k) : null),
+    setItem: (k, v) => { if (k.startsWith('boni_m_state_broken')) throw new Error('QuotaExceeded'); m.set(k, String(v)); },
+    removeItem: (k) => { m.delete(k); }, key: (i) => [...m.keys()][i] ?? null, get length() { return m.size; },
+  };
+  const d = new JSDOM(html, { url: 'https://example.com/', pretendToBeVisual: true });
+  const w = d.window;
+  const errs = [];
+  w.addEventListener('error', (e) => errs.push(e.error || e.message));
+  Object.assign(w, { scrollTo: () => {}, confirm: () => true, alert: () => {}, AudioContext: fakeAudio.AudioContext,
+    requestAnimationFrame: global.requestAnimationFrame, cancelAnimationFrame: global.cancelAnimationFrame });
+  setGlobal('window', w); setGlobal('document', w.document);
+  setGlobal('location', w.location); setGlobal('localStorage', store);
+  await import('../app/app.js?blocked');
+  await sleep(20);
+  const nm = w.document.querySelector('#name');
+  nm.value = 'Радист'; nm.dispatchEvent(new w.Event('input', { bubbles: true }));
+  w.document.querySelector('#next').click(); await sleep(10);
+  w.document.querySelector('#start').click(); await sleep(20);
+  ok(m.get('boni_m_state') === '{"profile": битое', 'копия не легла — исходная запись не затёрта');
+  w.document.querySelector('#gear').click(); await sleep(10);
+  ok(w.document.querySelector('#savewarn')?.textContent.includes('Прогресс сейчас не сохраняется'),
+    'в настройках: «Прогресс сейчас не сохраняется — напишите автору»');
+  ok(errs.length === 0, 'запрет записи: без ошибок — ' + errs.map(String).join(' | '));
+}
+
 assert.equal(errors.length, 0, 'необработанные ошибки: ' + errors.map(String).join(' | '));
 console.log(`\nДымовой тест пройден: ${pass} проверок, ошибок ${errors.length}`);

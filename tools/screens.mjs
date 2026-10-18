@@ -86,6 +86,12 @@ const SEED_PATCH = {
   radiogram: (s) => { s.progress.ru.learnedCount = 33; s.progress.ru.digitsLearned = 10; return s; },
   radiogramwork: (s) => SEED_PATCH.radiogram(s),
   radiogramresult: (s) => SEED_PATCH.radiogram(s),
+  // Длинная радиограмма: подготовка снимается кликом по «Длинной», остальные — уже с выбором 50.
+  radiogramlong: (s) => SEED_PATCH.radiogram(s),
+  radiogramlongwork: (s) => { SEED_PATCH.radiogram(s); s.settings.radiogramLong = true; s.settings.radiogramGroups = 50; return s; },
+  radiogramlongresult: (s) => SEED_PATCH.radiogramlongwork(s),
+  // Обрыв: на 225 зн/мин первая полная группа звучит за пару секунд.
+  radiogramlongstopped: (s) => { SEED_PATCH.radiogramlongwork(s); s.settings.radiogramCpm = 225; return s; },
   callsign: (s) => {
     s.progress.ru.learnedCount = 33;   // весь алфавит
     s.progress.ru.digitsLearned = 10;  // и цифры — иначе упражнение закрыто
@@ -140,6 +146,23 @@ Object.assign(SEED_PATCH, {
 // каждый вопрос. Приложение без Web Audio считает сигнал прозвучавшим — как в JSDOM.
 const NO_AUDIO = new Set(['puzzlecats', 'puzzleq', 'puzzleqwrong', 'puzzleqpics', 'puzzlecode',
   'puzzlereveal', 'puzzlestory', 'puzzleend']);
+// Разбор длинной радиограммы ждёт конца передачи: 50 групп в настоящем Chromium звучали бы
+// минутами. Поэтому — ускоренный поддельный контекст (как test/fake-audio.mjs, ×1000).
+// Только для разбора: у «приёма» и «обрыва» передача обязана ещё идти в момент снимка.
+const FAST_AUDIO = new Set(['radiogramlongresult']);
+const FAST_AUDIO_SCRIPT = () => {
+  class Param { constructor() { this.value = 0; } setValueAtTime(v) { this.value = v; return this; }
+    linearRampToValueAtTime(v) { this.value = v; return this; } cancelScheduledValues() { return this; } }
+  class Node { connect(n) { return n; } disconnect() {} }
+  class Fast {
+    constructor() { this.state = 'running'; this.t0 = performance.now(); this.destination = new Node(); }
+    get currentTime() { return 1 + (performance.now() - this.t0); } // мс как секунды — ×1000
+    resume() { return Promise.resolve(); } close() { return Promise.resolve(); }
+    createOscillator() { return Object.assign(new Node(), { type: 'sine', frequency: new Param(), onended: null, start() {}, stop() {} }); }
+    createGain() { return Object.assign(new Node(), { gain: new Param() }); }
+  }
+  window.AudioContext = Fast; window.webkitAudioContext = Fast;
+};
 // Главная на маленьком телефоне 360×780: «Продолжить обучение» и плитка Радиоигры
 // обязаны стоять целиком выше нижнего меню. Не ослаблять — чинить вёрстку.
 const FOLD = new Set(['homepapa360', 'homecall360', 'homenew360']);
@@ -147,7 +170,9 @@ const FOLD = new Set(['homepapa360', 'homecall360', 'homenew360']);
 const CLEAN = new Set(['onboarding', 'onboardstart']);
 // Экраны режима снимаем тоже на 360 точек: самый тесный из телефонов, под который верстаем.
 const SMALL = { width: 360, height: 780 };
-const VIEWPORT = Object.fromEntries([...FOLD, ...NO_AUDIO, 'onboardstart'].map((n) => [n, SMALL]));
+const VIEWPORT = Object.fromEntries([...FOLD, ...NO_AUDIO, 'onboardstart',
+  // Длинная радиограмма: на узком телефоне выше риск вылезти за край.
+  'radiogramlong', 'radiogramlongwork', 'radiogramlongresult', 'radiogramlongstopped'].map((n) => [n, SMALL]));
 
 // Верный ответ на вопрос, который сейчас на экране: id берём из сохранённой колоды.
 async function rightAnswer(page, cat) {
@@ -267,6 +292,60 @@ const SCREENS = {
       document.querySelector('#rg-input').value = spoiled;
     });
     await page.click('#rg-done'); await page.waitForTimeout(400);
+  },
+  // Длинная радиограмма (ТЗ-длинные-радиограммы.md, раздел 5). Сценарии ждут состояния,
+  // а не времени; не то состояние перед снимком — ошибка прогона, а не кадр «как получилось».
+  radiogramlong: async (page) => {
+    await page.click('#radiogram'); await page.waitForTimeout(250);
+    await page.click('[data-dur="long"]'); await page.waitForTimeout(250);
+    if (!(await page.locator('[data-groups]').count())) throw new Error('radiogramlong: нет ряда «Сколько групп»');
+    await page.evaluate(() => scrollTo(0, 0)); await page.waitForTimeout(150);
+  },
+  radiogramlongwork: async (page) => {
+    await page.click('#radiogram'); await page.waitForTimeout(250);
+    await page.click('#start');
+    await page.waitForFunction(() => window.__rgDebug && window.__rgDebug.played >= 1, null, { timeout: 15000 });
+    await page.fill('#rg-input', 'ЖЕЛЕЗ ОКНАМ');
+    await page.waitForTimeout(200);
+    const st = await page.evaluate(() => ({ phase: window.__rgDebug.phase, ended: window.__rgDebug.ended,
+      left: !!document.querySelector('#rg-left'), rows: document.querySelector('#rg-input').rows }));
+    if (st.phase !== 'receive' || st.ended || !st.left || st.rows !== 6) throw new Error('radiogramlongwork: не то состояние ' + JSON.stringify(st));
+  },
+  radiogramlongresult: async (page) => {
+    await page.click('#radiogram'); await page.waitForTimeout(250);
+    await page.click('#start');
+    await page.waitForFunction(() => window.__rgDebug && window.__rgDebug.ended === true, null, { timeout: 20000 });
+    // Ошибки всех видов в разных группах плюс вставка в 100 знаков посередине:
+    // разбор обязан остаться в пределах экрана, и ни одна группа не рвётся.
+    await page.evaluate(() => {
+      const p = (window.__rgText || '').replace(/\s+/g, '');
+      const other = (ch) => (ch === 'Ж' ? 'Х' : 'Ж');
+      const spoiled = p.slice(0, 7) + other(p[7]) + p.slice(8, 31) + p.slice(32, 60) + 'Q'.repeat(100)
+        + p.slice(60, 88) + 'Щ' + p.slice(88, 140) + other(p[140]) + p.slice(141);
+      document.querySelector('#rg-input').value = spoiled;
+    });
+    await page.click('#rg-done'); await page.waitForTimeout(300);
+    const st = await page.evaluate(() => ({ groups: document.querySelectorAll('.rg-group').length,
+      errs: !!document.querySelector('#rg-errors'), verdict: !!document.querySelector('.verdict') }));
+    if (st.groups !== 50 || !st.errs || st.verdict) throw new Error('radiogramlongresult: не то состояние ' + JSON.stringify(st));
+    // Кадр — на стыке разбора и списка «Где ошибки»: видны и группы, и номера групп.
+    await page.evaluate(() => document.querySelector('#rg-errors')?.scrollIntoView({ block: 'end' }));
+    await page.waitForTimeout(200);
+  },
+  radiogramlongstopped: async (page) => {
+    await page.click('#radiogram'); await page.waitForTimeout(250);
+    await page.click('#start');
+    await page.waitForFunction(() => window.__rgDebug && window.__rgDebug.played >= 6, null, { timeout: 15000 });
+    await page.evaluate(() => {
+      Object.defineProperty(document, 'hidden', { configurable: true, get: () => true });
+      document.dispatchEvent(new Event('visibilitychange'));
+      Object.defineProperty(document, 'hidden', { configurable: true, get: () => false });
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+    await page.waitForTimeout(250);
+    const st = await page.evaluate(() => ({ phase: window.__rgDebug.phase, part: !!document.querySelector('#rg-part'),
+      restart: !!document.querySelector('#rg-restart'), done: !!document.querySelector('#rg-done') }));
+    if (st.phase !== 'stopped' || !st.part || !st.restart || st.done) throw new Error('radiogramlongstopped: не то состояние ' + JSON.stringify(st));
   },
   // Вердикт на «Ключе»: отстукиваем одну точку и ждём разбора.
   keyverdict: async (page) => {
@@ -410,6 +489,7 @@ for (const theme of ['light', 'dark']) {
         localStorage.setItem('boni_m_state', JSON.stringify(s));
       }, seed);
     }
+    if (FAST_AUDIO.has(name)) await ctx.addInitScript(FAST_AUDIO_SCRIPT);
     if (NO_AUDIO.has(name)) {
       await ctx.addInitScript(() => { window.AudioContext = undefined; window.webkitAudioContext = undefined; });
     }
@@ -417,7 +497,8 @@ for (const theme of ['light', 'dark']) {
     INJECT_LINKS = WITH_LINKS.has(name);
     await page.goto(base, { waitUntil: 'networkidle' });
     await page.waitForTimeout(250);
-    await SCREENS[name](page);
+    // Сценарий, не дошедший до нужного состояния, — ошибка прогона, а не кадр «как получилось».
+    try { await SCREENS[name](page); } catch (e) { errors.push('сценарий: ' + e.message); }
     await page.waitForTimeout(200);
 
     // Снимаем именно экран телефона, а не всю страницу: fullPage «размазывает» закреплённое

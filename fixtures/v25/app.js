@@ -1,0 +1,2057 @@
+// снято с ff06879 (app/app.js, выпуск morse-v25), не править — сверяется по SHA-256 в test/rollback.test.js
+// Школа Морзе 73 — контроллер интерфейса. Чистая логика — в js/*, здесь только экраны и события.
+import * as DATA from './js/data.js';
+import { load, save, needsOnboarding } from './js/state.js';
+import { clampEff, slowerEff, charTiming, classifyHold, keyThresholds, cpm, LIMITS } from './js/timing.js';
+import * as P from './js/progress.js';
+import * as G from './js/gamify.js';
+import * as A from './js/audio.js';
+import * as KT from './js/keytext.js';
+import * as TR from './js/trace.js';
+import { ICON, picSVG } from './js/icons.js';
+import { glyphKind, glyphText, glyphName } from './js/glyph.js';
+import { normalizeCallsign, callsignParts } from './js/callsign.js';
+import * as RG from './js/radiogram.js';
+import * as PZ from './js/puzzle.js';
+import { donateUrl, feedbackUrl, pingUrl, validateFeedback, MESSAGE_MAX, CONTACT_MAX, NAME_MAX } from './js/support.js';
+import * as M from './js/metrics.js';
+import { APP_VERSION } from './js/version.js';
+
+let state = load();
+// Страховка от смешанного кэша при обновлении: новый app.js мог приехать со старым
+// state.js, который поля puzzle не знает. Без этой строки главная падала бы на плитке.
+if (!state.puzzle || typeof state.puzzle !== 'object') state.puzzle = PZ.puzzleFresh();
+const persist = () => save(state);
+
+const $ = (sel, root = document) => root.querySelector(sel);
+const screenEl = $('#screen');
+const tabsEl = $('#tabs');
+const overlayRoot = $('#overlay-root');
+
+const codeOf = (ch) => DATA.CODE_BY_CHAR[state.settings.alphabet]?.get(ch) || DATA.charInfo(ch)?.code || '';
+const visualCode = (code) => code.split('').map((c) => (c === '.' ? '•' : '—')).join(' ');
+const track = () => state.progress[state.settings.alphabet];
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+// ——— «След сигнала»: ритм кода полосками. Подпись оформления и наглядная опора для слуха. ———
+const traceHTML = (parts, cls = '') =>
+  `<span class="trace ${cls}" aria-hidden="true">${parts.map((p) => `<i class="${p}"></i>`).join('')}</span>`;
+const traceOfCode = (code, cls = '') => traceHTML(TR.traceParts(code), cls);
+// След по фактическим удержаниям: ширина каждой полоски пропорциональна реальному времени.
+const traceOfHolds = (holds, unit, cls = '') =>
+  `<span class="trace ${cls}" aria-hidden="true">${TR.traceFromHolds(holds, unit).map((p) =>
+    `<i class="${p.tone ? 'tone' : 'g1'}" style="width:calc(var(--u) * ${p.units.toFixed(2)})"></i>`).join('')}</span>`;
+
+// ——— Тема оформления: по настройке телефона либо вручную ———
+function applyTheme() {
+  const mode = state.settings.theme;
+  const root = document.documentElement;
+  if (mode === 'light' || mode === 'dark') root.dataset.theme = mode;
+  else delete root.dataset.theme;
+  // Цвет системной панели браузера должен совпадать с фоном, иначе сверху остаётся чужая полоса.
+  const dark = mode === 'dark'
+    || (mode !== 'light' && globalThis.matchMedia?.('(prefers-color-scheme: dark)').matches);
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.setAttribute('content', dark ? '#100E0B' : '#F6F1E6');
+}
+
+function vibrate(ms) {
+  try { if (state.settings.vibration && 'vibrate' in navigator) navigator.vibrate(ms); } catch {}
+}
+
+// ——— Активное время практики (§7.2): копим, пока вкладка видима и идёт занятие ———
+let activeStart = null;
+function startActiveClock() { if (activeStart === null) activeStart = Date.now(); }
+function stopActiveClock() {
+  if (activeStart !== null) {
+    G.addActiveTime(state, (Date.now() - activeStart) / 1000);
+    activeStart = null;
+    persist();
+  }
+}
+
+let currentTab = 'home';
+// Откуда вошли в настройки — чтобы кнопка «Назад» вернула туда же, а не на главную.
+let settingsFrom = 'home';
+// Раскрыт ли на экране настроек вопрос «Открыть радиограмму со всеми знаками?» (см. knowsCard).
+// Сбрасывается при любом уходе с экрана: вернувшись, человек видит кнопку, а не вопрос.
+let knowsAsk = false;
+function go(tab) {
+  const from = currentTab;
+  if (tab === 'settings' && currentTab !== 'settings') settingsFrom = currentTab;
+  if (tab !== 'settings') knowsAsk = false;
+  // Уход из «Учиться» любым путём (нижнее меню, кнопка) фиксирует сессию — иначе серия
+  // дней и журнал не запишутся, когда папа просто тапнет «Главная».
+  // Сначала остановить часы (время войдёт в totalSeconds), потом засчитывать занятие —
+  // иначе веха «10 минут в эфире» опоздает на одно занятие.
+  if (tab !== 'learn' && tab !== 'key') stopActiveClock();
+  if (currentTab === 'learn' && tab !== 'learn') {
+    if (L && L.nextTimer) { clearTimeout(L.nextTimer); L.nextTimer = null; }
+    if (L && L.revealTimer) { clearTimeout(L.revealTimer); L.revealTimer = null; }
+    finalizeLearnSession();
+  }
+  if (currentTab === 'key' && tab !== 'key') { clearKeyTimers(); if (K && K.detach) K.detach(); }
+  currentTab = tab;
+  A.stopAll();
+  [...tabsEl.children].forEach((b) => b.classList.toggle('active', b.dataset.tab === tab));
+  tabsEl.classList.remove('hidden');
+  if (tab === 'home') renderHome();
+  else if (tab === 'learn') renderLearn();
+  else if (tab === 'key') renderKey();
+  else if (tab === 'ref') renderReference();
+  else if (tab === 'cabinet') renderCabinet();
+  else if (tab === 'settings') renderSettings();
+  // Радиоигра — не вкладка меню, но в неё возвращаются «Назад» из настроек (шестерёнка
+  // есть и в режиме). Посреди раунда — на тот же вопрос или на итог, а не на выбор
+  // категорий: подкрутил скорость и продолжил, раунд не сбрасывается.
+  else if (tab === 'puzzle') { if (from === 'settings' && Z) puzzleResume(); else renderPuzzle(); }
+  window.scrollTo(0, 0);
+}
+tabsEl.addEventListener('click', (e) => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  if (b.dataset.tab === 'learn') learnOpts.repetition = false; // обычный вход — не «Повторение»
+  go(b.dataset.tab);
+});
+
+// ——— Шапка экрана ———
+// Шестерёнка стоит на КАЖДОМ экране, а не только в «Журнале»: скорость и тон крутят
+// во время занятия, а не когда вернулись домой. Замечание с форума (R7CL): выбор
+// языка искали и не нашли, потому что он лежал в «Журнале».
+function screenbar(title, extra = '') {
+  return `<div class="screenbar">
+    <div><h2>${esc(title)}</h2></div>
+    <div class="screenbar-actions">${extra}
+      <button class="iconbtn" id="gear" aria-label="Настройки">${ICON.gear(22)}</button>
+    </div>
+  </div>`;
+}
+// Вешается после отрисовки любого экрана, где есть шапка.
+function wireGear() {
+  const g = $('#gear');
+  if (g) g.addEventListener('click', () => go('settings'));
+}
+
+// ——— Регуляторы скорости ———
+// Скоростей ДВЕ, и до 17 августа 2026 крутилась только одна — паузы. Скорость самого
+// знака была зашита 18 WPM, поэтому радиолюбитель с форума QRZ.RU справедливо написал:
+// «у меня скорость вообще не регулируется». Он слышал именно знак, а знак не менялся.
+//
+// Шкала — знаки в минуту: в них считают наши радисты и в них меряют разряды.
+// WPM оставлен мелким шрифтом рядом, для международной привычки.
+// Границы — из timing.js, чтобы экран и сохранение говорили одно и то же.
+// Верх 45 WPM = 225 зн/мин: просьба с форума («на 30 скучно»).
+const SPEED = { charMin: LIMITS.charWpm.min, charMax: LIMITS.charWpm.max, effMin: LIMITS.effWpm.min };
+
+// Подпись под обоими ползунками. Костя, глядя на них, спросил: «это не про одно и то же?» —
+// значит и радист спросит. Названия «скорость» и «паузы» рядом читаются как две шкалы одного,
+// поэтому объясняем прямо тут, а не только на экране настроек.
+const SPEED_HINT = `<p class="muted hint">Буква всегда звучит по-настоящему быстро, а времени на
+   раздумье добавляет пауза — в этом и есть метод Коха.</p>`;
+
+// В занятии нужен ОДИН регулятор — скорость знака: его крутят на ходу. Пауза на раздумье
+// и объяснение живут в настройках. Пока они стояли прямо в занятии, экран оброс текстом,
+// и Костя сказал прямо: «столько текста лишнего стало». Он прав — на экране занятия
+// человек слушает, а не читает.
+function speedSliders(s, { full = true } = {}) {
+  if (!full) return `
+    <div class="slider">
+      <div class="slider-head">
+        <label for="lchar">Скорость знака</label>
+        <output class="num" id="lchar-val">${cpm(s.charWpm)} зн/мин<small>${s.charWpm} WPM</small></output>
+      </div>
+      <input type="range" id="lchar" min="${SPEED.charMin}" max="${SPEED.charMax}" value="${s.charWpm}">
+      <div class="slider-ends"><span>${cpm(SPEED.charMin)} зн/мин</span><span>${cpm(SPEED.charMax)} зн/мин</span></div>
+    </div>`;
+  return `
+    <div class="slider">
+      <div class="slider-head">
+        <label for="lchar">Скорость знака</label>
+        <output class="num" id="lchar-val">${cpm(s.charWpm)} зн/мин<small>${s.charWpm} WPM</small></output>
+      </div>
+      <input type="range" id="lchar" min="${SPEED.charMin}" max="${SPEED.charMax}" value="${s.charWpm}">
+      <div class="slider-ends"><span>${cpm(SPEED.charMin)} зн/мин</span><span>${cpm(SPEED.charMax)} зн/мин</span></div>
+    </div>
+    <div class="slider">
+      <div class="slider-head">
+        <label for="lspeed">Пауза между знаками</label>
+        <output class="num" id="lspeed-val">${pauseLabel(s)}</output>
+      </div>
+      <input type="range" id="lspeed" min="0" max="${PAUSE_STEPS.length - 1}" step="1" value="${pauseIndex(s)}">
+      <div class="slider-ends"><span>как в эфире</span><span>вчетверо длиннее</span></div>
+    </div>${SPEED_HINT}`;
+}
+
+// ——— Пауза между знаками ———
+// Ползунок ходит по ГОТОВЫМ ступеням кратности, а не по WPM. Раньше он был размечен
+// в словах в минуту от 5 до 45, а фактически зажимался скоростью знака — и бегунок
+// упирался в середину, дальше не двигаясь. Костя сказал прямо: «ползунок только
+// до середины, и непонятно зачем эта шкала». Шкала нужна (это метод Фарнсуорта:
+// знак звучит по-настоящему, а думать дают дольше), но говорить она должна
+// по-человечески: во сколько раз пауза длиннее эфирной.
+const PAUSE_STEPS = [1, 1.5, 2, 3, 4];
+
+function pauseIndex(s) {
+  const eff = clampEff(s.effWpm, s.charWpm);
+  const k = s.charWpm / Math.max(1, eff);
+  // Берём ближайшую ступень: значение могло прийти из прежней сборки любым.
+  let best = 0;
+  PAUSE_STEPS.forEach((step, i) => {
+    if (Math.abs(step - k) < Math.abs(PAUSE_STEPS[best] - k)) best = i;
+  });
+  return best;
+}
+
+// Кратность → скорость пауз. Ниже нижней границы не опускаемся, выше знака не поднимаемся.
+function effForIndex(i, charWpm) {
+  const k = PAUSE_STEPS[Math.min(PAUSE_STEPS.length - 1, Math.max(0, i))];
+  return clampEff(Math.max(SPEED.effMin, Math.round(charWpm / k)), charWpm);
+}
+
+// Паузы показываем словами, а не числом: «12 WPM» ничего не говорит о том,
+// сколько у тебя времени на раздумье, а «вдвое длиннее» — говорит.
+function pauseLabel(s) {
+  const eff = clampEff(s.effWpm, s.charWpm);
+  if (eff >= s.charWpm) return 'как в эфире';
+  const times = Math.round((s.charWpm / eff) * 10) / 10;
+  return `длиннее в ${String(times).replace('.', ',')} ${timesWord(times)}`;
+}
+
+// «в 2 раза», но «в 9 раз». После подъёма верхней скорости до 45 WPM отношение
+// доходит до девяти, и прежнее жёсткое «раза» стало бы читаться безграмотно —
+// как раз перед теми, кого мы зовём в тренажёр. Дробное всегда «раза» (в 7,5 раза).
+function timesWord(times) {
+  if (!Number.isInteger(times)) return 'раза';
+  const last = times % 10, tens = times % 100;
+  if (tens >= 11 && tens <= 14) return 'раз';
+  return last >= 2 && last <= 4 ? 'раза' : 'раз';
+}
+
+// Ползунок пауз есть только в настройках: в занятии стоит один — скорость знака.
+// Поэтому всё, что касается пауз, включается, только если ползунок на экране есть.
+function wireSpeedSliders(onDone) {
+  const ch = $('#lchar'), sp = $('#lspeed');
+  if (!ch) return;
+  const redraw = () => {
+    $('#lchar-val').innerHTML = `${cpm(state.settings.charWpm)} зн/мин<small>${state.settings.charWpm} WPM</small>`;
+    if (!sp) return;
+    $('#lspeed-val').textContent = pauseLabel(state.settings);
+    // Скорость знака могла измениться — пересчитываем, на какой ступени стоит бегунок.
+    sp.value = pauseIndex(state.settings);
+  };
+  ch.addEventListener('input', (e) => {
+    state.settings.charWpm = +e.target.value;
+    state.settings.effWpm = clampEff(state.settings.effWpm, state.settings.charWpm);
+    persist(); redraw();
+  });
+  if (sp) sp.addEventListener('input', (e) => {
+    state.settings.effWpm = effForIndex(+e.target.value, state.settings.charWpm);
+    persist(); redraw();
+  });
+  if (onDone) {
+    ch.addEventListener('change', onDone);
+    if (sp) sp.addEventListener('change', onDone);
+  }
+}
+
+// ——— Оверлей реакции героя ———
+let heroTimer = null;
+function showHero(img, title, sub, ms = 1200) {
+  return new Promise((resolve) => {
+    if (heroTimer) clearTimeout(heroTimer); // иначе таймер прошлого оверлея погасит этот
+    overlayRoot.innerHTML = `<div class="overlay"><img src="assets/${img}" alt=""><h2>${esc(title)}</h2>${sub ? `<p>${esc(sub)}</p>` : ''}</div>`;
+    heroTimer = setTimeout(() => { heroTimer = null; overlayRoot.innerHTML = ''; resolve(); }, ms);
+  });
+}
+function milestoneBanner(ids) {
+  if (!ids.length) return Promise.resolve();
+  const titles = ids.map((id) => G.MILESTONES[id]?.title).filter(Boolean).join(' · ');
+  return showHero('hero-radost.webp', 'Новая веха!', titles, 2200);
+}
+
+// ——————————————————————————— Онбординг (§7.1) ———————————————————————————
+function renderOnboarding() {
+  tabsEl.classList.add('hidden');
+  screenEl.innerHTML = `
+    <div class="center intro">
+      <div class="heroblock"><img class="hero" src="assets/hero-zastavka.webp" alt="Радист Боня за ключом"></div>
+      <div class="eyebrow">Школа Морзе 73</div>
+      <h1>Здравствуйте!</h1>
+      <p class="muted">Меня зовут Боня, я радист. Научу принимать морзянку на слух.</p>
+      <div class="card" style="text-align:left">
+        <label for="name">Как вас зовут?</label>
+        <input type="text" id="name" placeholder="Ваше имя" autocomplete="off">
+        <label for="callsign">Ваш позывной <span class="muted">— если есть</span></label>
+        <input type="text" id="callsign" placeholder="например, RA9FLC" autocomplete="off"
+               autocapitalize="characters" spellcheck="false" value="${esc(state.profile.callsign)}">
+      </div>
+      <button class="btn" id="next" disabled>Дальше</button>
+    </div>`;
+  const name = $('#name'), next = $('#next');
+  name.addEventListener('input', () => { next.disabled = !name.value.trim(); });
+  next.addEventListener('click', () => {
+    state.profile.name = name.value.trim();
+    // Пусто — значит пусто. Раньше здесь стоял «Boney M» (позывной папы), и любой,
+    // кто ставил приложение, первым делом видел в поле чужой позывной — а потом слышал
+    // его в упражнении. Об этом и спросили с форума. Без позывного упражнение
+    // «Принять свой позывной» просто не появляется, пока его не впишут в настройках.
+    state.profile.callsign = normalizeCallsign($('#callsign').value);
+    persist();
+    onboardingStep2();
+  });
+  name.focus();
+}
+function onboardingStep2() {
+  screenEl.innerHTML = `
+    <div class="center intro">
+      <div class="heroblock"><img class="hero" src="assets/hero-portret.webp" alt=""></div>
+      <h1>Рады знакомству, ${esc(state.profile.name)}!</h1>
+      <div class="card" style="text-align:left">
+        <p>Начнём с четырёх знаков. Новые буквы буду открывать сам — когда увижу,
+           что прежние вы уже узнаёте уверенно.</p>
+        <p class="muted">Торопиться некуда. Интернет не нужен: всё работает и без него.</p>
+      </div>
+      <button class="btn" id="start">Начать занятие</button>
+    </div>`;
+  $('#start').addEventListener('click', () => {
+    P.ensureStarted(track());
+    // Первые 4 знака открыты прямо сейчас — веха принадлежит этому моменту, а не первому
+    // ответу в викторине (иначе «Новая веха!» выпадала даже на неверный ответ новичка).
+    G.checkMilestones(state, { triggers: ['chars'] });
+    persist();
+    // Кнопка обещает занятие — сразу в него, тем же путём, что «Продолжить обучение»
+    // на главной. Переход — прямо в обработчике касания: первый знак начинает звучать
+    // от этого же жеста, и звук на айфоне просыпается. Веха «первые 4 знака» записана
+    // выше молча, как и раньше: поздравление посреди первого знака не выпадет.
+    learnOpts.repetition = false;
+    go('learn');
+  });
+}
+
+// ——————————————————————————— Главная (§7.1) ———————————————————————————
+function renderHome() {
+  const t = track();
+  P.ensureStarted(t);
+  const learned = t.learnedCount;
+  const total = DATA.KOCH_ORDER_RU.length;
+  const rank = G.rankFor(learned, G.avgAccuracy(t));
+  const greeted = state._greeted ? 'С возвращением' : 'Здравствуйте';
+  state._greeted = true;
+  // Ещё ни разу не отвечал (и журнал пуст) — «Начать», а не «Продолжить», и повторять
+  // пока нечего. Признак — P.hasAnswered: пишется только настоящим ответом.
+  const fresh = !P.hasAnswered(t) && !state.history.length;
+  // «Я уже знаю азбуку» открывает и позывной: считаем, будто освоен весь курс, — но только
+  // для этой проверки. Сам прогресс (t) не трогаем: звание и «Освоено» остаются честными.
+  const drillTrack = state.settings.knowsAll ? { ...t, learnedCount: total, digitsLearned: DATA.DIGIT_ORDER.length } : t;
+  const drill = G.callsignDrillAvailable(drillTrack, state.settings.alphabet, myCallsign()) && !state.milestones.callsign;
+  const ticks = Array.from({ length: total },
+    (_, i) => `<i class="${i < learned ? 'on' : ''}"></i>`).join('');
+  // Шапки «Станция Boney M» здесь нет намеренно: на главной уже есть портрет Бони и
+  // приветствие по имени, а нажимаемый портрет-аватар дублировал вкладку «Журнал».
+  // Порядок (КОНЦЕПТ-викторина.md, «Место в интерфейсе»): сначала действия, потом «табло».
+  // Карточка звания опустилась под кнопки: на телефоне 360×780 она выталкивала даже
+  // «Продолжить обучение» под нижнее меню. Кнопки позывного и радиограммы — на прежних
+  // местах и в прежнем порядке; плитка Радиоигры встаёт между «Продолжить» и «Повторением».
+  screenEl.innerHTML = `
+    <div class="screenbar bare">
+      <div></div>
+      <button class="iconbtn" id="gear" aria-label="Настройки">${ICON.gear(22)}</button>
+    </div>
+    <div class="heroblock">
+      <img class="hero" src="assets/hero-zastavka.webp" alt="">
+    </div>
+    <div class="greeting">${esc(greeted)}, ${esc(state.profile.name)}!</div>
+    ${drill ? `<button class="btn secondary" id="drill">${ICON.inbox(24)} Принять свой позывной</button>` : ''}
+    ${radiogramOpen() ? `<button class="btn secondary" id="radiogram">${ICON.inbox(24)} Контрольная радиограмма</button>` : ''}
+    <button class="btn" id="continue">${fresh ? 'Начать обучение' : 'Продолжить обучение'}</button>
+    ${puzzleTile()}
+    ${fresh ? '' : `<button class="btn secondary" id="review" ${learned < 1 ? 'disabled' : ''}>Повторение пройденного</button>`}
+    <div class="card">
+      <div class="eyebrow">Звание</div>
+      <div class="rankline">${esc(rank)}</div>
+      <div class="ticks" role="img" aria-label="Освоено ${learned} из ${total} знаков">${ticks}</div>
+      <div class="learned">Освоено: ${learned} из ${total}</div>
+      <div class="stats">
+        <div class="stat"><div class="eyebrow">Дней подряд</div><b>${state.streak.current}</b></div>
+        <div class="stat"><div class="eyebrow">Рекорд</div><b>${state.streak.longest}</b></div>
+      </div>
+    </div>
+    ${supportLine()}`;
+  $('#continue').addEventListener('click', () => { learnOpts.repetition = false; go('learn'); });
+  $('#puzzle').addEventListener('click', () => go('puzzle'));
+  if (!fresh) $('#review').addEventListener('click', () => { learnOpts.repetition = true; go('learn'); });
+  if (drill) $('#drill').addEventListener('click', callsignDrill);
+  if (radiogramOpen()) $('#radiogram').addEventListener('click', renderRadiogram);
+  wireGear();
+}
+
+// ——————————————————————————— Учиться (§7.2) ———————————————————————————
+const learnOpts = { repetition: false };
+let L = null; // состояние занятия
+
+function renderLearn() {
+  const t = track();
+  P.ensureStarted(t);
+  const repetition = learnOpts.repetition;
+  L = { target: null, options: [], recentTargets: [], locked: false, answers: 0, correct: 0,
+        repetition, slow: false, awaiting: false, nextTimer: null, revealTimer: null };
+  // Главное занятие — кнопки ответа и «Послушать ещё раз» — остаётся в первом экране,
+  // прокручивать во время ответа нечего. Ниже идут два регулятора скорости: они нужны
+  // под рукой (радист крутит их на ходу), но не в каждом раунде, поэтому им можно
+  // жить под сгибом. Шестерёнка рядом с «Выходом» ведёт в настройки — и, как выход,
+  // засчитывает текущее занятие: иначе журнал и серия дней потеряют ответы.
+  screenEl.innerHTML = `
+    <div class="screenbar">
+      <div>
+        <h2>${repetition ? 'Повторение' : 'Учиться'}</h2>
+        <div class="counter" id="counter"></div>
+      </div>
+      <div class="screenbar-actions">
+        <button class="iconbtn" id="gear" aria-label="Настройки">${ICON.gear(22)}</button>
+        <button class="iconbtn" id="exit" aria-label="Выйти из занятия">${ICON.exit(22)}<span>Выход</span></button>
+      </div>
+    </div>
+    <div class="lamp" id="flash" aria-hidden="true"></div>
+    <div class="feedback center" id="fb">Слушайте знак…</div>
+    <div class="options" id="opts"></div>
+    <div id="reveal"></div>
+    <button class="btn secondary" id="again">${ICON.replay(24)} Послушать ещё раз</button>
+    ${speedSliders(state.settings, { full: false })}
+    <button class="linkbtn" id="help">${ICON.help(22)} Показать коды знаков</button>
+    <div id="help-box"></div>`;
+  $('#exit').addEventListener('click', exitLearn);
+  $('#again').addEventListener('click', () => playTarget());
+  wireGear();
+  renderCounter();
+  // Живые регуляторы: значение меняем при перетаскивании, переигрываем знак на отпускании
+  // (иначе звук «спамит» на каждое движение пальца).
+  wireSpeedSliders(() => { if (!L.locked && !L.awaiting) playTarget(); });
+  $('#help').addEventListener('click', toggleHelp);
+  startActiveClock();
+  nextRound();
+}
+
+// Занятие засчитывается от 15 ответов (§7.2). Без счётчика это правило невидимо.
+function renderCounter() {
+  const el = $('#counter');
+  if (!el) return;
+  if (L.repetition) { el.textContent = 'не идёт в зачёт дня'; el.className = 'counter'; return; }
+  if (L.answers >= 15) {
+    el.innerHTML = `${ICON.check(20)} засчитано · ответов ${L.answers}`;
+    el.className = 'counter done';
+  } else {
+    // Коротко: длинное пояснение занимало три строки и выдавливало занятие за экран.
+    el.textContent = `ответов ${L.answers} из 15`;
+    el.className = 'counter';
+  }
+}
+
+function settingsForPlay() {
+  const s = { ...state.settings };
+  if (L.slow) s.effWpm = slowerEff(s.effWpm, s.charWpm);
+  return s;
+}
+
+function nextRound() {
+  if (L.nextTimer) { clearTimeout(L.nextTimer); L.nextTimer = null; }
+  if (L.revealTimer) { clearTimeout(L.revealTimer); L.revealTimer = null; }
+  L.slow = false; L.awaiting = false;
+  screenEl.classList.remove('revealing');
+  const rev = $('#reveal'); if (rev) rev.innerHTML = '';
+  const t = track();
+  const active = P.activeSet(t, state.settings.alphabet);
+  const newest = L.repetition ? null : P.newestChar(t, state.settings.alphabet);
+  if (L.recentTargets.length === 0) {
+    // Самый первый знак занятия — равномерно и не тот, с которого начали в прошлый раз.
+    L.target = P.pickFirstTarget(active, t.lastFirst);
+    t.lastFirst = L.target;
+    persist();
+  } else {
+    L.target = P.pickTarget(active, L.recentTargets, newest);
+  }
+  L.recentTargets.push(L.target);
+  L.options = P.buildOptions(active, L.target, newest);
+  renderOptions(true);
+  $('#fb').textContent = 'Слушайте знак…';
+  $('#fb').className = 'feedback center';
+  playTarget();
+}
+
+function playTarget() {
+  L.locked = true;
+  renderOptions(true);
+  // Подпись сбрасываем здесь, а не только в nextRound: иначе «Нажмите ещё раз» висело бы
+  // поверх уже звучащего знака — человек слышит морзянку и читает, что звука нет.
+  if (!L.awaiting) {
+    $('#fb').textContent = 'Слушайте знак…';
+    $('#fb').className = 'feedback center';
+  }
+  const flash = $('#flash');
+  // Лампа горит ровно, пока идёт знак, и НЕ мигает по элементам. Раньше она повторяла
+  // ритм: тире светилось втрое дольше точки — код можно было прочитать глазами, ничего
+  // не слушая. Это ровно тот навык, который упражнение должно тренировать.
+  // Ровное свечение оставляет пользу для слабослышащего («сейчас идёт знак») и убирает подсказку.
+  flash.classList.add('on');
+  A.playCode(codeOf(L.target), settingsForPlay(), {
+    onDone: (played) => {
+      flash.classList.remove('on');
+      // Знак не прозвучал: айфон будит звук только по касанию, а после возврата
+      // в приложение касания не было. Кнопки с буквами НЕ открываем — ответ вслепую
+      // записался бы папе в статистику как настоящий и испортил бы порядок обучения.
+      // Выход один и он всегда доступен: «Послушать ещё раз» — это и есть касание.
+      if (!played) {
+        if (!L.awaiting) {
+          $('#fb').textContent = 'Нажмите «Послушать ещё раз»';
+          $('#fb').className = 'feedback center';
+        }
+        return;
+      }
+      L.locked = false;
+      renderOptions(false);
+    },
+  });
+}
+
+function renderOptions(disabled) {
+  const box = $('#opts');
+  // Раскладка гибкая, последний ряд центрируется — иначе «лишняя» седьмая буква висит одна
+  // в углу. При наборе до 4 знаков даём по две в ряд: кнопки крупнее, попасть проще.
+  const wide = L.options.length <= 4;
+  // disabled здесь = идёт проигрывание знака → мягко гасим кнопки (класс playing).
+  box.className = 'options' + (wide ? ' wide' : '') + (disabled ? ' playing' : '');
+  // Под спорными знаками (З и 3, О и 0 и им подобными) подписываем, буква это
+  // или цифра: в шрифте они почти одинаковы, а коды у них разные.
+  box.innerHTML = L.options.map((c) => {
+    const kind = glyphKind(c);
+    // data-c остаётся настоящим знаком ('0'), на кнопке — начертание (Ø).
+    return `<button class="opt" data-c="${esc(c)}" ${disabled ? 'disabled' : ''}>${esc(glyphText(c))}${kind ? `<small class="kind">${kind}</small>` : ''}</button>`;
+  }).join('');
+  [...box.children].forEach((b) => b.addEventListener('click', () => answer(b.dataset.c)));
+}
+
+function answer(ch) {
+  if (L.locked || L.awaiting) return;
+  const correct = ch === L.target;
+  const t = track();
+  P.recordAnswer(t, L.target, correct, !L.repetition);
+  L.answers++; if (correct) L.correct++;
+  renderCounter();
+  const box = $('#opts');
+  [...box.children].forEach((b) => { b.disabled = true; });
+  const chosen = [...box.children].find((b) => b.dataset.c === ch);
+  const right = [...box.children].find((b) => b.dataset.c === L.target);
+
+  if (correct) {
+    // Лёгкое подтверждение прямо на месте (кнопка зеленеет + надпись), без полноэкранного
+    // оверлея на каждый ответ — за занятие их 15+, иначе папа ждёт впустую. Полноэкранный
+    // герой остаётся для событий: новый знак, веха, позывной.
+    G.awardCorrect(state);
+    chosen.classList.add('correct');
+    // Звук отклика отключается в настройках: кнопка и так зеленеет, а на скорости
+    // 200 знаков в минуту трель после каждого ответа только мешает слушать.
+    if (state.settings.answerSound !== false) A.cue('success');
+    vibrate(30);
+    $('#fb').className = 'feedback center ok';
+    $('#fb').textContent = 'Верно!';
+    persist();
+    L.awaiting = true;
+    // Таймер храним: при выходе из занятия оверлей «Занятие засчитано» держится 1,8 с, и за это
+    // время незакрытый таймер успевал начать новый раунд со звуком за спиной оверлея.
+    L.nextTimer = setTimeout(() => {
+      L.nextTimer = null;
+      if (currentTab !== 'learn') return;
+      L.awaiting = false;
+      if (!afterAnswerProgress(true)) nextRound();
+    }, 600);
+  } else {
+    L.awaiting = true;
+    if (chosen) chosen.classList.add('wrong');
+    right.classList.add('reveal');
+    if (state.settings.answerSound !== false) A.cue('error');
+    vibrate([20, 40, 20]);
+    const info = DATA.charInfo(L.target);
+    const chant = state.settings.showChants && state.settings.alphabet === 'ru' && info?.chant ? `<div class="chant">напев: ${esc(info.chant)}</div>` : '';
+    screenEl.classList.add('revealing');
+    $('#fb').className = 'feedback center no';
+    $('#fb').textContent = 'Не угадали';
+    // Разбор идёт ПОД сеткой букв, а не над ней. Иначе он раздвигал сетку, и кнопка
+    // «Дальше» вставала ровно туда, где только что был палец: дрожащая рука или
+    // повторное касание пролистывали разбор, не дав его прочитать.
+    $('#reveal').innerHTML = `
+      <div class="card reveal">
+        <div class="reveal-char">Это «${esc(glyphText(L.target))}»${glyphKind(L.target) ? ` — ${glyphKind(L.target)}` : ''}${glyphName(L.target) ? `, ${glyphName(L.target)}` : ''}</div>
+        <div class="codeline">${visualCode(codeOf(L.target))}</div>${chant}
+        <div class="reveal-actions">
+          <button class="btn secondary" id="relisten">${ICON.sound(24)} Послушать</button>
+          <button class="btn" id="nextbtn" disabled>Дальше</button>
+        </div>
+      </div>`;
+    $('#relisten').addEventListener('click', () => A.playCode(codeOf(L.target), settingsForPlay(), {}));
+    $('#nextbtn').addEventListener('click', () => { if (!afterAnswerProgress(false)) nextRound(); });
+    // Короткая задержка: «Дальше» не должна сработать от того же касания или его дребезга.
+    L.revealTimer = setTimeout(() => { L.revealTimer = null; const b = $('#nextbtn'); if (b) b.disabled = false; }, 450);
+    persist();
+  }
+}
+
+// Продвижение, вехи, предложение отложить — после ответа (не в режиме повторения).
+// Возвращает true, если функция сама берёт на себя переход к следующему знаку
+// (показывает событие-оверлей или диалог «отложить») — тогда вызывающий не делает nextRound.
+//
+// Главное правило: показываем только то, что вызвано ИМЕННО этим ответом. Поощрения
+// (новый знак, веха) — исключительно после верного ответа; иначе игра поздравляла с новым
+// уровнем сразу после промаха, потому что окно точности всё ещё держалось выше порога.
+function afterAnswerProgress(correct) {
+  if (L.repetition) return false;
+  const t = track(), alpha = state.settings.alphabet;
+
+  // После ошибки уместно единственное событие — предложение отложить трудный знак:
+  // оно вызвано этой самой ошибкой, а не «пройденным порогом».
+  if (!correct) {
+    if (P.shouldOfferPark(t, alpha)) { offerPark(); return true; }
+    return false;
+  }
+
+  // 1) Открылся новый знак — это событие: показываем героя и ТОЛЬКО ПОТОМ следующий раунд.
+  if (P.shouldOpenNext(t, alpha)) {
+    const opened = P.openNext(t, alpha);
+    const info = DATA.charInfo(opened);
+    const chant = state.settings.showChants && alpha === 'ru' && info?.chant ? `, напев «${info.chant}»` : '';
+    const newly = G.checkMilestones(state, { triggers: ['chars'] });
+    persist();
+    showHero('hero-radost.webp', `Открыт новый знак: ${glyphText(opened)}`, `${visualCode(codeOf(opened))}${chant}`, 2400)
+      .then(() => (newly.length ? milestoneBanner(newly) : null))
+      .then(() => { if (currentTab === 'learn') nextRound(); });
+    return true;
+  }
+
+  // 2) Знак даётся трудно — предложить отложить (свой поток перехода в offerPark).
+  if (P.shouldOfferPark(t, alpha)) { offerPark(); return true; }
+
+  // 3) Веха без нового знака — короткий баннер, затем следующий раунд.
+  // Только вехи за знаки: вехи за время и события принадлежат другим моментам.
+  const newly = G.checkMilestones(state, { triggers: ['chars'] });
+  persist();
+  if (newly.length) {
+    milestoneBanner(newly).then(() => { if (currentTab === 'learn') nextRound(); });
+    return true;
+  }
+  return false;
+}
+
+function offerPark() {
+  L.awaiting = true;
+  overlayRoot.innerHTML = `<div class="overlay"><img src="assets/hero-portret.webp" alt="">
+    <h2 style="color:var(--text)">Этот знак пока даётся трудно</h2>
+    <p>Отложить его на потом и продолжить со следующего?</p>
+    <button class="btn" id="park" style="max-width:260px">Отложить на потом</button>
+    <button class="btn secondary" id="keep" style="max-width:260px">Оставить, поучу ещё</button></div>`;
+  $('#park').addEventListener('click', () => {
+    P.parkNewest(track(), state.settings.alphabet); persist();
+    overlayRoot.innerHTML = ''; L.awaiting = false; nextRound();
+  });
+  $('#keep').addEventListener('click', () => { overlayRoot.innerHTML = ''; L.awaiting = false; nextRound(); });
+}
+
+function toggleHelp() {
+  const box = $('#help-box');
+  const btn = $('#help');
+  if (box.innerHTML) {
+    box.innerHTML = '';
+    btn.innerHTML = `${ICON.help(22)} Показать коды знаков`;
+    return;
+  }
+  const active = P.activeSet(track(), state.settings.alphabet);
+  btn.innerHTML = `${ICON.help(22)} Скрыть коды знаков`;
+  box.innerHTML = `<div class="card"><ul class="codelist">${active.map((c) => {
+    const info = DATA.charInfo(c);
+    const chant = state.settings.showChants && state.settings.alphabet === 'ru' && info?.chant ? `<span class="chant">${esc(info.chant)}</span>` : '';
+    return `<li><b>${esc(glyphText(c))}</b><span class="codeline small">${visualCode(codeOf(c))}</span>${chant}</li>`;
+  }).join('')}</ul></div>`;
+  // Карточка открывается в самом низу экрана — без прокрутки её просто не видно,
+  // и нажатие выглядит как «ничего не произошло».
+  box.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+}
+
+// Засчитать текущее занятие один раз (≥15 ответов). Вызывается из любого ухода.
+// Вехи за время («10 минут в эфире») проверяются здесь: время попадает в totalSeconds
+// только при остановке часов, поэтому завершение занятия — их естественный момент.
+function finalizeLearnSession() {
+  if (!L || L.recorded || L.answers < 15) return false;
+  const acc = Math.round(L.correct / L.answers * 100);
+  const counted = G.recordSession(state, { answers: L.answers, accuracyPct: acc, todayStr: G.localDate() });
+  L.recorded = true;
+  L.newMilestones = G.checkMilestones(state);
+  persist();
+  return counted;
+}
+
+function exitLearn() {
+  stopActiveClock();
+  if (L && L.nextTimer) { clearTimeout(L.nextTimer); L.nextTimer = null; }
+  const counted = finalizeLearnSession();
+  if (counted && L) {
+    const acc = Math.round(L.correct / L.answers * 100);
+    const newly = L.newMilestones || [];
+    showHero('hero-radost.webp', 'Занятие засчитано', `Ответов: ${L.answers}, точность ${acc}%`, 1800)
+      .then(() => milestoneBanner(newly))
+      .then(() => { learnOpts.repetition = false; go('home'); });
+    return;
+  }
+  learnOpts.repetition = false;
+  go('home');
+}
+
+// ——— Упражнение «Свой позывной» (§9) ———
+// Позывной берём из профиля: он спрашивается при первом запуске и меняется в настройках.
+// Код ищем сперва в латинской таблице — позывные пишут латиницей, а цифры в обеих одинаковы.
+function myCallsign() {
+  return normalizeCallsign(state.profile.callsign);
+}
+const codeAnywhere = (ch) => DATA.CODE_BY_CHAR.en.get(ch) || DATA.CODE_BY_CHAR.ru.get(ch);
+
+function callsignDrill() {
+  const call = myCallsign();
+  const parts = callsignParts(call, codeAnywhere);
+  tabsEl.classList.add('hidden');
+  screenEl.innerHTML = `<div class="center intro">
+    <h2>Ваш позывной на слух</h2>
+    <div class="heroblock"><img class="hero small" src="assets/hero-klyuch.webp" alt=""></div>
+    <p class="muted">Сейчас позывной прозвучит целиком, как настоящая радиограмма.
+       Все эти коды вы уже знаете.</p>
+    <div class="card">
+      <div class="callsign">${esc(call)}</div>
+      ${traceHTML(TR.traceSequence(parts.map((p) => p.code)), 'centered')}
+    </div>
+    <button class="btn" id="play">${ICON.sound(24)} Послушать</button>
+    <button class="btn secondary" id="got">${ICON.check(24)} Я принял</button>
+    <button class="linkbtn" id="back">Назад</button></div>`;
+  $('#play').addEventListener('click', () => A.playSequence(parts.map((p) => p.ch), codeAnywhere, state.settings, {}));
+  $('#got').addEventListener('click', () => {
+    const newly = G.checkMilestones(state, { callsignReceived: true });
+    persist();
+    showHero('hero-radost.webp', 'Позывной принят!', call, 2200)
+      .then(() => milestoneBanner(newly))
+      .then(() => go('home'));
+  });
+  $('#back').addEventListener('click', () => go('home'));
+}
+
+// ————————————————— Контрольная радиограмма (приём групп по пять) —————————————————
+//
+// Упражнение, по которому радисты сдают на разряд. Сделано по официальным правилам
+// (приказ Минспорта России от 28.03.2022 № 230, ст. 18) — вся арифметика в отдельном
+// модуле `js/radiogram.js`, здесь только экран. Просили и на форуме, и письмом (UA5B):
+// «принимать на клавиатуре несмысловые тексты в течение минуты и затем видеть свой
+// результат и ошибки».
+//
+// Начинающему упражнение не мешает: кнопка появляется, только когда освоено
+// не меньше двадцати знаков. Исключение — отметка «Я уже знаю азбуку» в настройках
+// (решение Кости 1.10.2026): опытный радист, потерявший прогресс, попадает сюда сразу.
+const RADIOGRAM_MIN_LEARNED = 20;
+
+function radiogramOpen() {
+  return state.settings.knowsAll === true || (track().learnedCount || 0) >= RADIOGRAM_MIN_LEARNED;
+}
+
+// Из чего составляем текст — правило в RG.chooseSet: только освоенные знаки, а с отметкой
+// «Я уже знаю азбуку» — весь алфавит курса и все цифры. Знаки препинания в курсе
+// не изучаются, поэтому в смешанном тексте о них предупреждаем отдельно.
+function radiogramSet(kind) {
+  const t = track();
+  return RG.chooseSet({
+    order: state.settings.alphabet === 'en' ? DATA.KOCH_ORDER_EN : DATA.KOCH_ORDER_RU,
+    digitOrder: DATA.DIGIT_ORDER,
+    learnedCount: t.learnedCount, digitsLearned: t.digitsLearned,
+    knowsAll: state.settings.knowsAll === true, kind,
+  });
+}
+
+let R = null; // состояние упражнения
+
+function renderRadiogram() {
+  currentTab = 'radiogram';
+  tabsEl.classList.add('hidden');
+  const s = state.settings;
+  R = { phase: 'setup', text: '', stop: null, startedAt: 0 };
+  drawRadiogramSetup();
+}
+
+function radiogramExit() {
+  if (R && R.stop) R.stop();
+  A.stopAll();
+  stopActiveClock();
+  R = null;
+  go('home');
+}
+
+function drawRadiogramSetup() {
+  const s = state.settings;
+  const kinds = [
+    ['letters', 'Буквы'],
+    ['digits', 'Цифры'],
+    ['mixed', 'Смесь'],
+  ];
+  const digitsReady = radiogramSet('digits').length > 0;
+  if (s.radiogramKind === 'digits' && !digitsReady) s.radiogramKind = 'letters';
+  const groups = RG.groupsFor(s.radiogramCpm, s.radiogramFull ? RG.MINUTE : 20);
+
+  screenEl.innerHTML = `
+    <div class="screenbar">
+      <div><h2>Контрольная радиограмма</h2></div>
+      <button class="iconbtn" id="back" aria-label="Назад">${ICON.exit(22)}<span>Назад</span></button>
+    </div>
+    <p class="muted hint">Прозвучит несмысловой текст группами по пять знаков — как на
+       соревнованиях. Записывайте, что услышали. До пяти ошибок радиограмма считается
+       принятой (правила радиоспорта, статья 18).</p>
+    <div class="card">
+      <div class="eyebrow">Что передавать</div>
+      <div class="seg">${kinds.map(([k, label]) => `
+        <button data-kind="${k}" class="${s.radiogramKind === k ? 'active' : ''}"
+          ${k === 'digits' && !digitsReady ? 'disabled' : ''}>${label}</button>`).join('')}</div>
+      ${!digitsReady ? '<p class="muted hint">Цифры откроются, когда вы начнёте их проходить в занятиях.</p>' : ''}
+      ${s.radiogramKind === 'mixed' ? '<p class="muted hint">В смеси встречаются знаки препинания . , / ? = — их коды есть в разделе «Азбука».</p>' : ''}
+    </div>
+    <div class="card">
+      <div class="eyebrow">Скорость</div>
+      <div class="bigspeed" id="cpm">${s.radiogramCpm} <small>зн/мин</small></div>
+      <div class="btn-row">
+        <button class="btn secondary" id="slower" ${s.radiogramCpm <= LIMITS.radiogramCpm.min ? 'disabled' : ''}>− 10</button>
+        <button class="btn secondary" id="faster" ${s.radiogramCpm >= LIMITS.radiogramCpm.max ? 'disabled' : ''}>+ 10</button>
+      </div>
+      <p class="muted hint">Шаг десять знаков в минуту — как на соревнованиях.
+         Паузы здесь обычные, без растяжки: это проверка, а не занятие.</p>
+    </div>
+    <div class="card">
+      <div class="eyebrow">Длительность</div>
+      <div class="seg">
+        <button data-full="0" class="${s.radiogramFull ? '' : 'active'}">Короткая</button>
+        <button data-full="1" class="${s.radiogramFull ? 'active' : ''}">Минута</button>
+      </div>
+      <p class="muted hint">${s.radiogramFull ? 'Полная радиограмма' : 'Короткий заход'} —
+         ${groups} ${plural(groups, 'группа', 'группы', 'групп')} по пять знаков.</p>
+    </div>
+    ${state.records.radiogramCpm ? `<p class="muted center">Лучшая принятая радиограмма: <b>${state.records.radiogramCpm} зн/мин</b></p>` : ''}
+    <button class="btn" id="start">${ICON.sound(24)} Начать приём</button>`;
+
+  $('#back').addEventListener('click', radiogramExit);
+  screenEl.querySelectorAll('[data-kind]').forEach((b) => b.addEventListener('click', () => {
+    state.settings.radiogramKind = b.dataset.kind; persist(); drawRadiogramSetup();
+  }));
+  screenEl.querySelectorAll('[data-full]').forEach((b) => b.addEventListener('click', () => {
+    state.settings.radiogramFull = b.dataset.full === '1'; persist(); drawRadiogramSetup();
+  }));
+  $('#slower').addEventListener('click', () => changeRadiogramSpeed(-RG.SPEED_STEP));
+  $('#faster').addEventListener('click', () => changeRadiogramSpeed(+RG.SPEED_STEP));
+  $('#start').addEventListener('click', startRadiogram);
+}
+
+function changeRadiogramSpeed(delta) {
+  const L2 = LIMITS.radiogramCpm;
+  state.settings.radiogramCpm = Math.min(L2.max, Math.max(L2.min, state.settings.radiogramCpm + delta));
+  persist();
+  drawRadiogramSetup();
+}
+
+// Склонение числительных: «12 групп», но «2 группы». Нужно ровно здесь и в разборе.
+function plural(n, one, few, many) {
+  const last = n % 10, tens = n % 100;
+  if (tens >= 11 && tens <= 14) return many;
+  if (last === 1) return one;
+  if (last >= 2 && last <= 4) return few;
+  return many;
+}
+
+function startRadiogram() {
+  const s = state.settings;
+  const set = radiogramSet(s.radiogramKind);
+  const seconds = s.radiogramFull ? RG.MINUTE : 20;
+  const text = RG.makeRadiogram(set, RG.groupsFor(s.radiogramCpm, seconds));
+  if (!text) { drawRadiogramSetup(); return; }
+  // Сколько примерно продлится передача: знаки плюс паузы между группами.
+  const chars = RG.normalize(text).length;
+  const gaps = text.split(' ').length - 1;
+  R = { phase: 'receive', text, stop: null, startedAt: Date.now(),
+        seconds: Math.max(2, (chars * RG.MINUTE) / s.radiogramCpm + gaps * 0.4) };
+  // Переданный текст открыт наружу только для проверок вёрстки (tools/screens.mjs):
+  // подсмотреть его в занятии невозможно — экран приёма ничего не показывает.
+  try { window.__rgText = text; } catch {}
+  startActiveClock();
+  requestWake();
+  drawRadiogramReceive();
+
+  // Скорость радиограммы — в знаках в минуту; звук считает в WPM (пять знаков = слово).
+  // Растяжки Фарнсуорта здесь нет намеренно: паузы стандартные, 1:3:7, как в эфире.
+  const wpm = s.radiogramCpm / 5;
+  R.stop = A.playSequence([...text], (ch) => codeAnywhere(ch) || DATA.CODE_BY_CHAR[s.alphabet]?.get(ch), 
+    { ...s, charWpm: wpm, effWpm: wpm }, {
+      onDone: () => {
+        if (!R || R.phase !== 'receive') return;
+        const note = $('#rg-note');
+        if (note) { note.textContent = 'Передача окончена. Проверьте написанное и нажмите «Готово».'; note.className = 'muted center hint done'; }
+      },
+    });
+}
+
+function drawRadiogramReceive() {
+  const s = state.settings;
+  screenEl.innerHTML = `
+    <div class="screenbar">
+      <div><h2>Приём</h2><div class="counter">${s.radiogramCpm} зн/мин</div></div>
+      <button class="iconbtn" id="abort" aria-label="Прервать">${ICON.exit(22)}<span>Прервать</span></button>
+    </div>
+    <label for="rg-input">Записывайте принятое</label>
+    <textarea id="rg-input" class="rg-input" rows="4" autocomplete="off" autocapitalize="characters"
+      autocorrect="off" spellcheck="false" placeholder="например, ЖЕЛЕЗ ОКНАМ ..."></textarea>
+    <div class="rg-bar" aria-hidden="true"><i id="rg-progress"></i></div>
+    <p class="muted center hint" id="rg-note">Идёт передача… Пишите сплошь или пробелами — как удобнее.</p>
+    <button class="btn" id="rg-done">${ICON.check(24)} Готово</button>
+    <p class="muted center hint">На компьютере можно набирать с клавиатуры, а закончить —
+       клавишей Enter.</p>`;
+  const bar = $('#rg-progress');
+  if (bar && R && R.seconds) {
+    // Полоса — единственная подсказка во время приёма: сколько ещё будут передавать.
+    // Число принятых групп не показываем: это подсказывало бы, сколько знаков записать.
+    bar.style.transition = `width ${R.seconds}s linear`;
+    requestAnimationFrame(() => { bar.style.width = '100%'; });
+  }
+  const input = $('#rg-input');
+  input.focus();
+  // Enter заканчивает приём: радист привык завершать строкой, а не искать кнопку.
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); finishRadiogram(); }
+  });
+  $('#rg-done').addEventListener('click', finishRadiogram);
+  $('#abort').addEventListener('click', radiogramExit);
+}
+
+function finishRadiogram() {
+  if (!R || R.phase !== 'receive') return;
+  const written = $('#rg-input') ? $('#rg-input').value : '';
+  if (R.stop) R.stop();
+  A.stopAll();
+  const cpm = state.settings.radiogramCpm;
+  const result = RG.compare(R.text, written);
+  const ok = RG.accepted(result.errors);
+  R = { ...R, phase: 'result', result, ok, cpm, written };
+  stopActiveClock();
+
+  // Рекорд — только за ПРИНЯТУЮ радиограмму: иначе он означал бы «включил быструю
+  // передачу и ничего не разобрал».
+  if (ok && cpm > (state.records.radiogramCpm || 0)) state.records.radiogramCpm = cpm;
+  if (ok) {
+    state.profile.points += 10;
+    G.checkMilestones(state, { radiogramAccepted: true });
+  }
+  persist();
+  drawRadiogramResult();
+}
+
+// Разбор: показываем переданный текст группами по пять и помечаем, что случилось
+// с каждым знаком. Лишние знаки показываем на их месте — иначе непонятно, откуда
+// взялся сдвиг.
+function radiogramMarkup(cells) {
+  let out = '', shown = 0;
+  for (const c of cells) {
+    if (c.type === 'extra') {
+      out += `<span class="rg-extra" title="лишний знак">${esc(glyphText(c.got))}</span>`;
+      continue;
+    }
+    if (shown > 0 && shown % RG.GROUP_SIZE === 0) out += ' ';
+    shown++;
+    const cls = c.type === 'ok' ? '' : (c.type === 'wrong' ? 'rg-wrong' : 'rg-missed');
+    const title = c.type === 'wrong' ? ` title="вы написали ${esc(c.got)}"`
+      : (c.type === 'missed' ? ' title="пропущен"' : '');
+    out += `<span class="${cls}"${title}>${esc(glyphText(c.expected))}</span>`;
+  }
+  return out;
+}
+
+function drawRadiogramResult() {
+  const { result, ok, cpm } = R;
+  const points = RG.score(cpm, result.errors);
+  const maxSpeed = LIMITS.radiogramCpm.max;
+  screenEl.innerHTML = `
+    <div class="screenbar">
+      <div><h2>Разбор</h2><div class="counter">${cpm} зн/мин</div></div>
+      <button class="iconbtn" id="back" aria-label="Назад">${ICON.exit(22)}<span>Назад</span></button>
+    </div>
+    <div class="card center">
+      <div class="verdict ${ok ? 'ok' : 'no'}">${ok ? `${ICON.check(26)} Радиограмма принята` : 'Радиограмма не принята'}</div>
+      <p class="muted">Ошибок: <b>${result.errors}</b> из ${result.total} ${plural(result.total, 'знака', 'знаков', 'знаков')}.
+         ${ok ? 'По правилам допускается до пяти.' : 'По правилам допускается не больше пяти.'}</p>
+      <p class="muted">Результат: <b>${points}</b> — скорость минус ошибки.</p>
+      ${ok && cpm >= (state.records.radiogramCpm || 0) ? '<p class="muted">Это ваш лучший результат.</p>' : ''}
+    </div>
+    <div class="card">
+      <div class="eyebrow">Что было передано</div>
+      <div class="rg-review">${radiogramMarkup(result.cells)}</div>
+      <p class="muted hint"><span class="rg-wrong">так</span> — принято неверно,
+        <span class="rg-missed">так</span> — пропущено,
+        <span class="rg-extra">так</span> — лишнее.</p>
+    </div>
+    <div class="card">
+      <div class="eyebrow">Как записали вы</div>
+      <div class="rg-review plain">${esc(R.written.trim()) || '<span class="muted">пусто</span>'}</div>
+    </div>
+    ${ok && cpm < maxSpeed ? `<button class="btn" id="faster">Быстрее на 10 — ${RG.nextSpeed(cpm, maxSpeed)} зн/мин</button>` : ''}
+    <button class="btn secondary" id="again">Ещё раз на этой скорости</button>
+    <button class="linkbtn" id="leave">Выйти</button>`;
+  $('#back').addEventListener('click', radiogramExit);
+  $('#leave').addEventListener('click', radiogramExit);
+  $('#again').addEventListener('click', startRadiogram);
+  const f = $('#faster');
+  if (f) f.addEventListener('click', () => {
+    state.settings.radiogramCpm = RG.nextSpeed(cpm, maxSpeed);
+    persist();
+    startRadiogram();
+  });
+}
+
+// ——————————————————————————— Радиоигра «Угадайте на слух» ———————————————————————————
+//
+// Боня передаёт короткое сообщение, человек угадывает смысл из трёх вариантов.
+// Концепт — КОНЦЕПТ-викторина.md, эталон вида и поведения — prototype/chto-peredali.html.
+// Каталог, колода и подсчёт — в js/puzzle.js; здесь только экраны.
+//
+// Устроено как «Контрольная радиограмма»: нижнее меню спрятано, в правом углу «Назад»
+// и шестерёнка. «Назад» ведёт на уровень выше: вопрос → категории → главная.
+//
+// Правила, которые нельзя нарушать:
+// • варианты ответа появляются только после того, как сигнал прозвучал ДО КОНЦА;
+//   не проснулся звук (айфон) — вариантов нет, есть подсказка нажать ещё раз;
+// • ответы не пишутся в статистику букв и в зачёт дня «15 ответов», очки не
+//   начисляются, вехи не проверяются — режим трогает только state.puzzle;
+// • штрафов и таймеров нет: неверный вариант гаснет, выбрать можно снова.
+let Z = null; // текущий раунд: { cat, shown, results, q }
+
+// Плитка на главной. Вся — одна кнопка: для человека за семьдесят нажимаемая часть
+// карточки (а не вся карточка) — скрытое действие.
+function puzzleTile() {
+  const n = PZ.solvedTotal(state.puzzle);
+  const isNew = !!state.puzzle.isNew;
+  const label = ['Радиоигра', 'угадайте на слух', isNew ? 'новое' : '',
+    n > 0 ? `разгадано ${n} из ${PZ.TOTAL}` : ''].filter(Boolean).join(', ');
+  return `<button class="modetile" id="puzzle" aria-label="${esc(label)}">
+      <span class="mt-ic" aria-hidden="true">${ICON.bubble(28)}</span>
+      <span class="mt-body">
+        ${isNew ? '<span class="pill-new">Новое</span>' : ''}
+        <b>Радиоигра</b>
+        <span class="mt-sub">Угадайте на слух</span>
+        ${n > 0 ? `<span class="mt-cnt">Разгадано ${n} из ${PZ.TOTAL}</span>` : ''}
+      </span>
+      <span class="mt-go" aria-hidden="true">${ICON.next(26)}</span>
+    </button>`;
+}
+
+// Шапка режима: заголовок слева, шестерёнка и «Назад» справа — как в радиограмме и настройках.
+function puzzleBar(title, sub = '') {
+  return `<div class="screenbar pz-bar">
+      <div><h2>${esc(title)}</h2>${sub ? `<div class="counter">${esc(sub)}</div>` : ''}</div>
+      <div class="screenbar-actions">
+        <button class="iconbtn" id="gear" aria-label="Настройки">${ICON.gear(22)}</button>
+        <button class="iconbtn" id="back" aria-label="Назад">${ICON.exit(22)}<span>Назад</span></button>
+      </div>
+    </div>`;
+}
+
+const pzCode = (ch) => DATA.CODE_BY_CHAR.ru.get(ch) || '';   // каталог — русский, независимо от курса
+const pzShow = (text) => [...text].map(glyphText).join('');  // ноль — перечёркнутый, как везде
+const pzCap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
+
+// Вход в режим с плитки — всегда на выбор категорий (возврат из настроек — puzzleResume).
+function renderPuzzle() {
+  currentTab = 'puzzle';
+  tabsEl.classList.add('hidden');
+  // Пометка «Новое» гаснет при первом входе и больше не возвращается.
+  if (state.puzzle.isNew) { state.puzzle.isNew = false; persist(); }
+  puzzleCats();
+}
+
+// Возврат из настроек посреди раунда: тот же вопрос в том же виде (погасшие варианты,
+// «услышан ли» сигнал). Звук сам не запускается; новая скорость — со следующего «Слушать».
+function puzzleResume() {
+  currentTab = 'puzzle';
+  tabsEl.classList.add('hidden');
+  if (!Z.q) { puzzleEnd(); return; }             // раунд уже на итоге
+  // Уход в настройки оборвал звук, а onDone на чужом экране ничего не менял —
+  // не оставляем «Слушайте…» над тишиной.
+  if (!Z.q.done && Z.q.msg === 'Слушайте…') { Z.q.msg = `Нажмите «${Z.q.heard ? 'Ещё раз' : 'Слушать'}».`; Z.q.msgKind = ''; }
+  startActiveClock();
+  puzzleDraw();
+}
+
+function puzzleCats() {
+  A.stopAll();
+  stopActiveClock();
+  Z = null;
+  screenEl.innerHTML = `
+    ${puzzleBar('Радиоигра')}
+    <div class="pz-intro">
+      <img src="assets/hero-portret.webp" alt="">
+      <p>Боня передаёт пять сообщений — угадайте, что он сказал.</p>
+    </div>
+    <div class="pz-cats">${PZ.CATS.map((c) => `
+      <button class="pz-cat" data-cat="${c.id}">
+        <span class="pz-nm">${esc(c.name)}${c.tag ? `<span class="pz-tag">${esc(c.tag)}</span>` : ''}</span>
+        <span class="pz-cnt">${PZ.solvedCount(state.puzzle, c.id)} из ${PZ.CATALOG[c.id].length}<span aria-hidden="true"> ›</span></span>
+        <span class="pz-sub">${esc(c.sub)}</span>
+      </button>`).join('')}
+    </div>
+    <p class="muted hint">«12 из 30» — сколько разных вопросов разгадано хотя бы раз.</p>`;
+  $('#back').addEventListener('click', () => go('home'));
+  wireGear();
+  screenEl.querySelectorAll('.pz-cat').forEach((b) => b.addEventListener('click', () => puzzleStart(b.dataset.cat)));
+  window.scrollTo(0, 0);
+}
+
+function puzzleStart(cat) {
+  Z = { cat, shown: [], results: [], q: null };
+  puzzleNext();
+}
+
+function puzzleNext() {
+  A.stopAll();
+  if (Z.shown.length >= PZ.ROUND) { puzzleEnd(); return; }
+  // Вопрос считается выпавшим, как только показан: выход посреди раунда ничего не ломает.
+  const id = PZ.deckDraw(state.puzzle[Z.cat], PZ.idsOf(Z.cat), Z.shown, Math.random);
+  Z.shown.push(id);
+  persist();
+  const q = PZ.qById(Z.cat, id);
+  Z.q = { q, opts: PZ.shuffle([q.right, ...q.wrong], Math.random), wrong: [], heard: false,
+          done: false, firstTry: true, pickedRight: false, slow: false, code: false, abc: false,
+          msg: 'Нажмите «Слушать».', msgKind: '' };
+  startActiveClock();
+  puzzleDraw();
+  window.scrollTo(0, 0);
+}
+
+// Клеточки по числу букв: слова переносятся целиком, буквы внутри слова — нет.
+// С точками-тире клетки шире, и длинному слову разрешено переноситься.
+function puzzleCells(Q) {
+  let li = -1;
+  return Q.q.text.split(' ').map((w) => `<span class="pz-word">${[...w].map((ch) => {
+    li++;
+    return `<span class="pz-cell" data-i="${li}"><span class="pz-ch">${Q.done ? esc(glyphText(ch)) : ''}</span>${
+      Q.code ? traceOfCode(pzCode(ch), 'pz-cd') : ''}</span>`;
+  }).join('')}</span>`).join('');
+}
+
+function puzzleDraw() {
+  const Q = Z.q, q = Q.q, cat = PZ.catById(Z.cat);
+  const letters = [...new Set(q.text.replace(/ /g, ''))].sort((a, b) => a.localeCompare(b, 'ru'));
+  // «Слово» — три картинки БЕЗ подписей (подпись выдала бы ответ без звука); название
+  // для диктора тоже нейтральное — «Картинка 1».
+  const opts = Z.cat === 'word'
+    ? `<div class="pz-pics" id="pz-opts">${Q.opts.map((o, i) => `<button class="pz-pic" data-o="${esc(o)}"
+        aria-label="Картинка ${i + 1}" ${Q.wrong.includes(o) ? 'disabled' : ''}>${picSVG(o, 72)}</button>`).join('')}</div>`
+    : `<div class="pz-opts" id="pz-opts">${Q.opts.map((o) => `<button class="pz-opt" data-o="${esc(o)}"
+        ${Q.wrong.includes(o) ? 'disabled' : ''}>${esc(o)}</button>`).join('')}</div>`;
+  const listenLabel = Q.heard ? `${ICON.replay(24)} Ещё раз` : `${ICON.play(24)} Слушать`;
+  screenEl.innerHTML = `
+    ${puzzleBar(cat.name, `вопрос ${Z.shown.length} из ${PZ.ROUND}`)}
+    <p class="pz-question">${esc(q.q)}</p>
+    <div class="lamp pz-lamp" id="pz-lamp" aria-hidden="true"></div>
+    <div class="pz-line${Q.done ? ' solved' : ''}${Q.code ? ' withcode' : ''}" id="pz-cells"
+      role="img" aria-label="${Q.done ? esc(pzShow(q.text)) : `Клеточки по числу букв: ${q.text.replace(/ /g, '').length}`}">${puzzleCells(Q)}</div>
+    ${Q.done ? puzzleRevealHTML() : `
+    <div class="feedback center pz-fb ${Q.msgKind}" id="pz-fb" role="status">${esc(Q.msg)}</div>
+    <button class="btn" id="pz-listen">${listenLabel}</button>
+    <div class="btn-row pz-tools">
+      <button class="btn secondary" id="pz-slow" aria-pressed="${Q.slow}">Медленнее</button>
+      <button class="btn secondary" id="pz-code" aria-pressed="${Q.code}">${Q.code ? 'Скрыть точки-тире' : 'Показать точки-тире'}</button>
+    </div>
+    ${Q.code ? `<button class="linkbtn" id="pz-abc" aria-expanded="${Q.abc}">${Q.abc ? 'Скрыть азбуку' : 'Азбука для этого сообщения'}</button>
+      ${Q.abc ? `<div class="pz-abc">${letters.map((ch) => `<div><b>${esc(glyphText(ch))}</b><span>${visualCode(pzCode(ch))}</span></div>`).join('')}</div>` : ''}` : ''}
+    ${Q.heard ? opts : ''}`}`;
+  $('#back').addEventListener('click', puzzleCats);
+  wireGear();
+  if (Q.done) {
+    $('#pz-relisten').addEventListener('click', () => puzzleListen());
+    $('#pz-next').addEventListener('click', puzzleNext);
+    return;
+  }
+  $('#pz-listen').addEventListener('click', () => puzzleListen());
+  $('#pz-slow').addEventListener('click', () => { Q.slow = !Q.slow; puzzleDraw(); });
+  $('#pz-code').addEventListener('click', () => { Q.code = !Q.code; if (!Q.code) Q.abc = false; puzzleDraw(); });
+  $('#pz-abc')?.addEventListener('click', () => { Q.abc = !Q.abc; puzzleDraw(); });
+  screenEl.querySelectorAll('#pz-opts button').forEach((b) => b.addEventListener('click', () => puzzleAnswer(b.dataset.o)));
+}
+
+function puzzleSay(text, kind = '') {
+  const Q = Z && Z.q;
+  if (!Q) return;
+  Q.msg = text; Q.msgKind = kind;
+  const fb = $('#pz-fb');
+  if (fb) { fb.textContent = text; fb.className = `feedback center pz-fb ${kind}`; }
+}
+
+// Скорость — из настроек приложения, как в «Учиться». «Медленнее» — тот же приём,
+// что L.slow там: знак звучит как был, паузы между знаками длиннее.
+function puzzlePlaySettings(slow) {
+  const s = { ...state.settings };
+  if (slow) s.effWpm = slowerEff(s.effWpm, s.charWpm);
+  return s;
+}
+
+function puzzleListen() {
+  const Q = Z && Z.q;
+  if (!Q) return;
+  if (!Q.done) puzzleSay('Слушайте…');
+  const lampOn = (on) => { const l = $('#pz-lamp'); if (l) l.classList.toggle('on', !!on); };
+  // Лампа здесь мигает в такт, а не горит ровно, как в «Учиться»: там ритм подсказал бы
+  // ответ глазами, а здесь ответ — смысл сообщения, и ритм ничего не выдаёт.
+  A.playSequence([...Q.q.text], pzCode, puzzlePlaySettings(Q.slow), {
+    onFlash: lampOn,
+    onChar: (i) => {
+      screenEl.querySelectorAll('.pz-cell.now').forEach((c) => c.classList.remove('now'));
+      if (i !== null) screenEl.querySelector(`.pz-cell[data-i="${i}"]`)?.classList.add('now');
+    },
+    onDone: (played) => {
+      if (!Z || Z.q !== Q || currentTab !== 'puzzle') return; // вопрос уже сменился
+      lampOn(false);
+      if (Q.done) return;
+      // Звук не проснулся (айфон будит его только по касанию): варианты НЕ открываем,
+      // иначе отвечали бы, не услышав. Выход один и всегда доступен — нажать ещё раз.
+      if (!played) { puzzleSay(`Нажмите «${Q.heard ? 'Ещё раз' : 'Слушать'}» ещё раз.`); return; }
+      const first = !Q.heard;
+      Q.heard = true;
+      if (Q.wrong.length) { Q.msg = 'Не то. Послушайте ещё раз.'; Q.msgKind = 'no'; }
+      else { Q.msg = 'Что передали? Выберите ответ.'; Q.msgKind = ''; }
+      if (first) puzzleDraw(); else puzzleSay(Q.msg, Q.msgKind);
+    },
+  });
+}
+
+function puzzleAnswer(o) {
+  const Q = Z && Z.q;
+  if (!Q || Q.done || !Q.heard) return;
+  if (o === Q.q.right) { puzzleFinish(true); return; }
+  // Штрафа нет: вариант гаснет, выбрать можно снова. Но итог «с первой попытки» уже не тот.
+  Q.firstTry = false;
+  if (!Q.wrong.includes(o)) Q.wrong.push(o);
+  Q.msg = 'Не то. Послушайте ещё раз.'; Q.msgKind = 'no';
+  if (Q.opts.filter((x) => !Q.wrong.includes(x)).length <= 1) { puzzleFinish(false); return; }
+  vibrate([20, 40, 20]);
+  puzzleDraw();
+}
+
+// Разгадка — на том же экране, без всплывающего окна. Отмечаем «разгадано» в любом
+// случае: вопрос пройден до конца, а «с первой попытки» считается отдельно.
+function puzzleFinish(pickedRight) {
+  A.stopAll();
+  const Q = Z.q;
+  Q.done = true; Q.pickedRight = pickedRight;
+  Z.results.push(Q.firstTry);
+  PZ.markSolved(state.puzzle[Z.cat], Q.q.id);
+  persist();
+  if (pickedRight) {
+    if (state.settings.answerSound !== false) A.cue('success');
+    vibrate(30);
+  }
+  puzzleDraw();
+}
+
+function puzzleRevealHTML() {
+  const Q = Z.q, q = Q.q, last = Z.shown.length >= PZ.ROUND;
+  const verdict = Q.pickedRight
+    ? `<div class="pz-verdict">${ICON.check(30)} Верно!</div>`
+    : '<div class="pz-verdict soft">Остался один ответ — он и верный.</div>';
+  let extra = Z.cat === 'word'
+    ? `<div class="pz-revpic">${picSVG(q.right, 104)}<span>${esc(pzCap(q.right))}</span></div>`
+    : `<p class="pz-answer">${esc(q.right)}</p>`;
+  if (Z.cat === 'story') extra += `
+    <div class="card pz-story">
+      <span class="pz-year">${esc(String(q.year))}</span>
+      <p>${esc(q.tale)}</p>
+    </div>`;
+  return `<div class="pz-reveal">
+      ${verdict}
+      <div class="pz-big">${esc(pzShow(q.text))}</div>
+      ${extra}
+      <div class="btn-row pz-revbtns">
+        <button class="btn secondary" id="pz-relisten">${ICON.sound(24)} Послушать</button>
+        <button class="btn" id="pz-next">${last ? 'Итог раунда' : 'Дальше'} ${ICON.next(24)}</button>
+      </div>
+    </div>`;
+}
+
+// Итог раунда. «С первой попытки» — иначе при правиле «можно выбрать снова» было бы всегда 5 из 5.
+function puzzleEnd() {
+  A.stopAll();
+  stopActiveClock();
+  Z.q = null; // вопроса на экране больше нет — часам и возврату из фона нечего продолжать
+  const n = Z.results.filter(Boolean).length;
+  const cat = PZ.catById(Z.cat);
+  screenEl.innerHTML = `
+    ${puzzleBar('Радиоигра')}
+    <div class="card center pz-end">
+      <div class="eyebrow">${esc(cat.name)}</div>
+      <h3>Раунд пройден</h3>
+      <div class="pz-dots" aria-hidden="true">${Z.results.map((r) => `<i class="${r ? 'ok' : ''}"></i>`).join('')}</div>
+      <p class="muted">С первой попытки</p>
+      <div class="pz-score">${n} из ${Z.results.length}</div>
+      <p class="muted">Разгадано в этой категории: ${PZ.solvedCount(state.puzzle, Z.cat)} из ${PZ.CATALOG[Z.cat].length}</p>
+    </div>
+    <button class="btn" id="pz-again">Ещё раунд</button>
+    <button class="btn secondary" id="pz-tocats">К категориям</button>`;
+  $('#back').addEventListener('click', puzzleCats);
+  wireGear();
+  const cat0 = Z.cat;
+  $('#pz-again').addEventListener('click', () => puzzleStart(cat0));
+  $('#pz-tocats').addEventListener('click', puzzleCats);
+  window.scrollTo(0, 0);
+}
+
+// ——————————————————————————— Ключ (§7.3) ———————————————————————————
+let K = null;
+function clearKeyTimers() {
+  if (!K) return;
+  clearTimeout(K.gapTimer); clearTimeout(K.spaceTimer); clearTimeout(K.hintTimer);
+  K.gapTimer = K.spaceTimer = K.hintTimer = null;
+}
+
+// На телефоне ключ — это палец по площадке, и строка про клавиши там только мешает.
+// За компьютером наоборот: пробелом отстукивать удобнее, чем мышью, но сам собой он
+// не угадывается. matchMedia может отсутствовать (тесты, старые движки) — тогда просто молчим.
+// Показываем только в «Тренировке»: в «Свободно» уже есть подсказка «Пауза подольше — пробел»,
+// где то же слово значит другое — знак в строке, а не клавишу. Два смысла рядом сбивают.
+function spaceHintMarkup() {
+  let desktop = false;
+  try { desktop = !!globalThis.matchMedia?.('(hover: hover) and (pointer: fine)')?.matches; } catch {}
+  return desktop ? '<p class="muted center hint">Можно отбивать и клавишей Пробел</p>' : '';
+}
+
+function renderKey() {
+  clearKeyTimers();
+  if (K && K.detach) K.detach();
+  const mode = state.settings.keyMode === 'free' ? 'free' : 'train';
+  K = { mode, elements: [], holds: [], detach: null, holdStart: null, gapTimer: null, spaceTimer: null, hintTimer: null, target: null, line: KT.emptyLine() };
+  const toggle = `<div class="seg">
+      <button data-m="train" class="${mode === 'train' ? 'active' : ''}">Тренировка</button>
+      <button data-m="free" class="${mode === 'free' ? 'active' : ''}">Свободно</button>
+    </div>`;
+  const speedCtl = `
+    <div class="slider">
+      <div class="slider-head">
+        <label for="kspeed">Скорость ключа</label>
+        <output class="num" id="kspeed-val">${cpm(state.settings.keyWpm)} зн/мин<small>${state.settings.keyWpm} WPM</small></output>
+      </div>
+      <input type="range" id="kspeed" min="${LIMITS.keyWpm.min}" max="${LIMITS.keyWpm.max}" value="${state.settings.keyWpm}">
+      <div class="slider-ends"><span>медленнее</span><span>быстрее</span></div>
+    </div>`;
+
+  if (mode === 'train') {
+    const order = P.activeSet(track(), state.settings.alphabet);
+    K.target = order[Math.floor(Math.random() * order.length)];
+    screenEl.innerHTML = `
+      <div class="screenbar"><div><h2>Ключ</h2></div>
+        <button class="iconbtn" id="gear" aria-label="Настройки">${ICON.gear(22)}</button></div>${toggle}
+      <div class="card task">
+        <div>
+          <div class="eyebrow">Отстучите</div>
+          <div class="taskchar">${esc(glyphText(K.target))}</div>
+        </div>
+        <button class="btn secondary" id="sample">${ICON.sound(24)} Послушать</button>
+      </div>
+      <button type="button" class="keypad" id="pad" aria-label="Ключ: нажимайте и держите"><span class="keyout" id="keyout" aria-live="polite">Нажимайте и держите</span></button>${spaceHintMarkup()}
+      <div class="keyverdict" id="keychar" aria-live="polite"><div class="muted">Отстучите знак — разберём, что получилось</div></div>
+      <button class="linkbtn" id="newtarget">Другой знак</button>${speedCtl}`;
+    $('#sample').addEventListener('click', () => A.playCode(codeOf(K.target), { ...state.settings, charWpm: state.settings.keyWpm, effWpm: state.settings.keyWpm }, {}));
+    $('#newtarget').addEventListener('click', renderKey);
+  } else {
+    screenEl.innerHTML = `
+      <div class="screenbar"><div><h2>Ключ</h2></div>
+        <button class="iconbtn" id="gear" aria-label="Настройки">${ICON.gear(22)}</button></div>${toggle}
+      <p class="muted center hint">Отстукивайте — буквы складываются в строку. Пауза подольше — пробел.</p>
+      <div class="keytext" id="text"></div>
+      <button type="button" class="keypad" id="pad" aria-label="Ключ: нажимайте и держите"><span class="keyout" id="keyout" aria-live="polite">Нажимайте и держите</span></button>
+      <div class="btn-row">
+        <button class="btn secondary" id="erase">${ICON.erase(24)} Стереть</button>
+        <button class="btn secondary" id="clear">${ICON.clear(24)} Очистить</button>
+      </div>${speedCtl}`;
+    renderKeyLine();
+    $('#erase').addEventListener('click', () => { clearKeyTimers(); K.elements = []; K.holds = []; setKeyout('·'); K.line = KT.eraseLast(K.line); renderKeyLine(); vibrate(10); });
+    $('#clear').addEventListener('click', () => { clearKeyTimers(); K.elements = []; K.holds = []; setKeyout('·'); K.line = KT.clearLine(); renderKeyLine(); vibrate(10); });
+  }
+
+  screenEl.querySelectorAll('.seg [data-m]').forEach((b) =>
+    b.addEventListener('click', () => { state.settings.keyMode = b.dataset.m; persist(); renderKey(); }));
+  wireGear();
+
+  const kspeed = $('#kspeed');
+  if (kspeed) kspeed.addEventListener('input', (e) => {
+    state.settings.keyWpm = Math.min(LIMITS.keyWpm.max, Math.max(LIMITS.keyWpm.min, Math.round(+e.target.value)));
+    persist();
+    $('#kspeed-val').innerHTML = `${cpm(state.settings.keyWpm)} зн/мин<small>${state.settings.keyWpm} WPM</small>`;
+  });
+
+  const pad = $('#pad');
+  const down = (e) => {
+    e.preventDefault();
+    // Захватываем указатель: палец, чуть сползший с площадки во время удержания, продолжает
+    // считаться нажатым. Раньше это обрывало тире, и вердикт говорил «вышло Е вместо М»,
+    // не намекая, что причина в съехавшем пальце.
+    try { pad.setPointerCapture(e.pointerId); } catch {}
+    keyPadDown();
+  };
+  const up = (e) => { e.preventDefault(); keyPadUp(); };
+  pad.addEventListener('pointerdown', down);
+  pad.addEventListener('pointerup', up);
+  pad.addEventListener('pointercancel', up);
+  // Страховка на случай, если захват указателя не сработал: отпускание пальца ГДЕ УГОДНО
+  // обязано закрыть знак, иначе тон звучит бесконечно, а площадка остаётся вжатой.
+  const windowUp = () => { if (K && K.holdStart !== null) keyPadUp(); };
+  window.addEventListener('pointerup', windowUp);
+  window.addEventListener('pointercancel', windowUp);
+  // Пробел ловим на всём документе, а не только на площадке: после перехода на экран фокус
+  // на компьютере остаётся на кнопке нижнего меню, и до площадки нажатие не доходило — человек
+  // стучал в пустоту. Enter глобально НЕ перехватываем: им нажимают кнопки («Стереть»,
+  // «Послушать»), и отнять его — сломать управление с клавиатуры.
+  // «Полем ввода» считаем только то, где пробел набирает текст. Ползунок скорости —
+  // тоже INPUT, но пробел ему не нужен, а человек после подкрутки скорости сразу
+  // стучит дальше — отняв у него пробел «до клика мимо», мы бы сломали занятие.
+  const inField = (t) => !!t && (t.tagName === 'TEXTAREA' || t.isContentEditable
+    || (t.tagName === 'INPUT' && !['range', 'checkbox', 'radio', 'button'].includes(t.type)));
+  const spaceDown = (e) => {
+    if (e.code !== 'Space') return;
+    if (currentTab !== 'key' || !K || !$('#pad')) return; // страховка от гонки при уходе с экрана
+    if (inField(e.target)) return;                        // в поле ввода пробел остаётся пробелом
+    // preventDefault обязателен и при автоповторе: иначе страница прокручивается, а
+    // сфокусированная кнопка меню считается нажатой прямо во время передачи знака.
+    e.preventDefault();
+    if (!e.repeat) keyPadDown();
+  };
+  const spaceUp = (e) => {
+    if (e.code !== 'Space') return;
+    if (currentTab !== 'key' || !K || !$('#pad')) return;
+    if (inField(e.target)) return;
+    // Кнопку пробел активирует именно на keyup — без preventDefault «Стереть» стёрло бы строку,
+    // а «Другой знак» перерисовал бы экран посреди тире.
+    e.preventDefault();
+    keyPadUp();
+  };
+  document.addEventListener('keydown', spaceDown);
+  document.addEventListener('keyup', spaceUp);
+  // Зажатый пробел плюс Alt-Tab: keyup уходит уже в другое окно, и без этого тон звучал бы
+  // дальше, а площадка осталась бы вжатой.
+  window.addEventListener('blur', resetKeyHold);
+  K.detach = () => {
+    window.removeEventListener('pointerup', windowUp);
+    window.removeEventListener('pointercancel', windowUp);
+    document.removeEventListener('keydown', spaceDown);
+    document.removeEventListener('keyup', spaceUp);
+    window.removeEventListener('blur', resetKeyHold);
+  };
+  // С клавиатуры на самой площадке: пробел или Enter работают как нажатие и удержание.
+  // Вызов продублируется с глобальным слушателем — это безопасно, keyPadDown/keyPadUp
+  // идемпотентны. e.repeat отсекает автоповтор, иначе одно удержание превратилось бы
+  // в череду точек.
+  pad.addEventListener('keydown', (e) => {
+    if ((e.code === 'Space' || e.code === 'Enter') && !e.repeat) { e.preventDefault(); keyPadDown(); }
+  });
+  pad.addEventListener('keyup', (e) => {
+    if (e.code === 'Space' || e.code === 'Enter') { e.preventDefault(); keyPadUp(); }
+  });
+  startActiveClock();
+}
+
+const KEY_HINT = 'Нажимайте и держите';
+// Пока ничего не набрано — площадка подсказывает, что делать; во время набора показывает
+// точки и тире прямо в себе.
+function setKeyout(s) {
+  const el = $('#keyout');
+  if (!el) return;
+  const empty = !s || s === '·';
+  el.textContent = empty ? KEY_HINT : s;
+  el.classList.toggle('typing', !empty);
+}
+function renderKeyLine() {
+  const el = $('#text'); if (!el) return;
+  el.innerHTML = K.line.text
+    ? `${esc([...K.line.text].map(glyphText).join(''))}<span style="color:var(--accent)">▌</span>`
+    : '<span class="muted">отстукивайте слово…</span>';
+}
+
+// Общий сброс зажатого ключа: и когда вкладку свернули, и когда окно потеряло фокус.
+// В обоих случаях отпускание клавиши до нас уже не дойдёт, а незакрытое нажатие — это
+// бесконечный тон и залипшая площадка.
+function resetKeyHold() {
+  if (currentTab !== 'key') return;
+  clearKeyTimers();
+  if (K) { K.holdStart = null; K.elements = []; K.holds = []; }
+  A.keyUp();
+  $('#pad')?.classList.remove('down');
+  setKeyout('·');
+}
+
+function keyPadDown() {
+  if (K.holdStart !== null) return;
+  clearKeyTimers(); // новое нажатие отменяет ожидание конца знака/пробела
+  K.holdStart = Date.now();
+  $('#pad').classList.add('down');
+  A.keyDown(state.settings.toneHz, state.settings.volume);
+  vibrate(15);
+}
+function keyPadUp() {
+  if (K.holdStart === null) return;
+  const hold = (Date.now() - K.holdStart) / 1000;
+  K.holdStart = null;
+  $('#pad').classList.remove('down');
+  A.keyUp();
+  const th = keyThresholds(state.settings.keyWpm);
+  if (hold < th.debounceMin) return; // фильтр дребезга (§13.7)
+  const el = classifyHold(hold, state.settings.keyWpm);
+  K.elements.push(el);
+  K.holds.push(hold);
+  setKeyout(K.elements.join(' ').replace(/\./g, '•').replace(/-/g, '—'));
+  // ждём паузу конца знака (3·keyDit) → декодируем
+  K.gapTimer = setTimeout(() => decodeKey(), th.charGapMin * 1000);
+}
+function decodeKey() {
+  K.gapTimer = null;
+  const code = K.elements.join('');
+  const holds = K.holds;
+  K.elements = []; K.holds = [];
+  setKeyout('·');
+  const keyDit = keyThresholds(state.settings.keyWpm).keyDit;
+  const map = DATA.CODE_BY_CHAR[state.settings.alphabet];
+  let found = '?';
+  for (const [ch, c] of map.entries()) if (c === code) { found = ch; break; }
+
+  if (K.mode === 'train') {
+    const ok = found === K.target;
+    const el = $('#keychar');
+    // Сравнение ритмов — то, чего на «Ключе» не хватало: видно не просто «неверно»,
+    // а ЧЕМ именно отличается — где тире вышло короткое, где лишняя точка.
+    if (el) {
+      if (found === '?') {
+        el.className = 'keyverdict';
+        el.innerHTML = `<div class="muted">Такого знака в азбуке нет</div>
+          <div class="cmp"><span class="eyebrow">Вышло</span>${traceOfHolds(holds, keyDit)}</div>
+          <div class="cmp"><span class="eyebrow">Нужно</span>${traceOfCode(codeOf(K.target))}</div>
+          <button class="btn secondary" id="againkey">Отстучать ещё раз</button>`;
+      } else if (ok) {
+        el.className = 'keyverdict ok';
+        el.innerHTML = `<div class="verdict">${ICON.check(26)} Верно — ${esc(glyphText(found))}</div>
+          <button class="btn" id="nextkey">Следующий знак</button>`;
+      } else {
+        el.className = 'keyverdict no';
+        // «Вышло» рисуем по ФАКТИЧЕСКИМ удержаниям: видно, что точка вышла длинной,
+        // а не просто «получилась другая буква».
+        el.innerHTML = `<div class="verdict">Вышло «${esc(glyphText(found))}», а нужно «${esc(glyphText(K.target))}»</div>
+          <div class="cmp"><span class="eyebrow">Вышло</span>${traceOfHolds(holds, keyDit)}</div>
+          <div class="cmp"><span class="eyebrow">Нужно</span>${traceOfCode(codeOf(K.target))}</div>
+          <button class="btn secondary" id="againkey">Отстучать ещё раз</button>`;
+      }
+      $('#nextkey')?.addEventListener('click', renderKey);
+      $('#againkey')?.addEventListener('click', () => {
+        const box = $('#keychar');
+        box.className = 'keyverdict';
+        box.innerHTML = '<div class="muted">Отстучите знак заново</div>';
+      });
+    }
+    if (ok) { A.cue('success'); vibrate(40); }
+    return;
+  }
+
+  // Свободный режим.
+  if (found === '?') { setKeyout('?'); K.hintTimer = setTimeout(() => { K.hintTimer = null; setKeyout('·'); }, 600); return; }
+  K.line = KT.addChar(K.line, found);
+  renderKeyLine();
+  A.cue('success'); vibrate(20);
+  // Авто-пробел: если пауза продлится — поставить ОДИН пробел (щедрый порог против случайной задумчивости).
+  const th = keyThresholds(state.settings.keyWpm);
+  const autoSpaceMs = Math.max(900, (th.wordGapMin - th.charGapMin) * 1000);
+  K.spaceTimer = setTimeout(() => {
+    K.spaceTimer = null;
+    const next = KT.addSpace(K.line);
+    if (next !== K.line) { K.line = next; renderKeyLine(); } // больше пробел не ждём — один максимум
+  }, autoSpaceMs);
+}
+
+// ——————————————————————————— Справочник (§7.4) ———————————————————————————
+let refAlpha = 'ru', refSection = 'letters';
+function renderReference() {
+  const letters = refAlpha === 'ru' ? DATA.RU_LETTERS : DATA.EN_LETTERS;
+  let items = letters;
+  if (refSection === 'digits') items = DATA.DIGITS;
+  else if (refSection === 'punct') items = DATA.PUNCTUATION;
+  screenEl.innerHTML = `
+    <div class="screenbar"><div><h2>Азбука</h2></div>
+      <button class="iconbtn" id="gear" aria-label="Настройки">${ICON.gear(22)}</button></div>
+    <p class="muted hint">Нажмите на знак, чтобы послушать его.</p>
+    <div class="seg">
+      <button data-a="ru" class="${refAlpha === 'ru' ? 'active' : ''}">Русская</button>
+      <button data-a="en" class="${refAlpha === 'en' ? 'active' : ''}">English</button>
+    </div>
+    <div class="seg">
+      <button data-s="letters" class="${refSection === 'letters' ? 'active' : ''}">Буквы</button>
+      <button data-s="digits" class="${refSection === 'digits' ? 'active' : ''}">Цифры</button>
+      <button data-s="punct" class="${refSection === 'punct' ? 'active' : ''}">Знаки</button>
+    </div>
+    <div class="grid" id="grid">${items.map((it) => `
+      <button class="cell" data-c="${esc(it.char)}">
+        <span>${esc(glyphText(it.char))}</span>
+        <small>${visualCode(it.code)}</small>
+        ${it.name ? `<span class="cellname">${esc(it.name)}</span>` : ''}
+      </button>`).join('')}</div>
+    <div id="card-box"></div>`;
+  screenEl.querySelectorAll('.seg [data-a]').forEach((b) => b.addEventListener('click', () => { refAlpha = b.dataset.a; renderReference(); }));
+  screenEl.querySelectorAll('.seg [data-s]').forEach((b) => b.addEventListener('click', () => { refSection = b.dataset.s; renderReference(); }));
+  screenEl.querySelectorAll('.cell').forEach((b) => b.addEventListener('click', () => refCard(b.dataset.c)));
+  wireGear();
+}
+function refCard(ch) {
+  const info = DATA.charInfo(ch);
+  const code = info.code;
+  const chant = refAlpha === 'ru' && state.settings.showChants && info.chant ? `<div class="chant">напев: ${esc(info.chant)}</div>` : '';
+  overlayRoot.innerHTML = `<div class="overlay">
+    <button class="closebtn" id="x" aria-label="Закрыть">✕</button>
+    <div class="bigchar">${esc(glyphText(ch))}</div>
+    ${glyphKind(ch) || glyphName(ch) ? `<div class="bigkind">${glyphKind(ch) || glyphName(ch)}</div>` : ''}
+    ${info.name ? `<div class="cardname">${esc(info.name)}</div>` : ''}
+    ${traceOfCode(code, 'big centered')}
+    <div class="codeline">${visualCode(code)}</div>
+    ${chant}
+    <button class="btn" id="play" style="max-width:260px">${ICON.sound(24)} Послушать</button></div>`;
+  const playSettings = () => DATA.DIGITS.some((d) => d.char === ch)
+    ? { ...state.settings } : { ...state.settings, alphabet: refAlpha };
+  $('#play').addEventListener('click', () => A.playCode(code, playSettings(), {}));
+  $('#x').addEventListener('click', () => { overlayRoot.innerHTML = ''; });
+  overlayRoot.firstElementChild.addEventListener('click', (e) => { if (e.target === overlayRoot.firstElementChild) overlayRoot.innerHTML = ''; });
+}
+
+// ——————————————————————————— Кабинет «Бортжурнал» (§7.5) ———————————————————————————
+// ——— Поддержать проект и написать автору ———
+// Оба блока показываются, только если задан адрес (app/js/support.js). Пока адреса нет —
+// их нет вовсе: приложение обновляется само, и мёртвая кнопка на телефоне выглядела бы
+// поломкой. Никаких всплывающих окон: это спокойные элементы внутри экранов.
+
+// Тихая строка на главной. Не кнопка-призыв, а ссылка, которую легко пройти мимо.
+function supportLine() {
+  const url = donateUrl();
+  if (!url) return '';
+  return `<a class="linkbtn" id="support-line" href="${esc(url)}" target="_blank" rel="noopener">
+    ${ICON.heart(22)} Поддержать проект</a>`;
+}
+
+// Карточка в «Журнале» — после вех, когда человек только что посмотрел свои успехи.
+function supportCard() {
+  const url = donateUrl();
+  if (!url) return '';
+  return `<div class="card center support">
+    <img class="avatar big" src="assets/hero-radost.webp" alt="">
+    <div class="eyebrow" style="margin-top:8px">Если пригодилось</div>
+    <p>Приложение бесплатное и таким останется: без рекламы, без подписки
+       и без сбора личных данных. Если оно вам полезно — можно сказать спасибо
+       переводом на любую сумму, которая вам удобна.</p>
+    <p class="muted hint">Ничего не изменится, если вы этого не сделаете.</p>
+    <a class="btn" href="${esc(url)}" target="_blank" rel="noopener">${ICON.heart(24)} Поддержать</a>
+    <p class="muted hint" style="margin:12px 0 0">Откроется страница перевода.
+       Проще всего — кнопка СБП: выбираете свой банк и подтверждаете
+       в его приложении, без кода из СМС. Картой удобнее с компьютера.</p>
+  </div>`;
+}
+
+// Форма обратной связи. Отправляется на приёмник (см. support.js), а не в телеграм
+// напрямую: токен бота в приложении держать нельзя.
+function feedbackCard() {
+  if (!feedbackUrl()) return '';
+  return `<div class="card" id="feedback">
+    <div class="eyebrow">Написать автору</div>
+    <p class="muted hint">Что удобно, что мешает, чего не хватает — всё пригодится.
+       Отвечает живой человек.</p>
+    <label for="fb-msg">Сообщение</label>
+    <textarea id="fb-msg" maxlength="${MESSAGE_MAX}" rows="4"
+      placeholder="Например: хочу, чтобы буквы можно было повторять по одной"></textarea>
+    <label for="fb-name">Как вас зовут <span class="muted">— необязательно</span></label>
+    <input type="text" id="fb-name" maxlength="${NAME_MAX}" placeholder="чтобы ответить по имени">
+    <label for="fb-who">Как с вами связаться <span class="muted">— если ждёте ответа</span></label>
+    <input type="text" id="fb-who" maxlength="${CONTACT_MAX}" placeholder="почта или телеграм">
+    <button class="btn secondary" id="fb-send">${ICON.send(24)} Отправить</button>
+    <p class="fb-status" id="fb-status" role="status" aria-live="polite"></p>
+  </div>`;
+}
+
+// Отправка письма. Всё, что уходит наружу, — только то, что человек написал сам:
+// ни прогресса, ни позывного, ни настроек. Текст при неудаче остаётся в поле.
+function wireFeedback() {
+  const url = feedbackUrl();
+  const btn = $('#fb-send');
+  if (!url || !btn) return;
+  const status = $('#fb-status');
+  const say = (text, kind = '') => { status.textContent = text; status.className = `fb-status ${kind}`; };
+
+  btn.addEventListener('click', async () => {
+    const check = validateFeedback({ message: $('#fb-msg').value, contact: $('#fb-who').value });
+    const name = $('#fb-name').value.trim().slice(0, NAME_MAX);
+    if (!check.ok) { say(check.error, 'no'); return; }
+    if (navigator.onLine === false) {
+      say('Нет интернета. Текст никуда не денется — отправьте, когда появится связь.', 'no');
+      return;
+    }
+    btn.disabled = true;
+    say('Отправляю…');
+    // Срок ожидания обязателен: без него зависший сервер оставит кнопку навсегда
+    // выключенной с надписью «Отправляю…», и человек решит, что приложение сломалось.
+    // AbortController, а не AbortSignal.timeout — он работает и на старых айфонах.
+    const stop = new AbortController();
+    const timer = setTimeout(() => stop.abort(), 15000);
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ message: check.message, name, contact: check.contact, from: 'app' }),
+        signal: stop.signal,
+      });
+      if (!res.ok) throw new Error(String(res.status));
+      $('#feedback').innerHTML = `<div class="eyebrow">Написать автору</div>
+        <p class="fb-status ok">${ICON.check(24)} Письмо ушло. Спасибо — это правда помогает.</p>`;
+    } catch {
+      btn.disabled = false;
+      say('Не получилось отправить. Проверьте связь и попробуйте ещё раз — текст сохранён.', 'no');
+    } finally {
+      clearTimeout(timer);
+    }
+  });
+}
+
+function renderCabinet() {
+  const t = track();
+  const rank = G.rankFor(t.learnedCount, G.avgAccuracy(t));
+  const s = state.settings;
+  const ms = Object.values(G.MILESTONES).map((m) => {
+    const done = !!state.milestones[m.id];
+    return `<li class="${done ? 'done' : ''}"><span>${esc(m.title)}</span>
+      <span class="mark" aria-label="${done ? 'получена' : 'ещё не получена'}">${done ? ICON.check(24) : '—'}</span></li>`;
+  }).join('');
+  const hist = state.history.slice(-10).reverse().map((h) => `<li><span>${esc(G.formatDate(h.date))}</span><span class="muted">${h.answers} ответов · ${h.accuracyPct}%</span></li>`).join('') || '<li class="muted">пока пусто</li>';
+  // Журнал был одной длинной простынёй: успехи, настройки и профиль вперемешку. Разбит по
+  // смыслу — сначала то, чем гордиться, потом кто ты в эфире, потом настройки.
+  const themeBtn = (id, mode, icon, label) =>
+    `<button id="${id}" class="${s.theme === mode ? 'active' : ''}">${icon}<span>${label}</span></button>`;
+  screenEl.innerHTML = `
+    <div class="screenbar"><div><h2>Журнал</h2></div>
+      <button class="iconbtn" id="gear" aria-label="Настройки">${ICON.gear(22)}</button></div>
+    <div class="card center">
+      <img class="avatar big" src="assets/hero-portret.webp" alt="">
+      <div class="odometer">${state.profile.points}</div>
+      <div class="eyebrow">очков опыта</div>
+      <p class="muted hint" style="margin-top:6px">По очку за верный ответ и по десять за веху.
+         Просто счётчик работы — на звание не влияет.</p>
+      <div class="rankline">${esc(rank)}</div>
+    </div>
+    <div class="card">
+      <div class="eyebrow">Мои успехи</div>
+      <ul class="list">
+        <li><span>Освоено букв</span><span class="num">${t.learnedCount} / 32</span></li>
+        <li><span>Освоено цифр</span><span class="num">${t.digitsLearned} / 10</span></li>
+        <li><span>Дней подряд сейчас</span><span class="num">${state.streak.current}</span></li>
+        <li><span>Лучший результат</span><span class="num">${state.streak.longest} дн.</span></li>
+        <li><span>Всего в эфире</span><span class="num">${Math.round(state.totalSeconds / 60)} мин</span></li>
+        <li><span>Радиоигра: разгадано</span><span class="num nowrap">${PZ.solvedTotal(state.puzzle)} из ${PZ.TOTAL}</span></li>
+        ${state.records.radiogramCpm ? `<li><span>Лучшая радиограмма</span><span class="num">${state.records.radiogramCpm} зн/мин</span></li>` : ''}
+      </ul>
+    </div>
+    <div class="card"><div class="eyebrow">Занятия</div><ul class="list">${hist}</ul></div>
+    <div class="card"><div class="eyebrow">Вехи</div><ul class="list milestones">${ms}</ul></div>
+    ${supportCard()}
+    <div class="card">
+      <div class="eyebrow">Настройки</div>
+      <p class="muted hint">Имя и позывной, азбука, скорость, тон, оформление и резервная
+         копия — всё там. Шестерёнка есть на каждом экране.</p>
+      <button class="btn secondary" id="tosettings">${ICON.gear(24)} Открыть настройки</button>
+    </div>
+    ${feedbackCard()}`;
+  wireFeedback();
+  wireGear();
+  $('#tosettings').addEventListener('click', () => go('settings'));
+}
+
+// Переключатель «включено/выключено». Раньше здесь стояли кнопки «Включить»/«Выключить»:
+// слова разной длины давали кнопки разной ширины, и колонка выглядела неровной. Тумблер
+// показывает состояние сам, читается с одного взгляда и не прыгает при переключении.
+// Зона нажатия крупная — это настройки для рук, которым за семьдесят.
+function toggleRow(id, label, on) {
+  return `<div class="rowflex">
+    <span id="${id}-label">${esc(label)}</span>
+    <button class="toggle" id="${id}" role="switch" aria-checked="${on ? 'true' : 'false'}"
+      aria-labelledby="${id}-label"><i></i></button>
+  </div>`;
+}
+
+// ——————————————————————————— Настройки ———————————————————————————
+// Отдельный экран, а не раздел «Журнала»: с форума написали, что выбор языка искали
+// и не нашли — он лежал в журнале успехов. Не всплывающее окно (его нужно закрывать)
+// и не шестая вкладка внизу (пять — предел для крупных кнопок).
+function renderSettings() {
+  const s = state.settings;
+  const themeBtn = (id, mode, icon, label) =>
+    `<button id="${id}" class="${s.theme === mode ? 'active' : ''}">${icon}<span>${label}</span></button>`;
+  screenEl.innerHTML = `
+    <div class="screenbar">
+      <div><h2>Настройки</h2></div>
+      <button class="iconbtn" id="back" aria-label="Назад">${ICON.exit(22)}<span>Назад</span></button>
+    </div>
+    <div class="card">
+      <div class="eyebrow">Кто в эфире</div>
+      <p class="muted hint">Позывной звучит в упражнении «Принять свой позывной». Нет позывного — оставьте пустым.</p>
+      <label for="s-name">Как к вам обращаться</label>
+      <input type="text" id="s-name" maxlength="20" value="${esc(state.profile.name)}" autocomplete="off">
+      <label for="s-call">Ваш позывной</label>
+      <input type="text" id="s-call" maxlength="12" value="${esc(state.profile.callsign)}"
+             autocomplete="off" autocapitalize="characters" spellcheck="false">
+    </div>
+    <div class="card">
+      <div class="eyebrow">Чему учимся</div>
+      <p class="muted hint">Прогресс по каждой азбуке считается отдельно.</p>
+      <div class="seg" style="margin-bottom:0">
+        <button id="lang-ru" class="${s.alphabet === 'ru' ? 'active' : ''}">Русская азбука</button>
+        <button id="lang-en" class="${s.alphabet === 'en' ? 'active' : ''}">Латинская (English)</button>
+      </div>
+    </div>
+    ${knowsCard(s)}
+    <div class="card">
+      <div class="eyebrow">Скорость</div>
+      ${speedSliders(s)}
+      <label for="key">Скорость ключа <output class="num">${cpm(s.keyWpm)} зн/мин<small>${s.keyWpm} WPM</small></output></label>
+      <input type="range" id="key" min="${LIMITS.keyWpm.min}" max="${LIMITS.keyWpm.max}" value="${s.keyWpm}">
+    </div>
+    <div class="card">
+      <div class="eyebrow">Звук</div>
+      <label for="tone">Высота тона <output class="num" id="tone-val">${s.toneHz} Гц</output></label>
+      <input type="range" id="tone" min="${LIMITS.toneHz.min}" max="${LIMITS.toneHz.max}" step="10" value="${s.toneHz}">
+      <label for="vol">Громкость</label>
+      <input type="range" id="vol" min="${LIMITS.volume.min}" max="${LIMITS.volume.max}" step="0.05" value="${s.volume}">
+    </div>
+    <div class="card">
+      <div class="eyebrow">Помощь при обучении</div>
+      ${toggleRow('chants', 'Напевы букв', s.showChants)}
+      ${toggleRow('vib', 'Вибрация при нажатии', s.vibration)}
+      ${toggleRow('ansnd', 'Звук после ответа', s.answerSound !== false)}
+    </div>
+    <div class="card">
+      <div class="eyebrow">Анонимная статистика</div>
+      <p class="muted hint">Приложение сообщает автору только то, что его открывали и сколько
+         минут занимались. Без имени, позывного и прогресса.</p>
+      ${toggleRow('stats', 'Отправлять статистику', s.metrics !== false)}
+    </div>
+    <div class="card">
+      <div class="eyebrow">Оформление</div>
+      <div class="seg icons" style="margin-bottom:0">
+        ${themeBtn('theme-auto', 'auto', ICON.auto(22), 'Как в телефоне')}
+        ${themeBtn('theme-light', 'light', ICON.sun(22), 'Светлое')}
+        ${themeBtn('theme-dark', 'dark', ICON.moon(22), 'Тёмное')}
+      </div>
+    </div>
+    <div class="card">
+      <div class="eyebrow">Резервная копия</div>
+      <p class="muted hint">Прогресс хранится в телефоне. Копию стоит переслать себе на почту:
+         этим файлом он вернётся на новом телефоне.</p>
+      <button class="btn secondary" id="backup">${ICON.save(24)} Сохранить копию</button>
+      <button class="btn secondary" id="restore">${ICON.restore(24)} Восстановить из копии</button>
+      <input type="file" id="file" accept="application/json" class="hidden">
+    </div>
+    <button class="linkbtn danger" id="reset">Начать обучение заново</button>`;
+  $('#back').addEventListener('click', () => go(settingsFrom));
+  wireKnows(s);
+  // Пишем сразу по вводу, но экран НЕ перерисовываем: перерисовка увела бы курсор
+  // из поля на первой же букве. Позывной приводим к верхнему регистру при сохранении.
+  $('#s-name').addEventListener('input', (e) => { state.profile.name = e.target.value.slice(0, 20); persist(); });
+  $('#s-call').addEventListener('input', (e) => { state.profile.callsign = normalizeCallsign(e.target.value); persist(); });
+  $('#s-call').addEventListener('change', (e) => { e.target.value = normalizeCallsign(e.target.value); });
+  // Звук пробуем сразу: настройка, которую не слышно, настраивается вслепую.
+  wireSpeedSliders(() => A.playCode('-.-', state.settings, {}));
+  $('#key').addEventListener('input', (e) => { s.keyWpm = +e.target.value; persist(); renderSettings(); });
+  $('#tone').addEventListener('input', (e) => { s.toneHz = +e.target.value; $('#tone-val').textContent = `${s.toneHz} Гц`; persist(); });
+  $('#vol').addEventListener('input', (e) => { s.volume = +e.target.value; persist(); });
+  $('#tone').addEventListener('change', () => A.playCode('-.-', state.settings, {}));
+  $('#vol').addEventListener('change', () => A.playCode('-.-', state.settings, {}));
+  $('#chants').addEventListener('click', () => { s.showChants = !s.showChants; persist(); renderSettings(); });
+  $('#vib').addEventListener('click', () => { s.vibration = !s.vibration; persist(); renderSettings(); });
+  $('#ansnd').addEventListener('click', () => { s.answerSound = s.answerSound === false; persist(); renderSettings(); });
+  $('#stats').addEventListener('click', () => { s.metrics = s.metrics === false; if (!s.metrics) statsOff(); persist(); renderSettings(); });
+  $('#lang-ru').addEventListener('click', () => { s.alphabet = 'ru'; persist(); renderSettings(); });
+  $('#lang-en').addEventListener('click', () => { s.alphabet = 'en'; persist(); renderSettings(); });
+  ['auto', 'light', 'dark'].forEach((mode) => {
+    $(`#theme-${mode}`).addEventListener('click', () => { s.theme = mode; persist(); applyTheme(); renderSettings(); });
+  });
+  $('#backup').addEventListener('click', doBackup);
+  $('#restore').addEventListener('click', () => $('#file').click());
+  $('#file').addEventListener('change', doRestore);
+  $('#reset').addEventListener('click', () => {
+    if (confirm('Начать обучение заново? Все освоенные знаки и журнал занятий будут удалены. Это не отменить.')) {
+      try { localStorage.removeItem('boni_m_state'); } catch {}
+      location.reload();
+    }
+  });
+}
+
+// «Я уже знаю азбуку» — для опытного радиста (в том числе потерявшего прогресс): открывает
+// контрольную радиограмму сразу и со всеми знаками курса. Курс «Учиться», «Освоено»,
+// звание, вехи и очки не трогает — без поздравлений. Повод — письмо пользователя
+// («Почему обучение началось с самого начала. Как перейти в приём радиограмм»).
+// Подтверждение — на самой странице, не окном (РЕШЕНИЯ.md, «Ни одного всплывающего окна»).
+// Надпись кнопки не менять: на неё ссылаются в письмах пользователям.
+function knowsCard(s) {
+  let body;
+  if (s.knowsAll) {
+    body = `<p><b>Включено: радиограмма открыта со всеми знаками</b></p>
+      <p class="muted hint">Кнопка «Контрольная радиограмма» — на главной. Обучение по буквам идёт как прежде.</p>
+      <button class="linkbtn" id="knows-off">Выключить</button>`;
+  } else if (knowsAsk) {
+    body = `<p><b>Открыть радиограмму со всеми знаками?</b></p>
+      <div class="btn-row">
+        <button class="btn" id="knows-yes">Да</button>
+        <button class="btn secondary" id="knows-no">Отмена</button>
+      </div>`;
+  } else {
+    body = `<button class="btn secondary" id="knows">Я уже знаю азбуку</button>
+      <p class="muted hint">Откроет контрольную радиограмму сразу — со всеми знаками.
+         Обучение по буквам останется как есть.</p>`;
+  }
+  return `<div class="card" id="knows-card">
+      <div class="eyebrow">Если вы уже радист</div>
+      ${body}
+    </div>`;
+}
+function wireKnows(s) {
+  const on = (id, fn) => { const el = $(id); if (el) el.addEventListener('click', fn); };
+  const redraw = () => { renderSettings(); const c = $('#knows-card'); if (c && c.scrollIntoView) c.scrollIntoView({ block: 'center' }); };
+  on('#knows', () => { knowsAsk = true; redraw(); });
+  on('#knows-no', () => { knowsAsk = false; redraw(); });
+  on('#knows-yes', () => { s.knowsAll = true; knowsAsk = false; persist(); redraw(); });
+  on('#knows-off', () => { s.knowsAll = false; knowsAsk = false; persist(); redraw(); });
+}
+
+function doBackup() {
+  const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = `boni-m-backup-${G.localDate()}.json`;
+  a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+function doRestore(e) {
+  const file = e.target.files[0]; if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const data = JSON.parse(reader.result);
+      if (!confirm('Восстановить прогресс из копии? Текущий прогресс будет заменён.')) return;
+      localStorage.setItem('boni_m_state', JSON.stringify(data));
+      location.reload();
+    } catch { alert('Не удалось прочитать файл копии.'); }
+  };
+  reader.readAsText(file);
+}
+
+// ——————————————————————————— Анонимная статистика ———————————————————————————
+// Что уходит и почему — в app/js/metrics.js. Здесь только «когда»: занятие начинается
+// при открытии и при возврате из фона, заканчивается при сворачивании. Отправка —
+// при открытии, при появлении сети и в момент сворачивания: keepalive-запрос доживает,
+// даже если система тут же выгрузит приложение. Ответ не дошёл — событие уйдёт ещё раз
+// при следующем открытии, сервер склеит повтор по ключу.
+let mstats = M.loadMeta();
+let sessionStart = Date.now();
+let statsSending = false;
+
+function endSession() {
+  if (sessionStart == null) return;
+  const ev = M.sessionEvent({ start: sessionStart, end: Date.now(), version: APP_VERSION, day: M.localDay() });
+  sessionStart = null;
+  if (!M.metricsOn(state.settings)) return;
+  mstats = M.enqueue(M.ensureId(mstats), ev);
+  M.saveMeta(mstats);
+}
+
+async function sendStats() {
+  const url = pingUrl();
+  if (!url || statsSending || !M.metricsOn(state.settings)) return;
+  if (navigator.onLine === false) return;
+  const payload = M.buildPayload(mstats);
+  if (!payload) return;
+  statsSending = true;
+  try {
+    // text/plain — «простой» запрос без предварительного OPTIONS: при сворачивании
+    // второй запрос уже не успел бы. Сервер разбирает JSON из тела сам.
+    const res = await fetch(url, {
+      method: 'POST', headers: { 'content-type': 'text/plain' },
+      body: JSON.stringify(payload), keepalive: true,
+    });
+    if (res.ok) { mstats = M.dropSent(mstats, payload.events.map((e) => e.k)); M.saveMeta(mstats); }
+  } catch {
+    // Сети нет или сервер лёг — очередь останется в телефоне до следующего раза.
+  } finally {
+    statsSending = false;
+  }
+}
+
+// Выключили в настройках — накопленное тоже выбрасываем: слово «выключено» должно значить ровно это.
+function statsOff() {
+  mstats = { ...mstats, queue: [] };
+  M.saveMeta(mstats);
+}
+
+window.addEventListener('pagehide', () => { endSession(); sendStats(); });
+window.addEventListener('online', sendStats);
+setTimeout(sendStats, 3000); // не толкаться со стартом: сначала экран, потом отправка
+
+// ——————————————————————————— Системное ———————————————————————————
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    endSession(); sendStats();
+    A.stopAll(); stopActiveClock();
+    // Передача прерывается вместе со звуком. Молчаливо оборванная радиограмма выглядела бы
+    // как «дальше ничего не передали» — а человек потом считал бы это своими ошибками.
+    if (currentTab === 'radiogram' && R && R.phase === 'receive') {
+      const note = $('#rg-note');
+      if (note) { note.textContent = 'Передача прервана: приложение сворачивали. Начните заново.'; note.className = 'muted center hint'; }
+      const bar = $('#rg-progress');
+      if (bar) { bar.style.transition = 'none'; bar.style.width = '0%'; }
+      if (R.stop) R.stop();
+    }
+    // Радиоигра: звук оборван вместе с onDone — гасим лампу и зовём послушать заново,
+    // иначе после возврата висело бы «Слушайте…» над тишиной.
+    if (currentTab === 'puzzle' && Z && Z.q && !Z.q.done) {
+      $('#pz-lamp')?.classList.remove('on');
+      screenEl.querySelectorAll('.pz-cell.now').forEach((c) => c.classList.remove('now'));
+      puzzleSay(`Нажмите «${Z.q.heard ? 'Ещё раз' : 'Слушать'}».`);
+    }
+    // Иначе площадка остаётся визуально вжатой и «залипшей» после возврата.
+    resetKeyHold();
+    return;
+  }
+  if (sessionStart == null) sessionStart = Date.now();
+  // Радиоигра: часы идут, пока открыт вопрос (как у занятия), без автоповтора звука.
+  if (currentTab === 'puzzle' && Z && Z.q) startActiveClock();
+  if (currentTab === 'learn' || currentTab === 'key') {
+    startActiveClock();
+    // Сворачивание во время проигрывания обрывает звук и оставляет кнопки заблокированными —
+    // переиграем текущий знак, чтобы занятие не «зависло».
+    if (currentTab === 'learn' && L && L.locked && !L.awaiting) playTarget();
+  }
+});
+
+// Wake Lock во время занятия (§13.5) — мягко, без падений.
+let wakeLock = null;
+async function requestWake() { try { if ('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen'); } catch {} }
+
+// Регистрация service worker (офлайн).
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
+}
+// Сохранность данных (§13.12).
+try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch {}
+
+// Старт.
+applyTheme();
+if (needsOnboarding(state)) renderOnboarding();
+else {
+  // У тех, кто уже занимался прежней версией, заслуженные вехи могли не записаться.
+  // Доначисляем их ТИХО при запуске: иначе они выпадут баннером «Новая веха!» посреди
+  // занятия — за то, что человек сделал месяц назад.
+  G.checkMilestones(state, { triggers: ['chars'] });
+  persist();
+  go('home');
+}

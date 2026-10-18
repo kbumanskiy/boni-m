@@ -5,6 +5,7 @@ import { load, save, needsOnboarding } from './js/state.js';
 // при смешанном кэше обновления рядом может оказаться старый модуль, и именованный импорт
 // несуществующего экспорта не дал бы запуститься всему приложению.
 import * as ST from './js/state.js';
+import * as TM from './js/timing.js';
 import { clampEff, slowerEff, charTiming, classifyHold, keyThresholds, cpm, LIMITS } from './js/timing.js';
 import * as P from './js/progress.js';
 import * as G from './js/gamify.js';
@@ -772,11 +773,56 @@ function radiogramSet(kind) {
 
 let R = null; // состояние упражнения
 
+// ——— «Длинная» радиограмма (ТЗ-длинные-радиограммы.md, решение 16.10.2026) ———
+// Тренировка с фиксированным числом групп на любой скорости, не по правилам соревнований:
+// без «принята», рекорда, вехи и очков. Список чисел — LIMITS.radiogramGroups (timing.js).
+// Смешанный кэш при обновлении: если timing.js старый (нет списка или оценки длительности),
+// кнопку «Длинная» не рисуем вовсе — «Короткая» и «Минута» открываются как в v25.
+function longAvailable() {
+  return Array.isArray(LIMITS.radiogramGroups?.options) && typeof TM.estimateRadiogramSeconds === 'function';
+}
+function longOn() { return longAvailable() && state.settings.radiogramLong === true; }
+function longGroups() {
+  const opts = LIMITS.radiogramGroups?.options || [];
+  const g = state.settings.radiogramGroups;
+  return opts.includes(g) ? g : (LIMITS.radiogramGroups?.def ?? 30);
+}
+// Код знака радиограммы: латиница и русские из обеих таблиц, остальное — из текущей азбуки.
+const rgCodeOf = (ch) => codeAnywhere(ch) || DATA.CODE_BY_CHAR[state.settings.alphabet]?.get(ch) || '';
+
+// «около 30 секунд», «около 1 минуты», «около 1,5 минуты», «около 6 минут» — до полуминуты.
+function aboutDuration(sec) {
+  const m = Math.max(1, Math.round(sec / 30)) / 2;
+  if (m === 0.5) return 'около 30 секунд';
+  if (Number.isInteger(m)) return `около ${m} ${plural(m, 'минуты', 'минут', 'минут')}`;
+  return `около ${String(m).replace('.', ',')} минуты`;
+}
+// Строка под полосой у «Длинной»: время можно, число групп — нельзя (подсказывало бы,
+// сколько знаков записать).
+function leftText(sec) {
+  if (sec <= 10) return 'Последние секунды';
+  const r = Math.round(sec / 10) * 10;
+  const m = Math.floor(r / 60), s = r % 60;
+  return `Осталось около ${[m ? `${m} мин` : '', s ? `${s} с` : ''].filter(Boolean).join(' ')}`;
+}
+// «разобрано 7 групп», но «разобрана 1 группа» / «разобран 1 знак».
+const agreeOne = (n, one, many) => (n % 10 === 1 && n % 100 !== 11 ? one : many);
+
+// Служебный доступ для проверок (только чтение): фаза, сколько знаков прозвучало, дозвучала ли
+// передача. Как и __rgText, подсмотреть передачу в занятии он не помогает.
+try {
+  Object.defineProperty(window, '__rgDebug', { configurable: true, value: Object.freeze({
+    get phase() { return R ? R.phase : null; },
+    get played() { return R ? (R.played || 0) : 0; },
+    get ended() { return !!(R && R.ended); },
+  }) });
+} catch {}
+
 function renderRadiogram() {
   currentTab = 'radiogram';
   tabsEl.classList.add('hidden');
-  const s = state.settings;
-  R = { phase: 'setup', text: '', stop: null, startedAt: 0 };
+  R = { phase: 'setup', text: '', stop: null, startedAt: 0,
+        long: false, played: 0, ended: false, wakeRetried: false, reason: null, timeline: null };
   drawRadiogramSetup();
 }
 
@@ -784,6 +830,7 @@ function radiogramExit() {
   if (R && R.stop) R.stop();
   A.stopAll();
   stopActiveClock();
+  releaseWake();
   R = null;
   go('home');
 }
@@ -798,9 +845,24 @@ function drawRadiogramSetup() {
   const digitsReady = radiogramSet('digits').length > 0;
   if (s.radiogramKind === 'digits' && !digitsReady) s.radiogramKind = 'letters';
   const groups = RG.groupsFor(s.radiogramCpm, s.radiogramFull ? RG.MINUTE : 20);
+  const canLong = longAvailable();
+  const long = longOn();
+  const nLong = longGroups();
+  const durBtn = (k, label, active) => `<button data-dur="${k}" class="${active ? 'active' : ''}">${label}</button>`;
+  let durHint;
+  if (long) {
+    const wpm = s.radiogramCpm / 5;
+    const est = TM.estimateRadiogramSeconds(radiogramSet(s.radiogramKind), rgCodeOf, nLong, wpm, RG.GROUP_SIZE);
+    durHint = `Тренировка — ${nLong} ${plural(nLong, 'группа', 'группы', 'групп')} по пять знаков,
+         ${aboutDuration(est)} на этой скорости. Не по правилам соревнований: оценки «принята»
+         не будет, только ошибки и процент верных.`;
+  } else {
+    durHint = `${s.radiogramFull ? 'Полная радиограмма' : 'Короткий заход'} —
+         ${groups} ${plural(groups, 'группа', 'группы', 'групп')} по пять знаков.`;
+  }
 
   screenEl.innerHTML = `
-    <div class="screenbar">
+    <div class="screenbar rg-setup">
       <div><h2>Контрольная радиограмма</h2></div>
       <button class="iconbtn" id="back" aria-label="Назад">${ICON.exit(22)}<span>Назад</span></button>
     </div>
@@ -827,12 +889,18 @@ function drawRadiogramSetup() {
     </div>
     <div class="card">
       <div class="eyebrow">Длительность</div>
-      <div class="seg">
-        <button data-full="0" class="${s.radiogramFull ? '' : 'active'}">Короткая</button>
-        <button data-full="1" class="${s.radiogramFull ? 'active' : ''}">Минута</button>
+      <div class="seg dur">
+        ${durBtn('short', 'Короткая', !long && !s.radiogramFull)}
+        ${durBtn('minute', 'Минута', !long && s.radiogramFull)}
+        ${canLong ? durBtn('long', 'Длинная', long) : ''}
       </div>
-      <p class="muted hint">${s.radiogramFull ? 'Полная радиограмма' : 'Короткий заход'} —
-         ${groups} ${plural(groups, 'группа', 'группы', 'групп')} по пять знаков.</p>
+      ${long ? `<div class="eyebrow" id="rg-groups-label">Сколько групп</div>
+      <div class="seg" role="group" aria-labelledby="rg-groups-label">${LIMITS.radiogramGroups.options.map((g) =>
+        `<button data-groups="${g}" class="${g === nLong ? 'active' : ''}">${g}</button>`).join('')}</div>` : ''}
+      <p class="muted hint">${durHint}</p>
+      ${long && !('wakeLock' in navigator) ? `<p class="muted hint" id="rg-wake">Телефон может погасить
+         экран во время приёма — тогда передача прервётся. Если так случится, увеличьте время до
+         отключения экрана в настройках телефона.</p>` : ''}
     </div>
     ${state.records.radiogramCpm ? `<p class="muted center">Лучшая принятая радиограмма: <b>${state.records.radiogramCpm} зн/мин</b></p>` : ''}
     <button class="btn" id="start">${ICON.sound(24)} Начать приём</button>`;
@@ -841,8 +909,16 @@ function drawRadiogramSetup() {
   screenEl.querySelectorAll('[data-kind]').forEach((b) => b.addEventListener('click', () => {
     state.settings.radiogramKind = b.dataset.kind; persist(); drawRadiogramSetup();
   }));
-  screenEl.querySelectorAll('[data-full]').forEach((b) => b.addEventListener('click', () => {
-    state.settings.radiogramFull = b.dataset.full === '1'; persist(); drawRadiogramSetup();
+  // «Длинная» ставит только radiogramLong и не трогает radiogramFull: при откате на v25
+  // старый код увидит прежний выбор «Короткая»/«Минута».
+  screenEl.querySelectorAll('[data-dur]').forEach((b) => b.addEventListener('click', () => {
+    const d = b.dataset.dur;
+    if (d === 'long') state.settings.radiogramLong = true;
+    else { state.settings.radiogramLong = false; state.settings.radiogramFull = d === 'minute'; }
+    persist(); drawRadiogramSetup();
+  }));
+  screenEl.querySelectorAll('[data-groups]').forEach((b) => b.addEventListener('click', () => {
+    state.settings.radiogramGroups = Number(b.dataset.groups); persist(); drawRadiogramSetup();
   }));
   $('#slower').addEventListener('click', () => changeRadiogramSpeed(-RG.SPEED_STEP));
   $('#faster').addEventListener('click', () => changeRadiogramSpeed(+RG.SPEED_STEP));
@@ -865,35 +941,82 @@ function plural(n, one, few, many) {
   return many;
 }
 
+const RG_NOTE_RUN = 'Идёт передача… Пишите сплошь или пробелами — как удобнее.';
+const RG_NOTE_WAIT = 'Передача ещё не началась.';
+
 function startRadiogram() {
+  // «Начать заново», «Ещё раз», «Быстрее»: прежняя передача и блокировка экрана — долой.
+  if (R && R.stop) R.stop();
+  A.stopAll();
+  releaseWake();
   const s = state.settings;
   const set = radiogramSet(s.radiogramKind);
+  const long = longOn();
   const seconds = s.radiogramFull ? RG.MINUTE : 20;
-  const text = RG.makeRadiogram(set, RG.groupsFor(s.radiogramCpm, seconds));
+  const groups = long ? longGroups() : RG.groupsFor(s.radiogramCpm, seconds);
+  const text = RG.makeRadiogram(set, groups);
   if (!text) { drawRadiogramSetup(); return; }
-  // Сколько примерно продлится передача: знаки плюс паузы между группами.
+  // Скорость радиограммы — в знаках в минуту; звук считает в WPM (пять знаков = слово).
+  // Растяжки Фарнсуорта здесь нет намеренно: паузы стандартные, 1:3:7, как в эфире.
+  const wpm = s.radiogramCpm / 5;
+  // Сколько примерно продлится передача (запасной путь, если timing.js старый).
   const chars = RG.normalize(text).length;
   const gaps = text.split(' ').length - 1;
+  // План передачи по тем же формулам, что и звук: по нему идут полоса и «Осталось около…».
+  // Нет функции (старый timing.js из смешанного кэша) — полоса едет CSS-переходом, как в v25.
+  const timeline = typeof TM.sequenceTimeline === 'function' ? TM.sequenceTimeline([...text], rgCodeOf, wpm, wpm) : null;
   R = { phase: 'receive', text, stop: null, startedAt: Date.now(),
-        seconds: Math.max(2, (chars * RG.MINUTE) / s.radiogramCpm + gaps * 0.4) };
+        seconds: Math.max(2, (chars * RG.MINUTE) / s.radiogramCpm + gaps * 0.4),
+        long, groups, played: 0, ended: false, wakeRetried: false, reason: null, timeline };
   // Переданный текст открыт наружу только для проверок вёрстки (tools/screens.mjs):
   // подсмотреть его в занятии невозможно — экран приёма ничего не показывает.
   try { window.__rgText = text; } catch {}
   startActiveClock();
   requestWake();
+  // Порядок важен: сначала экран, потом звук. Без Web Audio onDone приходит прямо внутри
+  // playSequence, и пишет он в уже нарисованные #rg-note и кнопки. R.stop в этот момент
+  // ещё null — обработчики на него не опираются.
   drawRadiogramReceive();
+  const run = R;
+  const stop = A.playSequence([...text], rgCodeOf, { ...s, charWpm: wpm, effWpm: wpm }, {
+    onChar: (i) => {
+      if (i === null) return; // так playSequence гасит подсветку в конце; конец ловит onDone
+      if (R !== run || run.phase !== 'receive') return;
+      run.played = i; // прозвучали знаки 0…i−1 (осторожная оценка, недоучёт не больше знака)
+      rgProgress(i);
+    },
+    onDone: (played) => {
+      if (R !== run || run.phase !== 'receive') return;
+      // «Прозвучало» решаем по played И по состоянию звука: без Web Audio onDone(true)
+      // приходит сразу, а звука не было — это не «передача окончена».
+      const st = A.audioStatus ? A.audioStatus() : 'running';
+      if (!played || st === 'unsupported' || st === 'failed') { stopRadiogram('nosound'); return; }
+      run.ended = true;
+      run.played = run.timeline ? run.timeline.starts.length : chars;
+      const bar = $('#rg-progress');
+      if (bar && run.timeline) { bar.style.transition = 'none'; bar.style.width = '100%'; }
+      $('#rg-left')?.remove();
+      const note = $('#rg-note');
+      if (note) { note.textContent = 'Передача окончена. Проверьте написанное и нажмите «Готово».'; note.className = 'muted center hint done'; }
+    },
+  });
+  if (R === run) run.stop = stop;
+}
 
-  // Скорость радиограммы — в знаках в минуту; звук считает в WPM (пять знаков = слово).
-  // Растяжки Фарнсуорта здесь нет намеренно: паузы стандартные, 1:3:7, как в эфире.
-  const wpm = s.radiogramCpm / 5;
-  R.stop = A.playSequence([...text], (ch) => codeAnywhere(ch) || DATA.CODE_BY_CHAR[s.alphabet]?.get(ch), 
-    { ...s, charWpm: wpm, effWpm: wpm }, {
-      onDone: () => {
-        if (!R || R.phase !== 'receive') return;
-        const note = $('#rg-note');
-        if (note) { note.textContent = 'Передача окончена. Проверьте написанное и нажмите «Готово».'; note.className = 'muted center hint done'; }
-      },
-    });
+// Полоса и оставшееся время — по событию «начался i-й знак»: идут, только когда звук
+// реально идёт, и сами встают при обрыве. Короткий переход — до начала следующего знака.
+function rgProgress(i) {
+  const tl = R && R.timeline;
+  if (!tl || !tl.total) return;
+  const next = i + 1 < tl.starts.length ? tl.starts[i + 1] : tl.total;
+  const bar = $('#rg-progress');
+  if (bar) {
+    bar.style.transition = `width ${Math.max(0, next - tl.starts[i]).toFixed(3)}s linear`;
+    bar.style.width = `${((100 * next) / tl.total).toFixed(3)}%`;
+  }
+  if (R.long) { const left = $('#rg-left'); if (left) left.textContent = leftText(tl.total - tl.starts[i]); }
+  const note = $('#rg-note');
+  if (note && note.textContent === RG_NOTE_WAIT) note.textContent = RG_NOTE_RUN;
 }
 
 function drawRadiogramReceive() {
@@ -904,40 +1027,132 @@ function drawRadiogramReceive() {
       <button class="iconbtn" id="abort" aria-label="Прервать">${ICON.exit(22)}<span>Прервать</span></button>
     </div>
     <label for="rg-input">Записывайте принятое</label>
-    <textarea id="rg-input" class="rg-input" rows="4" autocomplete="off" autocapitalize="characters"
+    <textarea id="rg-input" class="rg-input" rows="${R && R.long ? 6 : 4}" maxlength="600"
+      inputmode="text" enterkeyhint="done" autocomplete="off" autocapitalize="characters"
       autocorrect="off" spellcheck="false" placeholder="например, ЖЕЛЕЗ ОКНАМ ..."></textarea>
     <div class="rg-bar" aria-hidden="true"><i id="rg-progress"></i></div>
-    <p class="muted center hint" id="rg-note">Идёт передача… Пишите сплошь или пробелами — как удобнее.</p>
-    <button class="btn" id="rg-done">${ICON.check(24)} Готово</button>
+    ${R && R.long && R.timeline ? `<p class="muted center hint" id="rg-left">${leftText(R.timeline.total)}</p>` : ''}
+    ${R && R.long ? `<p class="muted center hint hidden" id="rg-wake">Телефон может погасить экран
+       во время приёма — тогда передача прервётся. Если так случится, увеличьте время до
+       отключения экрана в настройках телефона.</p>` : ''}
+    <p class="muted center hint" id="rg-note">${RG_NOTE_RUN}</p>
+    <div id="rg-actions"><button class="btn" id="rg-done">${ICON.check(24)} Готово</button></div>
     <p class="muted center hint">На компьютере можно набирать с клавиатуры, а закончить —
        клавишей Enter.</p>`;
   const bar = $('#rg-progress');
-  if (bar && R && R.seconds) {
-    // Полоса — единственная подсказка во время приёма: сколько ещё будут передавать.
+  if (bar && R && !R.timeline && R.seconds) {
+    // Запасной путь (старый timing.js): полоса — CSS-переход на оценку длительности, как в v25.
     // Число принятых групп не показываем: это подсказывало бы, сколько знаков записать.
     bar.style.transition = `width ${R.seconds}s linear`;
     requestAnimationFrame(() => { bar.style.width = '100%'; });
   }
   const input = $('#rg-input');
   input.focus();
-  // Enter заканчивает приём: радист привык завершать строкой, а не искать кнопку.
+  // Enter заканчивает приём, но только когда передача дозвучала: посреди передачи он
+  // никогда не значит «я закончил», а случайный Enter на клавиатуре телефона обрывал бы
+  // шестиминутную радиограмму. Кнопка «Готово» работает всегда.
   input.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); finishRadiogram(); }
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      if (R && R.phase === 'receive' && R.ended) finishRadiogram();
+    }
   });
   $('#rg-done').addEventListener('click', finishRadiogram);
   $('#abort').addEventListener('click', radiogramExit);
 }
 
-function finishRadiogram() {
+// Единый переход в «передача остановлена»: свернули приложение, погас экран, звук не
+// включился. Звук и часы стоп, блокировка экрана снята, полоса замирает на месте —
+// видно, сколько успели. Введённый текст не трогаем.
+function stopRadiogram(reason) {
   if (!R || R.phase !== 'receive') return;
+  if (R.stop) R.stop();
+  A.stopAll();
+  stopActiveClock();
+  releaseWake();
+  const bar = $('#rg-progress');
+  if (bar) {
+    let w = '';
+    try { w = getComputedStyle(bar).width; } catch {}
+    bar.style.transition = 'none';
+    if (w) bar.style.width = w;
+  }
+  R.phase = 'stopped';
+  R.reason = reason;
+  drawRadiogramStopped();
+}
+
+// Разобрать прозвучавшую часть можно только у «Длинной», после сворачивания и хотя бы
+// одной полной группы. Оборванную «Короткую»/«Минуту» по правилам не оцениваем.
+const canReviewStopped = () => !!(R && R.phase === 'stopped' && R.long && R.reason === 'hidden'
+  && R.played >= RG.GROUP_SIZE);
+
+function drawRadiogramStopped() {
+  const note = $('#rg-note');
+  if (note) {
+    note.className = 'muted center hint';
+    if (R.reason === 'hidden') note.textContent = 'Передача прервана: приложение сворачивали.';
+    else note.innerHTML = noSoundNote('Начать заново');
+  }
+  const box = $('#rg-actions');
+  if (box) {
+    box.innerHTML = canReviewStopped()
+      ? `<button class="btn" id="rg-part">${ICON.check(24)} Разобрать принятое</button>
+         <button class="btn secondary" id="rg-restart">${ICON.replay(24)} Начать заново</button>`
+      : `<button class="btn" id="rg-restart">${ICON.replay(24)} Начать заново</button>`;
+    $('#rg-part')?.addEventListener('click', finishRadiogram);
+    $('#rg-restart').addEventListener('click', startRadiogram);
+  }
+}
+
+// Надпись «звука нет» — одна для «Учиться» и радиограммы (раздел 10.2 ТЗ). Разметка:
+// главная фраза и приглушённое пояснение. again — какую кнопку нажать.
+function noSoundNote(again) {
+  const st = A.audioStatus ? A.audioStatus() : 'running';
+  if (st === 'unsupported') {
+    return `<b class="nosound">В этом браузере нет звука.</b> Учиться на слух в нём не получится —
+      откройте приложение в Chrome. Учтите: прогресс в другом браузере свой, перенести его
+      можно резервной копией из настроек.`;
+  }
+  return `<b class="nosound">Звук не включился.</b> Проверьте громкость и беззвучный режим,
+    затем нажмите «${again}». Если не помогло — перезагрузите телефон.`;
+}
+
+function finishRadiogram() {
+  if (!R) return;
+  if (R.phase === 'stopped') { if (!canReviewStopped()) return; }
+  else if (R.phase !== 'receive') return;
+  // «Длинная» раньше конца передачи — разбор по прозвучавшей части. «Короткая» и «Минута»
+  // по правилам сверяются с полным текстом: недослушанное — это ошибки.
+  let sent = R.text, partial = false;
+  if (R.long && !R.ended) {
+    if (!(R.played > 0)) {
+      const note = $('#rg-note');
+      if (note) note.textContent = RG_NOTE_WAIT;
+      return;
+    }
+    sent = RG.sentPrefix(R.text, R.played);
+    partial = true;
+  }
   const written = $('#rg-input') ? $('#rg-input').value : '';
   if (R.stop) R.stop();
   A.stopAll();
+  releaseWake();
   const cpm = state.settings.radiogramCpm;
-  const result = RG.compare(R.text, written);
+  const result = RG.compare(sent, written);
+  stopActiveClock();
+
+  if (R.long) {
+    // Тренировка: ничего в рекорды, очки и вехи. Время приёма уже ушло во «Всего в эфире».
+    R = { ...R, phase: 'result', result, cpm, written, partial,
+          pct: RG.percentCorrect(result.total, result.errors) };
+    persist();
+    drawRadiogramLongResult();
+    return;
+  }
+
   const ok = RG.accepted(result.errors);
   R = { ...R, phase: 'result', result, ok, cpm, written };
-  stopActiveClock();
 
   // Рекорд — только за ПРИНЯТУЮ радиограмму: иначе он означал бы «включил быструю
   // передачу и ничего не разобрал».
@@ -952,23 +1167,32 @@ function finishRadiogram() {
 
 // Разбор: показываем переданный текст группами по пять и помечаем, что случилось
 // с каждым знаком. Лишние знаки показываем на их месте — иначе непонятно, откуда
-// взялся сдвиг.
+// взялся сдвиг. Каждая группа — неразрывный блок (пять переданных знаков не рвутся
+// посреди строки), а подряд идущие лишние знаки — своя переносимая серия: вставка
+// в сотни знаков иначе вылезла бы за экран.
 function radiogramMarkup(cells) {
-  let out = '', shown = 0;
+  let out = '<span class="rg-group">', shown = 0, extras = '';
+  const flush = () => { if (extras) { out += `<span class="rg-extras">${extras}</span>`; extras = ''; } };
   for (const c of cells) {
     if (c.type === 'extra') {
-      out += `<span class="rg-extra" title="лишний знак">${esc(glyphText(c.got))}</span>`;
+      extras += `<span class="rg-extra" title="лишний знак">${esc(glyphText(c.got))}</span>`;
       continue;
     }
-    if (shown > 0 && shown % RG.GROUP_SIZE === 0) out += ' ';
+    if (shown > 0 && shown % RG.GROUP_SIZE === 0) { flush(); out += '</span> <span class="rg-group">'; }
+    flush();
     shown++;
     const cls = c.type === 'ok' ? '' : (c.type === 'wrong' ? 'rg-wrong' : 'rg-missed');
     const title = c.type === 'wrong' ? ` title="вы написали ${esc(c.got)}"`
       : (c.type === 'missed' ? ' title="пропущен"' : '');
     out += `<span class="${cls}"${title}>${esc(glyphText(c.expected))}</span>`;
   }
-  return out;
+  flush();
+  return out + '</span>';
 }
+
+const rgLegend = `<p class="muted hint"><span class="rg-wrong">так</span> — принято неверно,
+        <span class="rg-missed">так</span> — пропущено,
+        <span class="rg-extra">так</span> — лишнее.</p>`;
 
 function drawRadiogramResult() {
   const { result, ok, cpm } = R;
@@ -989,9 +1213,7 @@ function drawRadiogramResult() {
     <div class="card">
       <div class="eyebrow">Что было передано</div>
       <div class="rg-review">${radiogramMarkup(result.cells)}</div>
-      <p class="muted hint"><span class="rg-wrong">так</span> — принято неверно,
-        <span class="rg-missed">так</span> — пропущено,
-        <span class="rg-extra">так</span> — лишнее.</p>
+      ${rgLegend}
     </div>
     <div class="card">
       <div class="eyebrow">Как записали вы</div>
@@ -1000,6 +1222,10 @@ function drawRadiogramResult() {
     ${ok && cpm < maxSpeed ? `<button class="btn" id="faster">Быстрее на 10 — ${RG.nextSpeed(cpm, maxSpeed)} зн/мин</button>` : ''}
     <button class="btn secondary" id="again">Ещё раз на этой скорости</button>
     <button class="linkbtn" id="leave">Выйти</button>`;
+  wireRadiogramResult(cpm, maxSpeed);
+}
+
+function wireRadiogramResult(cpm, maxSpeed) {
   $('#back').addEventListener('click', radiogramExit);
   $('#leave').addEventListener('click', radiogramExit);
   $('#again').addEventListener('click', startRadiogram);
@@ -1009,6 +1235,55 @@ function drawRadiogramResult() {
     persist();
     startRadiogram();
   });
+}
+
+// Разбор «Длинной»: без вердикта и цветной плашки, процент верных и честная подпись.
+function drawRadiogramLongResult() {
+  const { result, cpm, partial, pct } = R;
+  const maxSpeed = LIMITS.radiogramCpm.max;
+  const T = result.total, N = R.groups;
+  const k = Math.ceil(T / RG.GROUP_SIZE);
+  let title;
+  if (!partial) title = `Тренировка: ${N} ${plural(N, 'группа', 'группы', 'групп')}`;
+  else if (T % RG.GROUP_SIZE === 0) {
+    title = `Тренировка: ${agreeOne(k, 'разобрана', 'разобрано')} ${k} ${plural(k, 'группа', 'группы', 'групп')} из ${N} — приём закончили раньше.`;
+  } else {
+    title = `Тренировка: ${agreeOne(T, 'разобран', 'разобрано')} ${T} ${plural(T, 'знак', 'знака', 'знаков')} из ${N * RG.GROUP_SIZE} — приём закончили раньше.`;
+  }
+  const errs = RG.errorList(result.cells, 10);
+  const g = (ch) => esc(glyphText(ch));
+  const line = (e) => (e.type === 'wrong' ? `Группа ${e.group}: передано ${g(e.expected)}, записано ${g(e.got)}`
+    : e.type === 'missed' ? `Группа ${e.group}: пропущено ${g(e.expected)}` : `Группа ${e.group}: лишнее ${g(e.got)}`);
+  const faster = pct !== null && pct >= 95 && cpm < maxSpeed;
+  screenEl.innerHTML = `
+    <div class="screenbar">
+      <div><h2>Разбор</h2><div class="counter">${cpm} зн/мин</div></div>
+      <button class="iconbtn" id="back" aria-label="Назад">${ICON.exit(22)}<span>Назад</span></button>
+    </div>
+    <div class="card center">
+      <p class="rg-train"><b>${title}</b></p>
+      <p class="muted">Ошибок: <b>${result.errors}</b> из ${T} ${plural(T, 'знака', 'знаков', 'знаков')}.${pct !== null ? ` Верно: <b>${pct}%</b>.` : ''}</p>
+      <p class="muted hint">Это тренировка, не по правилам. На соревнованиях радиограмма
+         передаётся одну минуту, и принятой считается та, где не больше пяти ошибок.</p>
+    </div>
+    <div class="card">
+      <div class="eyebrow">Что было передано</div>
+      <p class="muted hint">${k} ${plural(k, 'группа', 'группы', 'групп')} · ${T} ${plural(T, 'знак', 'знака', 'знаков')}</p>
+      <div class="rg-review">${radiogramMarkup(result.cells)}</div>
+      ${rgLegend}
+    </div>
+    ${errs.items.length ? `<div class="card" id="rg-errors">
+      <div class="eyebrow">Где ошибки</div>
+      <ul class="list rg-errlist">${errs.items.map((e) => `<li>${line(e)}</li>`).join('')}${errs.more ? `<li class="muted">и ещё ${errs.more}</li>` : ''}</ul>
+    </div>` : ''}
+    <div class="card">
+      <div class="eyebrow">Как записали вы</div>
+      <div class="rg-review plain">${esc(R.written.trim()) || '<span class="muted">пусто</span>'}</div>
+    </div>
+    ${faster ? `<button class="btn" id="faster">Быстрее на 10 — ${RG.nextSpeed(cpm, maxSpeed)} зн/мин</button>` : ''}
+    <button class="btn secondary" id="again">Ещё раз на этой скорости</button>
+    <button class="linkbtn" id="leave">Выйти</button>`;
+  wireRadiogramResult(cpm, maxSpeed);
 }
 
 // ——————————————————————————— Радиоигра «Угадайте на слух» ———————————————————————————
@@ -2008,13 +2283,9 @@ document.addEventListener('visibilitychange', () => {
     A.stopAll(); stopActiveClock();
     // Передача прерывается вместе со звуком. Молчаливо оборванная радиограмма выглядела бы
     // как «дальше ничего не передали» — а человек потом считал бы это своими ошибками.
-    if (currentTab === 'radiogram' && R && R.phase === 'receive') {
-      const note = $('#rg-note');
-      if (note) { note.textContent = 'Передача прервана: приложение сворачивали. Начните заново.'; note.className = 'muted center hint'; }
-      const bar = $('#rg-progress');
-      if (bar) { bar.style.transition = 'none'; bar.style.width = '0%'; }
-      if (R.stop) R.stop();
-    }
+    // Только пока передача не дозвучала: дослушавший и отвлёкшийся на проверку написанного
+    // результат не теряет — «Готово» остаётся на месте.
+    if (currentTab === 'radiogram' && R && R.phase === 'receive' && !R.ended) stopRadiogram('hidden');
     // Радиоигра: звук оборван вместе с onDone — гасим лампу и зовём послушать заново,
     // иначе после возврата висело бы «Слушайте…» над тишиной.
     if (currentTab === 'puzzle' && Z && Z.q && !Z.q.done) {
@@ -2037,9 +2308,39 @@ document.addEventListener('visibilitychange', () => {
   }
 });
 
-// Wake Lock во время занятия (§13.5) — мягко, без падений.
+// Wake Lock во время приёма радиограммы (§13.5) — мягко, без падений.
+// Раньше блокировка не снималась вовсе (экран не гас до конца сеанса), а повторный старт
+// терял прежнюю. Теперь: снимается в конце, при выходе и обрыве; поздний ответ request()
+// после «Прервать» или нового старта сразу освобождается; если система сняла блокировку
+// сама (экономия батареи), просим ещё раз — один раз за передачу.
 let wakeLock = null;
-async function requestWake() { try { if ('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen'); } catch {} }
+let wakeSeq = 0;
+function releaseWake() {
+  const w = wakeLock;
+  wakeLock = null; // сначала обнулить: событие release этой блокировки придёт позже
+  try { w?.release(); } catch {}
+}
+async function requestWake() {
+  if (!('wakeLock' in navigator)) return;
+  const my = ++wakeSeq;
+  const run = R;
+  const alive = () => my === wakeSeq && !document.hidden && R === run && run && run.phase === 'receive' && !run.ended;
+  let lock;
+  try { lock = await navigator.wakeLock.request('screen'); } catch {
+    // Отказ (экономия батареи, небезопасный адрес): у «Длинной» честно предупреждаем.
+    if (alive() && run.long) $('#rg-wake')?.classList.remove('hidden');
+    return;
+  }
+  if (!alive()) { try { lock.release(); } catch {} return; }
+  wakeLock = lock;
+  try {
+    lock.addEventListener('release', () => {
+      if (lock !== wakeLock) return; // освободили сами (releaseWake) — не повторяем
+      wakeLock = null;
+      if (alive() && !run.wakeRetried) { run.wakeRetried = true; requestWake(); }
+    });
+  } catch {}
+}
 
 // Регистрация service worker (офлайн).
 if ('serviceWorker' in navigator) {

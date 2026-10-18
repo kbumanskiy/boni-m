@@ -211,5 +211,28 @@ ok(saved().milestones.radiogram === true, 'радиограмма: веха за
     'знаю азбуку: в настройках кнопка, а не «Включено»');
 }
 
+// 10) Длинная радиограмма (morse-v26): у папы прежний выбор, рекорд и веха «Короткой»
+// переживают заход в «Длинную» с ошибками.
+{
+  document.querySelector('[data-tab="home"]').click(); await sleep(20);
+  document.querySelector('#radiogram').click(); await sleep(20);
+  ok(document.querySelector('[data-dur="short"]').classList.contains('active'), 'длинная: на подготовке активна «Короткая», как у папы было');
+  ok(!document.querySelector('[data-groups]'), 'длинная: ряда «Сколько групп» нет');
+  ok(saved().settings.radiogramLong === false && saved().settings.radiogramGroups === 30,
+    'длинная: в сохранённом состоянии radiogramLong=false, radiogramGroups=30');
+  const rec = saved().records.radiogramCpm, pts = saved().profile.points;
+  ok(rec > 0 && saved().milestones.radiogram === true, 'рекорд и веха «Короткой» на месте до захода в «Длинную»');
+  document.querySelector('[data-dur="long"]').click(); await sleep(10);
+  document.querySelector('#start').click();
+  for (let t = 0; t < 8000 && !window.__rgDebug.ended; t += 10) await sleep(10);
+  ok(window.__rgDebug.ended, 'длинная: передача дозвучала');
+  document.querySelector('#rg-input').value = 'ЖЖЖЖЖ ЖЖЖЖЖ';
+  document.querySelector('#rg-done').click(); await sleep(20);
+  ok(text().includes('Тренировка') && !text().includes('не принята'), 'длинная с ошибками: разбор тренировки, без вердикта');
+  ok(saved().records.radiogramCpm === rec && saved().profile.points === pts && saved().milestones.radiogram === true,
+    'рекорд, очки и веха «Короткой» на месте после «Длинной» с ошибками');
+  document.querySelector('#leave').click(); await sleep(20);
+}
+
 assert.equal(errors.length, 0, 'необработанные ошибки: ' + errors.map(String).join(' | '));
 console.log(`\nДымовой тест обновления пройден: ${pass} проверок, ошибок ${errors.length}`);
