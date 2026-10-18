@@ -89,3 +89,19 @@ test('слишком длинный контакт отклоняется', () =
 test('вызов без аргументов вообще не роняет проверку', () => {
   assert.equal(validateFeedback().ok, false);
 });
+
+// ——— «Как пользоваться» (ТЗ-длинные-радиограммы.md, 2.11, 4.5) ———
+// Пока страницы инструкции на сайте нет, адрес пуст — и карточки в настройках нет вовсе.
+test('адрес инструкции: пустой прячет карточку, заданный — https и на morse73.ru', async () => {
+  const { GUIDE_URL, guideUrl } = await import('../app/js/support.js');
+  assert.equal(guideUrl(''), null);
+  assert.equal(guideUrl('http://morse73.ru/instrukciya/'), null);
+  if (GUIDE_URL === '') {
+    assert.equal(guideUrl(), null);
+  } else {
+    assert.equal(guideUrl(), GUIDE_URL, 'заданный адрес обязан пройти проверку');
+    assert.match(GUIDE_URL, /^https:\/\//);
+    // Защита от вставки не того адреса: инструкция живёт на сайте проекта.
+    assert.equal(new URL(GUIDE_URL).hostname, 'morse73.ru');
+  }
+});

@@ -6,6 +6,7 @@ import { load, save, needsOnboarding } from './js/state.js';
 // несуществующего экспорта не дал бы запуститься всему приложению.
 import * as ST from './js/state.js';
 import * as TM from './js/timing.js';
+import * as SUP from './js/support.js';
 import { clampEff, slowerEff, charTiming, classifyHold, keyThresholds, cpm, LIMITS } from './js/timing.js';
 import * as P from './js/progress.js';
 import * as G from './js/gamify.js';
@@ -2081,6 +2082,7 @@ function renderSettings() {
       <input type="text" id="s-call" maxlength="12" value="${esc(state.profile.callsign)}"
              autocomplete="off" autocapitalize="characters" spellcheck="false">
     </div>
+    ${guideCard()}
     <div class="card">
       <div class="eyebrow">Чему учимся</div>
       <p class="muted hint">Прогресс по каждой азбуке считается отдельно.</p>
@@ -2165,6 +2167,21 @@ function renderSettings() {
       location.reload();
     }
   });
+}
+
+// «Как пользоваться» — ссылка на инструкцию на сайте (ТЗ-длинные-радиограммы.md, 2.11).
+// Вторая карточка настроек, сразу после «Кто в эфире»: начало экрана папы не сдвигается.
+// Адрес пуст — карточки нет вовсе (правило пустой строки, как у «Поддержать»).
+// Через пространство имён: при смешанном кэше старый support.js этой функции не знает.
+function guideCard() {
+  const url = SUP.guideUrl?.();
+  if (!url) return '';
+  return `<div class="card" id="guide-card">
+      <div class="eyebrow">Как пользоваться</div>
+      <p class="muted hint">Подробная инструкция ко всем режимам и настройкам — на сайте
+         morse73.ru. Откроется в браузере, нужен интернет.</p>
+      <a class="btn secondary" id="guide" href="${esc(url)}" target="_blank" rel="noopener">${ICON.help(24)} Открыть инструкцию</a>
+    </div>`;
 }
 
 // «Я уже знаю азбуку» — для опытного радиста (в том числе потерявшего прогресс): открывает

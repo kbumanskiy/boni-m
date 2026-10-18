@@ -8,8 +8,12 @@ import { extname, join, normalize } from 'node:path';
 import { CHECK_LAYOUT } from './page-checks.mjs';
 const ROOT = new URL('../app/', import.meta.url).pathname;
 const MIME={'.html':'text/html','.js':'text/javascript','.css':'text/css','.webp':'image/webp','.png':'image/png','.webmanifest':'application/manifest+json'};
+// INJECT_GUIDE — подмена адреса инструкции в support.js, как в screens.mjs (кадр settingsguide).
+let INJECT_GUIDE=false;
 const server=createServer(async(req,res)=>{const f=join(ROOT,normalize(req.url.split('?')[0]==='/'?'/index.html':req.url.split('?')[0]));
-  try{const b=await readFile(f);res.writeHead(200,{'content-type':MIME[extname(f)]||'application/octet-stream'});res.end(b);}catch{res.writeHead(404);res.end();}});
+  try{let b=await readFile(f);
+    if(INJECT_GUIDE&&f.endsWith('/js/support.js')) b=Buffer.from(String(b).replace("export const GUIDE_URL = '';","export const GUIDE_URL = 'https://example.org/instrukciya/';"));
+    res.writeHead(200,{'content-type':MIME[extname(f)]||'application/octet-stream'});res.end(b);}catch{res.writeHead(404);res.end();}});
 await new Promise(r=>server.listen(0,r));
 const base=`http://127.0.0.1:${server.address().port}/`;
 const args=['--autoplay-policy=no-user-gesture-required'];
@@ -47,6 +51,25 @@ for (const [label, inject] of cases) {
   console.log(`${found?'✓':'✗'} ловится: ${label}${found?'  → «'+after.filter(x=>!before.includes(x))[0]+'»':'  — НЕ ПОЙМАНО'}`);
   found?ok++:bad++;
 }
-console.log(`\n${bad?'✗ проверка неполная':'✓ проверка рабочая'}: поймано ${ok} из ${cases.length}`);
+// Кадр settingsguide: карточка «Как пользоваться» видна только с подставленным адресом.
+// Проверка «карточка есть» обязана уметь падать: без подмены карточки быть не должно,
+// с подменой — должна. Иначе кадр снялся бы без карточки, а замеры сказали бы «чисто».
+for (const inject of [false, true]) {
+  INJECT_GUIDE=inject;
+  const c2=await browser.newContext({viewport:{width:390,height:844}});
+  const p2=await c2.newPage();
+  await p2.goto(base,{waitUntil:'networkidle'}); await p2.waitForTimeout(250);
+  await p2.evaluate(()=>{localStorage.setItem('boni_m_state',JSON.stringify({version:2,profile:{name:'Тест',callsign:'',points:0}}));});
+  await p2.reload({waitUntil:'networkidle'}); await p2.waitForTimeout(250);
+  await p2.click('#gear'); await p2.waitForTimeout(250);
+  const has=await p2.locator('#guide-card').count()>0;
+  const right=has===inject;
+  console.log(`${right?'✓':'✗'} кадр settingsguide: ${inject?'с подменой адреса карточка есть':'без подмены карточки нет — проверка «есть карточка» упала бы'}`);
+  right?ok++:bad++;
+  await c2.close();
+}
+INJECT_GUIDE=false;
+
+console.log(`\n${bad?'✗ проверка неполная':'✓ проверка рабочая'}: поймано ${ok} из ${ok+bad}`);
 await browser.close(); server.close();
 process.exit(bad?1:0);

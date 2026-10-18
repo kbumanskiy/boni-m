@@ -27,9 +27,10 @@ const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css
 let INJECT_LINKS = false;
 const DEMO_DONATE = 'https://example.org/donate';
 const DEMO_FEEDBACK = 'https://example.org/feedback';
+const DEMO_GUIDE = 'https://example.org/instrukciya/';
 // Экраны, которые снимаются с подставленными адресами. Остальные — как в поставке,
 // то есть без этих блоков вовсе.
-const WITH_LINKS = new Set(['homesupport', 'cabinetsupport', 'cabinetfeedback']);
+const WITH_LINKS = new Set(['homesupport', 'cabinetsupport', 'cabinetfeedback', 'settingsguide']);
 
 const server = createServer(async (req, res) => {
   const path = req.url.split('?')[0];
@@ -39,7 +40,8 @@ const server = createServer(async (req, res) => {
     if (INJECT_LINKS && path.endsWith('/js/support.js')) {
       body = Buffer.from(String(body)
         .replace("export const DONATE_URL = '';", `export const DONATE_URL = '${DEMO_DONATE}';`)
-        .replace("export const FEEDBACK_URL = '';", `export const FEEDBACK_URL = '${DEMO_FEEDBACK}';`));
+        .replace("export const FEEDBACK_URL = '';", `export const FEEDBACK_URL = '${DEMO_FEEDBACK}';`)
+        .replace("export const GUIDE_URL = '';", `export const GUIDE_URL = '${DEMO_GUIDE}';`));
     }
     res.writeHead(200, { 'content-type': MIME[extname(file)] || 'application/octet-stream' });
     res.end(body);
@@ -353,6 +355,14 @@ const SCREENS = {
     const pad = page.locator('#pad');
     await pad.dispatchEvent('pointerdown'); await page.waitForTimeout(70);
     await pad.dispatchEvent('pointerup');   await page.waitForTimeout(700);
+  },
+  // Карточка «Как пользоваться» — видна только с подставленным адресом (WITH_LINKS). Подмена
+  // работает по точному тексту «= '';»: не сработала — карточки нет, и это ошибка прогона.
+  settingsguide: async (page) => {
+    await page.click('#gear'); await page.waitForTimeout(300);
+    if (!(await page.locator('#guide-card').count())) throw new Error('settingsguide: карточки #guide-card нет — подмена адреса не сработала');
+    await page.evaluate(() => document.querySelector('#guide-card').scrollIntoView({ block: 'center' }));
+    await page.waitForTimeout(150);
   },
   // Блоки поддержки и обратной связи — видны только с заданными адресами (см. WITH_LINKS).
   homesupport: async () => {},

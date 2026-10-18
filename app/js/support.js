@@ -22,6 +22,11 @@ export const FEEDBACK_URL = 'https://api.morse73.ru/feedback';
 // Пусто — статистики нет вовсе, как и с остальными адресами.
 export const PINGS_URL = 'https://api.morse73.ru/ping';
 
+// Куда ведёт карточка «Как пользоваться» в настройках: подробная инструкция на сайте.
+// Пусто, пока страница не выложена: ссылка на 404 была бы той самой мёртвой кнопкой.
+// Включается отдельным выпуском — адрес плюс подъём CACHE в app/sw.js (см. выше).
+export const GUIDE_URL = '';
+
 // Ограничения письма. Проверяются и здесь, и на сервере: браузеру верить нельзя,
 // а пользователю нужно сказать про предел до отправки, а не после.
 export const MESSAGE_MAX = 2000;
@@ -45,6 +50,10 @@ export function feedbackUrl(url = FEEDBACK_URL) {
 }
 
 export function pingUrl(url = PINGS_URL) {
+  return externalUrl(url);
+}
+
+export function guideUrl(url = GUIDE_URL) {
   return externalUrl(url);
 }
 

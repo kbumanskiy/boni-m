@@ -1080,5 +1080,23 @@ Object.defineProperty(document, 'hidden', { configurable: true, get: () => false
   ok(errs.length === 0, 'запрет записи: без ошибок — ' + errs.map(String).join(' | '));
 }
 
+// 13) «Как пользоваться» (ТЗ-длинные-радиограммы.md, 4.6.8): карточка в настройках есть
+// тогда и только тогда, когда задан адрес. Что в этом выпуске он пуст — держит support.test.js.
+{
+  const { guideUrl } = await import('../app/js/support.js');
+  setGlobal('window', window); setGlobal('document', document);
+  setGlobal('location', window.location); setGlobal('localStorage', window.localStorage);
+  click('[data-tab="home"]'); await sleep(10);
+  click('#gear'); await sleep(10);
+  const card = document.querySelector('#guide-card');
+  ok(!!card === !!guideUrl(), guideUrl() ? 'настройки: карточка «Как пользоваться» есть' : 'настройки: адрес инструкции пуст — карточки нет');
+  if (card) {
+    const kids = [...document.querySelectorAll('#screen > .card')];
+    ok(kids.indexOf(card) === 1, 'карточка «Как пользоваться» — вторая, сразу после «Кто в эфире»');
+    ok(card.querySelector('a').getAttribute('href') === guideUrl() && card.querySelector('a').target === '_blank', 'ссылка ведёт на инструкцию, в отдельном окне');
+  }
+  click('#back'); await sleep(10);
+}
+
 assert.equal(errors.length, 0, 'необработанные ошибки: ' + errors.map(String).join(' | '));
 console.log(`\nДымовой тест пройден: ${pass} проверок, ошибок ${errors.length}`);
