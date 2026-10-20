@@ -202,19 +202,21 @@ const FAST_AUDIO_SCRIPT = () => {
 // обязаны стоять целиком выше нижнего меню. Не ослаблять — чинить вёрстку.
 const FOLD = new Set(['homepapa360', 'homecall360', 'homenew360']);
 // Экраны с чистого листа — без посева прогресса.
-const CLEAN = new Set(['onboarding', 'onboardstart']);
+const CLEAN = new Set(['onboarding', 'onboarding360', 'onboarding320', 'onboardstart']);
 // Экраны режима снимаем тоже на 360 точек: самый тесный из телефонов, под который верстаем.
 const SMALL = { width: 360, height: 780 };
 const VIEWPORT = Object.fromEntries([...FOLD, ...NO_AUDIO, 'onboardstart',
   // Длинная радиограмма: на узком телефоне выше риск вылезти за край.
   'radiogramlong', 'radiogramlongwork', 'radiogramlongresult', 'radiogramlongstopped',
   // «Звук не включился» на самом тесном телефоне.
-  'learnsilent',
+  'learnsilent', 'onboarding360',
   // Напевы латиницы: самые длинные подписи (X/Ь) — на 360 точках.
   'learnwrongen', 'learnhelpen', 'learnhelpru', 'refcarden', 'refcardendigit', 'learnnewen', 'learnnewendigit',
   // «Длина тире»: карточка «Скорость» на самом тесном телефоне.
   'settingsdah',
 ].map((n) => [n, SMALL]));
+// Первый экран с полем имени: Android 360 и самый тесный 320 (здесь поле заезжало на подпись).
+VIEWPORT.onboarding320 = { width: 320, height: 640 };
 
 // Верный ответ на вопрос, который сейчас на экране: id берём из сохранённой колоды.
 async function rightAnswer(page, cat) {
@@ -263,6 +265,8 @@ const SCREENS = {
                                      await page.click('#knows-yes'); await page.waitForTimeout(200);
                                      await page.evaluate(() => document.querySelector('#knows-card').scrollIntoView({ block: 'center' })); await page.waitForTimeout(150); },
   onboarding: async () => {},
+  onboarding360: async () => {},
+  onboarding320: async () => {},
   // Первый вход: знакомство → «Начать занятие» открывает само занятие на четырёх знаках
   // (раньше — главную с «Продолжить обучение», хотя ни одного знака ещё не было).
   onboardstart: async (page) => {
@@ -554,7 +558,7 @@ async function tapCheck(page) {
   });
 }
 
-let failures = 0;
+let failures = 0, labelPairs = 0, labelStates = 0;
 const want = process.argv.slice(2);
 const list = want.length ? want.filter((n) => n in SCREENS) : Object.keys(SCREENS);
 // В этом окружении в кэше Playwright лежит другая сборка Chromium, чем ждёт библиотека —
@@ -607,6 +611,10 @@ for (const theme of ['light', 'dark']) {
       ...await page.evaluate(() => checkLayout()),
       ...await page.evaluate(() => checkA11y()),
     ];
+    // Подпись и поле/кнопки одного блока не должны наезжать друг на друга (см. checkLabels).
+    const lab = await page.evaluate(() => checkLabels());
+    labelPairs += lab.pairs; if (lab.pairs) labelStates++;
+    problems.push(...lab.problems);
     if (FOLD.has(name)) problems.push(...await foldCheck(page, name));
     if (name === 'learnsilent') problems.push(...await page.evaluate(() => checkAboveNav(['#again', '#opts .opt:last-child'])));
     if (name.startsWith('home')) problems.push(...await tapCheck(page));
@@ -636,4 +644,5 @@ for (const theme of ['light', 'dark']) {
 await browser.close();
 server.close();
 if (failures) { console.error(`\n✗ экранов с замечаниями: ${failures}`); process.exit(1); }
+console.log(`\nподписи и поля: измерено ${labelPairs} пар в ${labelStates} кадрах`);
 console.log('\n✓ вёрстка чистая: ничего не обрезано, не вылезло за край, шрифты и кнопки в норме');

@@ -91,6 +91,22 @@ INJECT_GUIDE=false;
   await c3.close();
 }
 
+// Замер checkLabels (подпись не наезжает на поле): на чистом первом экране — ничего, а когда
+// у поля отнять зазор под подписью (как было до правки), обязан сработать.
+{
+  const c4=await browser.newContext({viewport:{width:360,height:780}});
+  await c4.addInitScript(CHECK_LAYOUT);
+  const p4=await c4.newPage();
+  await p4.goto(base,{waitUntil:'networkidle'}); await p4.waitForTimeout(250);
+  const clean=await p4.evaluate(()=>checkLabels());
+  await p4.addStyleTag({content:'#name{margin-top:0 !important}'});
+  const glued=await p4.evaluate(()=>checkLabels());
+  const found=clean.pairs>0&&clean.problems.length===0&&glued.problems.length>0;
+  console.log(`${found?'✓':'✗'} ловится: поле вплотную к подписи (наезд обводки на «Как вас зовут?»)${found?'  → «'+glued.problems[0]+'»':'  — НЕ ПОЙМАНО (пар '+clean.pairs+', чисто до: '+clean.problems.length+')'}`);
+  found?ok++:bad++;
+  await c4.close();
+}
+
 
 console.log(`\n${bad?'✗ проверка неполная':'✓ проверка рабочая'}: поймано ${ok} из ${ok+bad}`);
 await browser.close(); server.close();

@@ -36,6 +36,37 @@ const CHECK_LAYOUT = () => {
     return out;
   };
 
+  // Подпись и её поле/кнопки в одном блоке не должны наезжать друг на друга. Поле при фокусе
+  // рисует обводку (3px + отступ 3px), поэтому подпись должна стоять не ближе RING от рамки поля:
+  // раньше «Как вас зовут?» упиралась в поле, и обводка лезла на буквы (первый экран).
+  // Возвращает {pairs: сколько пар «подпись — элемент» измерено, problems}.
+  window.checkLabels = () => {
+    const RING = 6, problems = [], seen = new Set();
+    let pairs = 0;
+    const vis = (el) => { const cs = getComputedStyle(el); if (cs.display === 'none' || cs.visibility === 'hidden') return false;
+      const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
+    const nm = (el) => el.tagName.toLowerCase() + (el.id ? '#' + el.id : '');
+    for (const label of document.querySelectorAll('#screen label, .overlay label')) {
+      if (!vis(label)) continue;
+      const block = label.closest('.card, form') || label.parentElement;
+      const lr = label.getBoundingClientRect();
+      for (const el of block.querySelectorAll('input, select, textarea, button')) {
+        if (el === label || label.contains(el) || !vis(el) || el.type === 'hidden') continue;
+        pairs++;
+        const er = el.getBoundingClientRect();
+        // Кнопки и ползунки: рамка у них своя (ползунок рисуется внутри 44px), запас под обводку не нужен.
+        const ring = el.tagName === 'BUTTON' || el.type === 'range' ? 0 : RING;
+        const x = Math.min(lr.right, er.right + ring) - Math.max(lr.left, er.left - ring);
+        const y = Math.min(lr.bottom, er.bottom + ring) - Math.max(lr.top, er.top - ring);
+        if (x > 1 && y > 1) {
+          const msg = `подпись «${label.textContent.trim().slice(0, 24)}» наезжает на ${nm(el)} (зазор ${Math.round(er.top - lr.bottom)}px, нужно от ${ring})`;
+          if (!seen.has(msg)) { seen.add(msg); problems.push(msg); }
+        }
+      }
+    }
+    return { pairs, problems };
+  };
+
   // Кнопки, которые обязаны стоять целиком выше нижнего меню без прокрутки (кадр learnsilent:
   // надпись «Звук не включился» не должна выдавить «Послушать ещё раз» и сетку букв под меню).
   window.checkAboveNav = (selectors) => {
