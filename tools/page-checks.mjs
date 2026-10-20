@@ -80,6 +80,32 @@ const CHECK_LAYOUT = () => {
     });
   };
 
+  // Ничего не выходит из своей карточки (критерий 1 чистки оформления, 20.10.2026):
+  // «Дальше» в разборе ошибки торчала из карточки на 390 точках, а замер «за край экрана»
+  // этого не видит — до края там ещё оставалось место. Пока включён только для экрана
+  // «Учиться» (screens.mjs, кадры learn*); на остальные экраны — по мере их чистки.
+  window.checkInsideCards = () => {
+    const out = [], seen = new Set();
+    const nm = (el) => el.tagName.toLowerCase() + (el.id ? '#' + el.id : '')
+      + (el.className && typeof el.className === 'string' ? '.' + el.className.trim().split(/\s+/).join('.') : '');
+    for (const card of document.querySelectorAll('#screen .card')) {
+      const cs = getComputedStyle(card);
+      if (cs.display === 'none' || cs.visibility === 'hidden') continue;
+      const c = card.getBoundingClientRect();
+      for (const el of card.querySelectorAll('*')) {
+        const ecs = getComputedStyle(el);
+        if (ecs.display === 'none' || ecs.visibility === 'hidden' || ecs.position === 'fixed') continue;
+        const r = el.getBoundingClientRect();
+        if (!r.width && !r.height) continue;
+        if (r.left < c.left - 1 || r.right > c.right + 1 || r.top < c.top - 1 || r.bottom > c.bottom + 1) {
+          const msg = `выходит из карточки: ${nm(el)} (${Math.round(r.left)}…${Math.round(r.right)}, карточка ${Math.round(c.left)}…${Math.round(c.right)})`;
+          if (!seen.has(msg)) { seen.add(msg); out.push(msg); }
+        }
+      }
+    }
+    return out;
+  };
+
   // Доступность: экранный диктор и клавиатура. Папа пользуется пальцем, но зрение
   // с возрастом слабеет — рано или поздно понадобится увеличение и озвучивание.
   window.checkA11y = () => {

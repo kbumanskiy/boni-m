@@ -453,7 +453,7 @@ function renderLearn() {
   // жить под сгибом. Шестерёнка рядом с «Выходом» ведёт в настройки — и, как выход,
   // засчитывает текущее занятие: иначе журнал и серия дней потеряют ответы.
   screenEl.innerHTML = `
-    <div class="screenbar">
+    <div class="screenbar learnbar">
       <div>
         <h2>${repetition ? 'Повторение' : 'Учиться'}</h2>
         <div class="counter" id="counter"></div>

@@ -107,6 +107,24 @@ INJECT_GUIDE=false;
   await c4.close();
 }
 
+// Замер checkInsideCards («Дальше» не торчит из карточки разбора ошибки, 390 точек):
+// на настоящем разборе — чисто, а если вернуть кнопкам прежние широкие поля и запретить
+// перенос (как было до правки 20.10.2026), обязан сработать.
+{
+  const c5=await browser.newContext({viewport:{width:390,height:844}});
+  await c5.addInitScript(CHECK_LAYOUT);
+  const p5=await c5.newPage();
+  await p5.goto(base,{waitUntil:'networkidle'}); await p5.waitForTimeout(250);
+  await p5.evaluate(()=>{document.querySelector('#screen').innerHTML=`<div class="card reveal"><div class="reveal-char">Это «С»</div>
+    <div class="reveal-actions"><button class="btn secondary" id="relisten">Послушать звук</button><button class="btn" id="nextbtn">Дальше</button></div></div>`;});
+  const clean=await p5.evaluate(()=>checkInsideCards());
+  await p5.addStyleTag({content:'.reveal-actions{flex-wrap:nowrap !important} .reveal-actions .btn{padding-left:22px !important; padding-right:22px !important; width:auto !important; flex:none !important}'});
+  const out=await p5.evaluate(()=>checkInsideCards());
+  const found=clean.length===0&&out.length>0;
+  console.log(`${found?'✓':'✗'} ловится: «Дальше» выходит из карточки разбора ошибки${found?'  → «'+out[0]+'»':'  — НЕ ПОЙМАНО (чисто до: '+clean.length+')'}`);
+  found?ok++:bad++;
+  await c5.close();
+}
 
 console.log(`\n${bad?'✗ проверка неполная':'✓ проверка рабочая'}: поймано ${ok} из ${ok+bad}`);
 await browser.close(); server.close();

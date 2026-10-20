@@ -490,6 +490,50 @@ const SCREENS = {
   },
 };
 
+// ——— Экран «Учиться» на всех ширинах (чистка наложений, 20.10.2026) ———
+// Каждое состояние занятия — вопрос, «Верно!», разбор ошибки, «Повторение», подсказка —
+// снимается на 390 (без суффикса), 360, 320 и с крупным системным шрифтом (big):
+// Android при шрифте 130% увеличивает страницу, и телефон 360 точек вмещает только
+// 277 точек вёрстки — их и даём, с той же физической чёткостью.
+SCREENS.learnright = async (page) => {
+  await page.click('[data-tab="learn"]');
+  for (let i = 0; i < 12; i++) {
+    await page.waitForFunction(() => [...document.querySelectorAll('#opts .opt')].some((b) => !b.disabled), null, { timeout: 5000 });
+    const c = await page.evaluate(() => {
+      const st = JSON.parse(localStorage.getItem('boni_m_state')).settings;
+      const dit = 1.2 / st.charWpm;
+      const mine = (window.__tones || []).filter((t) => t.freq === st.toneHz && t.dur > 0);
+      const chain = [mine.at(-1)];
+      for (let k = mine.length - 2; k >= 0; k--) {
+        const p = mine[k], q = chain[0];
+        if (Math.abs(p.start + p.dur + dit - q.start) < 1e-6) chain.unshift(p); else break;
+      }
+      return chain.map((t) => (t.dur > 2 * dit ? '-' : '.')).join('');
+    });
+    const ch = REV_RU[c];
+    if (ch && await page.locator(`#opts .opt[data-c="${ch}"]`).count()) {
+      await page.click(`#opts .opt[data-c="${ch}"]`);
+      await page.waitForFunction(() => document.querySelector('#fb')?.textContent === 'Верно!', null, { timeout: 1000 });
+      return;
+    }
+    throw new Error(`learnright: не распознан знак по звуку (${c})`);
+  }
+};
+SCREENS.learnrep = async (page) => { await page.click('#review'); await page.waitForTimeout(900);
+  if ((await page.locator('#screen .screenbar h2').textContent()) !== 'Повторение') throw new Error('learnrep: не «Повторение»'); };
+const LEARN_SIZES = { 360: { width: 360, height: 780 }, 320: { width: 320, height: 640 }, big: { width: 277, height: 600 } };
+for (const base of ['learn', 'learnright', 'learnwrong', 'learnrep', 'learnhelp']) {
+  for (const [suf, vp] of Object.entries(LEARN_SIZES)) {
+    SCREENS[base + suf] = SCREENS[base];
+    VIEWPORT[base + suf] = vp;
+    if (base === 'learnright') FAST_AUDIO.add(base + suf);
+  }
+}
+FAST_AUDIO.add('learnright');
+// Чёткость кадра: «крупный шрифт» — тот же телефон 360 точек, увеличенный в 1,3 раза.
+const SCALE = (name) => (name.endsWith('big') ? 2.6 : 2);
+const REV_RU = Object.fromEntries([...CODE_BY_CHAR.ru].map(([c, k]) => [k, c]));
+
 // Открыть новый знак: ответить верно на первый же вопрос. Цель «слышим» по журналу тонов
 // ускоренного поддельного звука (FAST_AUDIO) — цепочка тонов последнего знака.
 const REV_EN = Object.fromEntries([...CODE_BY_CHAR.en].map(([c, k]) => [k, c]));
@@ -578,7 +622,7 @@ const browser = await launch();
 for (const theme of ['light', 'dark']) {
   for (const name of list) {
     const ctx = await browser.newContext({
-      viewport: VIEWPORT[name] || { width: 390, height: 844 }, deviceScaleFactor: 2,
+      viewport: VIEWPORT[name] || { width: 390, height: 844 }, deviceScaleFactor: SCALE(name),
       colorScheme: theme, reducedMotion: 'no-preference',
     });
     const page = await ctx.newPage();
@@ -617,15 +661,22 @@ for (const theme of ['light', 'dark']) {
     problems.push(...lab.problems);
     if (FOLD.has(name)) problems.push(...await foldCheck(page, name));
     if (name === 'learnsilent') problems.push(...await page.evaluate(() => checkAboveNav(['#again', '#opts .opt:last-child'])));
+    // Экран «Учиться» вычищен от наложений: ничего не торчит из карточки разбора.
+    if (name.startsWith('learn')) problems.push(...await page.evaluate(() => checkInsideCards()));
+    // «Дальше» на обычных телефонах — в первом экране, не под нижним меню.
+    if (name === 'learnwrong' || name === 'learnwrong360') problems.push(...await page.evaluate(() => checkAboveNav(['#nextbtn'])));
     if (name.startsWith('home')) problems.push(...await tapCheck(page));
     // Наложение заголовка на кнопки шапки: замер «за край экрана» его не видит.
     problems.push(...await page.evaluate(() => [...document.querySelectorAll('#screen .screenbar')].flatMap((bar) => {
       const h = bar.querySelector('h2'), act = bar.querySelector('.screenbar-actions, .iconbtn');
       if (!h || !act) return [];
       const range = document.createRange(); range.selectNodeContents(h);
-      const textRight = Math.max(...[...range.getClientRects()].map((r) => r.right));
-      const left = act.getBoundingClientRect().left;
-      return textRight > left + 1 ? [`заголовок «${h.textContent.trim()}» заходит под кнопки шапки (${Math.round(textRight)} > ${Math.round(left)})`] : [];
+      const rects = [...range.getClientRects()];
+      const textRight = Math.max(...rects.map((r) => r.right));
+      const a = act.getBoundingClientRect(), left = a.left;
+      // Кнопки, ушедшие строкой ниже заголовка (шапка «Учиться» на узком экране), не мешают ему.
+      const sameRow = rects.some((r) => r.bottom > a.top + 1 && r.top < a.bottom - 1);
+      return sameRow && textRight > left + 1 ? [`заголовок «${h.textContent.trim()}» заходит под кнопки шапки (${Math.round(textRight)} > ${Math.round(left)})`] : [];
     })));
     const scrollable = await page.evaluate(() => document.documentElement.scrollHeight > innerHeight + 4);
     if (scrollable) {

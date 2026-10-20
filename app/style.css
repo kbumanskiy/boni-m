@@ -404,7 +404,7 @@ input[type=range]{width:100%; height:44px; accent-color:var(--accent);}
 
 /* Разбор ошибки: крупный знак, ритм полосками, затем коды и действия. */
 .reveal-char{font-size:24px; font-weight:700; margin-bottom:10px;}
-.reveal-actions{display:flex; gap:10px; margin-top:12px;}
+.reveal-actions{display:flex; margin-top:12px;}
 .reveal-actions .btn{margin:0;}
 .trace.centered{justify-content:center;}
 .trace.big.centered{margin:8px auto 10px;}
@@ -673,9 +673,25 @@ textarea{
 @media (max-width:370px){ .screenbar.rg-setup h2{font-size:24px;} }
 /* «Звук не включился»: главная фраза крупно, пояснение — приглушённой строкой под ней. */
 .nosound-more{display:block; font-size:18px; font-weight:400; color:var(--text-dim); margin-top:4px; line-height:1.35;}
-/* Разбор ошибки на 360 точках: «Послушать» и «Дальше» в один ряд влезают только с узкими
-   полями кнопок (без этого «Дальше» уезжала за правый край экрана). */
-@media (max-width:370px){ .reveal-actions{gap:8px;} .reveal-actions .btn{flex:1 1 auto; width:auto; padding-left:10px; padding-right:10px; gap:6px;} }
+/* Разбор ошибки: «Послушать» и «Дальше» в один ряд влезают только с узкими полями кнопок
+   (без этого «Дальше» вылезала из карточки на 390 и за край экрана на 320). Если ряд всё же
+   не помещается (320 точек, крупный шрифт) — «Дальше» уходит строкой ниже, а не за край. */
+.reveal-actions{flex-wrap:wrap; gap:8px;}
+.reveal-actions .btn{flex:1 1 auto; width:auto; padding-left:10px; padding-right:10px; gap:6px;}
+/* 360 точек: оба слова в ряд помещаются только так (замер: 301 точка при ширине ряда 294). */
+@media (max-width:370px){ .reveal-actions .btn{padding-left:8px; padding-right:8px; gap:4px;} }
+/* Шапка «Учиться»/«Повторение»: заголовок не переносится и не уходит под шестерёнку
+   и «Выход». Не помещаются в ряд (длинное «Повторение», 320 точек, крупный шрифт) —
+   кнопки встают строкой ниже, прижатые вправо. Счётчик под заголовком переносится сам
+   и ширину шапки не раздвигает: иначе после 15-го ответа шапка прыгала бы. */
+.learnbar{flex-wrap:wrap; row-gap:8px;}
+.learnbar > div:first-child{flex:1 1 0; min-width:auto;}
+.learnbar h2{white-space:nowrap;}
+.learnbar .screenbar-actions{margin-left:auto;}
+/* 360 точек: счётчик под заголовком встаёт в две строки, и на телефоне 360×780 «Дальше»
+   в разборе ошибки уходила под нижнее меню на 4 точки. Лампа чуть меньше — на всех
+   состояниях сразу, чтобы сетка букв не прыгала между вопросом и разбором. */
+@media (max-width:370px){ #flash.lamp{width:112px; height:112px;} }
 /* Знаки препинания: коды до восьми элементов («Ошибка») и подписи вроде «Скобка
    открывающая» в три столбца не помещаются — код вылезал за ячейку и за край экрана. */
 .grid.punct{grid-template-columns:repeat(2,minmax(0,1fr));}
