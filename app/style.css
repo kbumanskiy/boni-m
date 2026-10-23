@@ -747,3 +747,27 @@ textarea{
   .grid{grid-template-columns:repeat(2,minmax(0,1fr));}
   .grid.punct{grid-template-columns:minmax(0,1fr);}
 }
+
+/* ——— Крупный системный шрифт и узкий экран (чистка оформления, 23.10.2026) ———
+   Шапка любого экрана: заголовок не заходит под шестерёнку и «Назад». Пока самое длинное
+   слово заголовка помещается рядом с кнопками — всё как было (заголовок переносится по
+   словам рядом с ними); не помещается (320 точек, крупный шрифт) — кнопки встают строкой
+   ниже, прижатые вправо. Так же устроена шапка «Учиться» (.learnbar). */
+.screenbar{flex-wrap:wrap; row-gap:8px;}
+.screenbar > div:first-child{flex:1 1 0; min-width:auto;}
+.screenbar > :last-child{margin-left:auto;}
+/* Переключатели в карточках настроек («Русская азбука / Латинская (English)», «Как в
+   телефоне / Светлое / Тёмное»): на узком экране кнопки по ширине подписи, а не помещаются
+   в ряд — переносятся рядом ниже, а не за край карточки. */
+@media (max-width:339px){
+  .card .seg{flex-wrap:wrap;}
+  .card .seg button{flex:1 1 auto;}
+}
+/* Радиоигра при крупном шрифте: счёт «0 из 30 ›» встаёт под название категории, а не
+   за край; «Медленнее» и «Показать точки-тире» — одна под другой. */
+@media (max-width:300px){
+  .pz-cat{grid-template-columns:1fr;}
+  .pz-cnt{grid-row:auto; grid-column:1;}
+  .pz-tools{flex-wrap:wrap;}
+  .pz-tools .btn{flex:1 1 auto; width:auto;}
+}
