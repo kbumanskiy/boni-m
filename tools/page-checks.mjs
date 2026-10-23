@@ -82,13 +82,14 @@ const CHECK_LAYOUT = () => {
 
   // Ничего не выходит из своей карточки (критерий 1 чистки оформления, 20.10.2026):
   // «Дальше» в разборе ошибки торчала из карточки на 390 точках, а замер «за край экрана»
-  // этого не видит — до края там ещё оставалось место. Пока включён только для экрана
-  // «Учиться» (screens.mjs, кадры learn*); на остальные экраны — по мере их чистки.
+  // этого не видит — до края там ещё оставалось место. Включается в screens.mjs по мере
+  // чистки экранов (список INSIDE_CARDS).
   window.checkInsideCards = () => {
     const out = [], seen = new Set();
     const nm = (el) => el.tagName.toLowerCase() + (el.id ? '#' + el.id : '')
       + (el.className && typeof el.className === 'string' ? '.' + el.className.trim().split(/\s+/).join('.') : '');
-    for (const card of document.querySelectorAll('#screen .card')) {
+    // Клетки «Азбуки» (.cell) — тоже карточки: код Морзе заезжал из клетки в соседнюю.
+    for (const card of document.querySelectorAll('#screen .card, #screen .cell')) {
       const cs = getComputedStyle(card);
       if (cs.display === 'none' || cs.visibility === 'hidden') continue;
       const c = card.getBoundingClientRect();

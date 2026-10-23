@@ -631,6 +631,8 @@ async function tapCheck(page) {
   });
 }
 
+// Экраны, вычищенные от наложений: на них ничего не выходит из карточки или клетки.
+const INSIDE_CARDS = ['learn', 'ref'];
 let failures = 0, labelPairs = 0, labelStates = 0;
 const want = process.argv.slice(2);
 const list = want.length ? want.filter((n) => n in SCREENS) : Object.keys(SCREENS);
@@ -693,8 +695,8 @@ for (const theme of ['light', 'dark']) {
     problems.push(...lab.problems);
     if (FOLD.has(name)) problems.push(...await foldCheck(page, name));
     if (name === 'learnsilent') problems.push(...await page.evaluate(() => checkAboveNav(['#again', '#opts .opt:last-child'])));
-    // Экран «Учиться» вычищен от наложений: ничего не торчит из карточки разбора.
-    if (name.startsWith('learn')) problems.push(...await page.evaluate(() => checkInsideCards()));
+    // Вычищенные экраны: ничего не торчит из карточки (разбор ошибки) или клетки (Азбука).
+    if (INSIDE_CARDS.some((p) => name.startsWith(p))) problems.push(...await page.evaluate(() => checkInsideCards()));
     // «Дальше» на обычных телефонах — в первом экране, не под нижним меню.
     if (name === 'learnwrong' || name === 'learnwrong360') problems.push(...await page.evaluate(() => checkAboveNav(['#nextbtn'])));
     // Нижнее меню: подписи не слипаются и не выходят из кнопок, на компьютере — по содержимому.

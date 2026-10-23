@@ -311,8 +311,8 @@ nav#tabs button.active::before{
   border:1px solid var(--line-strong); display:flex; flex-direction:column;
   align-items:center; justify-content:center; font-size:30px; font-weight:700; gap:3px; color:var(--text);
 }
-.cell small{font-family:var(--mono); font-size:17px; color:var(--accent-text); letter-spacing:.5px;
-  font-weight:700; white-space:nowrap;}
+.cell small{font-family:var(--mono); font-size:17px; color:var(--accent-text); letter-spacing:0;
+  word-spacing:-.15em; font-weight:700; white-space:nowrap;}
 .cell .cellname{font-size:17px; font-weight:600; color:var(--text-dim); line-height:1.15;}
 
 /* ——— Переключатель-сегменты ——— */
@@ -717,3 +717,16 @@ textarea{
 /* Знаки препинания: коды до восьми элементов («Ошибка») и подписи вроде «Скобка
    открывающая» в три столбца не помещаются — код вылезал за ячейку и за край экрана. */
 .grid.punct{grid-template-columns:repeat(2,minmax(0,1fr));}
+/* Коды в клетках «Азбуки» (23.10.2026): пять знаков «— — — — —» с полными пробелами
+   не помещались в клетку цифр уже на 390 точках и заезжали в соседнюю — ряд читался
+   одной строкой. Пробелы между точками и тире в клетке чуть уже (word-spacing; тире при этом
+   не сливаются в черту), размер тот же; на 320 точках — уже поля клеток и промежутки.
+   Совсем узко (крупный системный шрифт) — цифры и буквы в два столбца, знаки — в один:
+   иначе не помещаются ни коды, ни подписи вроде «Скобка закрывающая». */
+@media (max-width:339px){ .grid{gap:6px;} .cell{padding-left:2px; padding-right:2px;} }
+@media (max-width:300px){
+  /* «Буквы · Цифры · Знаки» в 20px не помещались в ряд — «Знаки» уходила за край. */
+  .seg button{font-size:17px; padding-inline:4px;}
+  .grid{grid-template-columns:repeat(2,minmax(0,1fr));}
+  .grid.punct{grid-template-columns:minmax(0,1fr);}
+}

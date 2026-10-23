@@ -148,7 +148,25 @@ INJECT_GUIDE=false;
   const found=res.slice(0,3).every((r)=>r.length===0)&&res[3].some((m)=>m.includes('слиплись'))&&res[4].some((m)=>m.includes('растянуто'));
   console.log(`${found?'✓':'✗'} ловится: подписи нижнего меню слиплись / меню растянуто на компьютере${found?'  → «'+res[3][0]+'»':'  — НЕ ПОЙМАНО: '+JSON.stringify(res)}`);
   found?ok++:bad++;
-}// Замер checkHeroGlow: на главной — чисто, а с прежним кругом света в 92% ширины — ловится.
+}// Замер checkInsideCards на клетках «Азбуки»: цифры на 320 точках чисты, а с прежними
+// полными пробелами в коде и полями клеток (до 23.10.2026) «— — — — —» заезжает в соседнюю.
+{
+  const seed=await page.evaluate(()=>localStorage.getItem('boni_m_state'));
+  const c8=await browser.newContext({viewport:{width:320,height:640}});
+  await c8.addInitScript((s)=>localStorage.setItem('boni_m_state',s),seed);
+  await c8.addInitScript(CHECK_LAYOUT);
+  const p8=await c8.newPage();
+  await p8.goto(base,{waitUntil:'networkidle'}); await p8.waitForTimeout(250);
+  await p8.click('[data-tab="ref"]'); await p8.waitForTimeout(200); await p8.click('.seg [data-s="digits"]'); await p8.waitForTimeout(200);
+  const clean=await p8.evaluate(()=>checkInsideCards());
+  await p8.addStyleTag({content:'.cell small{word-spacing:normal !important; letter-spacing:.5px !important} .grid{gap:10px !important} .cell{padding:10px 6px !important}'});
+  const out=await p8.evaluate(()=>checkInsideCards());
+  const found=clean.length===0&&out.length>0;
+  console.log(`${found?'✓':'✗'} ловится: код цифры заезжает в соседнюю клетку «Азбуки»${found?'  → «'+out[0]+'»':'  — НЕ ПОЙМАНО (чисто до: '+JSON.stringify(clean)+')'}`);
+  found?ok++:bad++;
+  await c8.close();
+}
+// Замер checkHeroGlow: на главной — чисто, а с прежним кругом света в 92% ширины — ловится.
 {
   const seed=await page.evaluate(()=>localStorage.getItem('boni_m_state'));
   const c7=await browser.newContext({viewport:{width:390,height:844}});
