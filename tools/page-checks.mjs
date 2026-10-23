@@ -89,7 +89,7 @@ const CHECK_LAYOUT = () => {
     const nm = (el) => el.tagName.toLowerCase() + (el.id ? '#' + el.id : '')
       + (el.className && typeof el.className === 'string' ? '.' + el.className.trim().split(/\s+/).join('.') : '');
     // Клетки «Азбуки» (.cell) — тоже карточки: код Морзе заезжал из клетки в соседнюю.
-    for (const card of document.querySelectorAll('#screen .card, #screen .cell')) {
+    for (const card of document.querySelectorAll('#screen .card, #screen .cell, #screen .pz-abc > div')) {
       const cs = getComputedStyle(card);
       if (cs.display === 'none' || cs.visibility === 'hidden') continue;
       const c = card.getBoundingClientRect();
@@ -149,6 +149,22 @@ const CHECK_LAYOUT = () => {
       const r = { left: cx - w / 2, right: cx + w / 2, top: cy - h / 2, bottom: cy + h / 2 };
       if (r.left < i.left - 2 || r.right > i.right + 2 || r.top < b.top - 2 || r.bottom > b.bottom + 2)
         out.push(`круг света за картинкой больше рисунка: ${Math.round(w)}×${Math.round(h)} при рисунке ${Math.round(i.width)}×${Math.round(i.height)}`);
+    }
+    return out;
+  };
+
+  // Код Морзе нигде не переносится на вторую строку (критерий 2, 23.10.2026): у «Э»
+  // в азбуке Радиоигры последняя точка уезжала вниз, и радист читал другой знак.
+  // Код — любой текст только из «•», «—» и пробелов.
+  window.checkCodeWrap = () => {
+    const out = [];
+    for (const el of document.querySelectorAll('#screen *, .overlay *')) {
+      if (el.children.length) continue;
+      const t = el.textContent.trim();
+      if (!/^[•—][•— ]*[•—]$/.test(t)) continue;
+      const range = document.createRange(); range.selectNodeContents(el);
+      const tops = new Set([...range.getClientRects()].filter((r) => r.width > 0).map((r) => Math.round(r.top)));
+      if (tops.size > 1) out.push(`код Морзе «${t}» переносится на ${tops.size} строки`);
     }
     return out;
   };

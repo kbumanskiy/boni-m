@@ -635,11 +635,15 @@ textarea{
 .trace.pz-cd{height:8px; --u:4px; margin-top:6px;}
 .pz-fb{min-height:32px; font-size:21px; margin:4px 0 6px; text-wrap:balance;}
 .pz-tools .btn{min-height:56px; font-size:19px; padding-inline:10px; line-height:1.2;}
-.pz-abc{display:grid; grid-template-columns:repeat(auto-fill, minmax(88px, 1fr)); gap:8px; margin:0 0 8px;}
+/* Азбука сообщения (23.10.2026): у «Э» (• • — • •) последняя точка уезжала на вторую
+   строку. Код в одну строку, пробелы чуть уже, клетки не уже 100 точек (на 320 — в два
+   столбца). Размер шрифта прежний. */
+.pz-abc{display:grid; grid-template-columns:repeat(auto-fill, minmax(100px, 1fr)); gap:8px; margin:0 0 8px;}
 .pz-abc div{border:1px solid var(--line-strong); border-radius:var(--r-sm); background:var(--surface);
   padding:6px 4px; text-align:center; line-height:1.2;}
 .pz-abc b{display:block; font-size:26px;}
-.pz-abc span{display:block; font-family:var(--mono); font-size:19px; font-weight:700; color:var(--accent-text); letter-spacing:1px;}
+.pz-abc span{display:block; font-family:var(--mono); font-size:19px; font-weight:700; color:var(--accent-text); letter-spacing:0;
+  word-spacing:-.15em; white-space:nowrap;}
 
 /* Варианты ответа: крупные кнопки во всю ширину; неверный гаснет и зачёркивается. */
 .pz-opts{display:flex; flex-direction:column; gap:10px; margin-top:8px;}

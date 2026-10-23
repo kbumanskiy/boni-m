@@ -182,6 +182,23 @@ INJECT_GUIDE=false;
   found?ok++:bad++;
   await c9.close();
 }
+// Замер checkCodeWrap: «Э» в азбуке Радиоигры на 360 точках — в одну строку, а с прежней
+// вёрсткой (клетки от 88 точек, полные пробелы, перенос разрешён) последняя точка уезжает вниз.
+{
+  const c10=await browser.newContext({viewport:{width:360,height:780}});
+  await c10.addInitScript(CHECK_LAYOUT);
+  const p10=await c10.newPage();
+  await p10.goto(base,{waitUntil:'networkidle'}); await p10.waitForTimeout(250);
+  await p10.evaluate(()=>{document.querySelector('#screen').innerHTML='<div class="card"><div class="pz-abc">'
+    +['А','Б','В','Э'].map((c,i)=>`<div><b>${c}</b><span>${['• —','— • • •','• — —','• • — • •'][i]}</span></div>`).join('')+'</div></div>';});
+  const clean=await p10.evaluate(()=>checkCodeWrap());
+  await p10.addStyleTag({content:'.pz-abc{grid-template-columns:repeat(auto-fill,minmax(88px,1fr)) !important} .pz-abc span{white-space:normal !important; letter-spacing:1px !important; word-spacing:normal !important}'});
+  const out=await p10.evaluate(()=>checkCodeWrap());
+  const found=clean.length===0&&out.length>0;
+  console.log(`${found?'✓':'✗'} ловится: код Морзе переносится на вторую строку («Э» в Радиоигре)${found?'  → «'+out[0]+'»':'  — НЕ ПОЙМАНО (чисто до: '+JSON.stringify(clean)+', после: '+JSON.stringify(out)+')'}`);
+  found?ok++:bad++;
+  await c10.close();
+}
 // Замер checkHeroGlow: на главной — чисто, а с прежним кругом света в 92% ширины — ловится.
 {
   const seed=await page.evaluate(()=>localStorage.getItem('boni_m_state'));

@@ -632,7 +632,7 @@ async function tapCheck(page) {
 }
 
 // Экраны, вычищенные от наложений: на них ничего не выходит из карточки или клетки.
-const INSIDE_CARDS = ['learn', 'ref', 'key'];
+const INSIDE_CARDS = ['learn', 'ref', 'key', 'puzzlecode'];
 let failures = 0, labelPairs = 0, labelStates = 0;
 const want = process.argv.slice(2);
 const list = want.length ? want.filter((n) => n in SCREENS) : Object.keys(SCREENS);
@@ -702,6 +702,7 @@ for (const theme of ['light', 'dark']) {
     // Нижнее меню: подписи не слипаются и не выходят из кнопок, на компьютере — по содержимому.
     problems.push(...await page.evaluate(() => checkNav()));
     problems.push(...await page.evaluate(() => checkImageEdges()));
+    problems.push(...await page.evaluate(() => checkCodeWrap()));
     if (name.startsWith('home')) problems.push(...await tapCheck(page));
     if (name.startsWith('home') || name.startsWith('onboarding')) problems.push(...await page.evaluate(() => checkHeroGlow()));
     // Наложение заголовка на кнопки шапки: замер «за край экрана» его не видит.
