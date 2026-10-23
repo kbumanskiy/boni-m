@@ -634,7 +634,7 @@ async function tapCheck(page) {
 }
 
 // Экраны, вычищенные от наложений: на них ничего не выходит из карточки или клетки.
-const INSIDE_CARDS = ['learn', 'ref', 'key', 'puzzlecode'];
+const INSIDE_CARDS = ['learn', 'ref', 'key', 'puzzle', 'home', 'cabinet', 'settings', 'radiogram', 'callsign', 'onboarding'];
 let failures = 0, labelPairs = 0, labelStates = 0;
 const want = process.argv.slice(2);
 const list = want.length ? want.filter((n) => n in SCREENS) : Object.keys(SCREENS);
@@ -709,7 +709,7 @@ for (const theme of ['light', 'dark']) {
     problems.push(...await page.evaluate(() => checkCodeWrap()));
     problems.push(...await page.evaluate(() => checkSmall()));
     if (name.startsWith('home')) problems.push(...await tapCheck(page));
-    if (name.startsWith('home') || name.startsWith('onboarding')) problems.push(...await page.evaluate(() => checkHeroGlow()));
+    if (/^(home|onboarding|callsign)/.test(name)) problems.push(...await page.evaluate(() => checkHeroGlow()));
     // Наложение заголовка на кнопки шапки: замер «за край экрана» его не видит.
     problems.push(...await page.evaluate(() => [...document.querySelectorAll('#screen .screenbar')].flatMap((bar) => {
       const h = bar.querySelector('h2'), act = bar.querySelector('.screenbar-actions, .iconbtn');
