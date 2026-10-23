@@ -248,9 +248,9 @@ nav#tabs button.active::before{
    при 312 свободных), — меню встаёт в два ряда, три и две кнопки, только подписи, без
    значков. Тексту страницы оставлен запас под второй ряд. */
 @media (max-width:339px){
-  body{padding-bottom:calc(120px + env(safe-area-inset-bottom));}
-  nav#tabs{flex-wrap:wrap; row-gap:2px;}
-  nav#tabs button{flex:1 1 30%; min-height:48px;}
+  body{padding-bottom:calc(104px + env(safe-area-inset-bottom));}
+  nav#tabs{flex-wrap:wrap; row-gap:0; padding-top:4px;}
+  nav#tabs button{flex:1 1 30%; min-height:44px; padding-top:4px; padding-bottom:4px;}
   nav#tabs button .ic{display:none;}
 }
 /* Компьютер: меню по ширине колонки приложения, а не от края до края экрана. */
@@ -463,12 +463,19 @@ label .num small{display:block; font-size:17px; font-weight:600; color:var(--tex
 /* Список кодов активного набора (подсказка на занятии). */
 .codelist{list-style:none; padding:0; margin:0;}
 .codelist li{
-  display:grid; grid-template-columns:2.2ch auto 1fr; align-items:center; gap:14px;
+  display:flex; flex-wrap:wrap; align-items:center; column-gap:14px; row-gap:2px;
   padding:11px 0; border-bottom:1px solid var(--line);
 }
+.codelist li > b{flex:none; width:2.2ch;}
+.codelist .codeline{flex:none; white-space:nowrap;}
 .codelist li:last-child{border-bottom:none;}
 .codelist b{font-size:26px;}
-.codelist .chant{font-size:18px; text-align:right;}
+.codelist .chant{font-size:18px; text-align:right; white-space:nowrap; margin-left:auto;}
+/* Напев не рвётся по слогам («си-ни-» / «е», «твёёр-» / «дыый-» …, 23.10.2026): строка
+   знака гибкая — если рядом с кодом напеву не хватает места, он целиком встаёт строкой
+   ниже, прижатый вправо. Код тоже не переносится. Крупный шрифт: самый длинный напев
+   (Ъ, «твёёр-дыый-не-мяяг-киий») шире экрана — ему одному можно перенестись по дефису. */
+@media (max-width:300px){ .codelist .chant{white-space:normal;} }
 
 /* «Ключ»: задание крупно, вердикт с ритмами рядом. */
 .card.task{display:flex; align-items:center; justify-content:space-between; gap:14px; padding:12px 16px;}
@@ -727,6 +734,8 @@ textarea{
 .reveal-actions .btn{flex:1 1 auto; width:auto; padding-left:10px; padding-right:10px; gap:6px;}
 /* 360 точек: оба слова в ряд помещаются только так (замер: 301 точка при ширине ряда 294). */
 @media (max-width:370px){ .reveal-actions .btn{padding-left:8px; padding-right:8px; gap:4px;} }
+/* 320 точек: «Послушать ещё раз» с обычными полями вставала в две строки — поля уже. */
+@media (max-width:339px){ #again{padding-left:12px; padding-right:12px; gap:8px;} }
 /* Шапка «Учиться»/«Повторение»: заголовок не переносится и не уходит под шестерёнку
    и «Выход». Не помещаются в ряд (длинное «Повторение», 320 точек, крупный шрифт) —
    кнопки встают строкой ниже, прижатые вправо. Счётчик под заголовком переносится сам
@@ -739,6 +748,8 @@ textarea{
    в разборе ошибки уходила под нижнее меню на 4 точки. Лампа чуть меньше — на всех
    состояниях сразу, чтобы сетка букв не прыгала между вопросом и разбором. */
 @media (max-width:370px){ #flash.lamp{width:112px; height:112px;} }
+/* Крупный шрифт: меню там в два ряда, и второй ряд букв уходил под него — лампа меньше. */
+@media (max-width:300px){ #flash.lamp{width:88px; height:88px;} }
 /* Знаки препинания: коды до восьми элементов («Ошибка») и подписи вроде «Скобка
    открывающая» в три столбца не помещаются — код вылезал за ячейку и за край экрана. */
 .grid.punct{grid-template-columns:repeat(2,minmax(0,1fr));}

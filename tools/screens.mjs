@@ -547,7 +547,9 @@ FAST_AUDIO.add('learnright');
 // Экраны, которые и так снимаются на 360 (Радиоигра), получают только 320 и big.
 for (const base of ['home', 'homecall', 'key', 'keyfree', 'keyverdict', 'ref', 'refdigits', 'refpunct', 'refen', 'refcard',
   'cabinet', 'settings', 'settingsknows', 'callsign', 'radiogram', 'radiogramresult', 'radiogramlongresult',
-  'puzzlecats', 'puzzleq', 'puzzleqwrong', 'puzzlecode', 'puzzlereveal']) {
+  'puzzlecats', 'puzzleq', 'puzzleqwrong', 'puzzlecode', 'puzzlereveal',
+  // Подсказка «Учиться» со всем алфавитом: самые длинные напевы (русские и латинские).
+  'learnhelpru', 'learnhelpen']) {
   for (const [suf, vp] of Object.entries(LEARN_SIZES)) {
     if (VIEWPORT[base] && VIEWPORT[base].width === vp.width) continue;
     const name = base + suf;
@@ -694,6 +696,8 @@ for (const theme of ['light', 'dark']) {
     labelPairs += lab.pairs; if (lab.pairs) labelStates++;
     problems.push(...lab.problems);
     if (FOLD.has(name)) problems.push(...await foldCheck(page, name));
+    // Все буквы ответа — над нижним меню, и на 320, и при крупном шрифте (меню там в два ряда).
+    if (/^learn(wrong)?(320|big)?$/.test(name)) problems.push(...await page.evaluate(() => checkAboveNav(['#opts .opt:last-child'])));
     if (name === 'learnsilent') problems.push(...await page.evaluate(() => checkAboveNav(['#again', '#opts .opt:last-child'])));
     // Вычищенные экраны: ничего не торчит из карточки (разбор ошибки) или клетки (Азбука).
     if (INSIDE_CARDS.some((p) => name.startsWith(p))) problems.push(...await page.evaluate(() => checkInsideCards()));
