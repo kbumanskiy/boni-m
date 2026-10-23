@@ -169,6 +169,41 @@ const CHECK_LAYOUT = () => {
     return out;
   };
 
+  // Мелочи (23.10.2026): число с единицей «60 зн/мин» не рвётся на две строки, галочка
+  // приговора стоит у первого слова, а не у края карточки, подпись кнопки не выходит
+  // за саму кнопку (переключатель «Короткая / Минута / Длинная» на 320 слипался).
+  window.checkSmall = () => {
+    const out = [];
+    for (const n of document.querySelectorAll('#screen .num')) {
+      // Только «число с единицей» («60 зн/мин», «7 дн.»), а не словесные значения вроде
+      // «длиннее в 2 раза» — тем переноситься по словам можно.
+      const t = [...n.childNodes].find((x) => x.nodeType === 3 && /^\d/.test(x.textContent.trim()) && x.textContent.trim().length <= 12);
+      if (!t) continue;
+      const range = document.createRange(); range.selectNodeContents(t);
+      const tops = new Set([...range.getClientRects()].filter((r) => r.width > 0).map((r) => Math.round(r.top)));
+      if (tops.size > 1) out.push(`«${t.textContent.trim()}» рвётся на две строки`);
+    }
+    for (const v of document.querySelectorAll('#screen .verdict')) {
+      const svg = v.querySelector('svg'); if (!svg) continue;
+      const t = [...v.childNodes].find((x) => x.nodeType === 3 && x.textContent.trim());
+      if (!t) continue;
+      const range = document.createRange(); range.selectNodeContents(t);
+      const first = [...range.getClientRects()].find((r) => r.width > 0);
+      const gap = first.left - svg.getBoundingClientRect().right;
+      if (gap > 16) out.push(`значок оторван от «${t.textContent.trim().slice(0, 24)}» на ${Math.round(gap)}px`);
+    }
+    for (const b of document.querySelectorAll('#screen button')) {
+      const cs = getComputedStyle(b); if (cs.display === 'none' || cs.visibility === 'hidden') continue;
+      const br = b.getBoundingClientRect(); if (!br.width) continue;
+      for (const t of [...b.querySelectorAll('*'), b].flatMap((e) => [...e.childNodes]).filter((x) => x.nodeType === 3 && x.textContent.trim())) {
+        const range = document.createRange(); range.selectNodeContents(t);
+        const r = range.getBoundingClientRect();
+        if (r.width && (r.left < br.left - 1 || r.right > br.right + 1)) out.push(`подпись «${t.textContent.trim().slice(0, 24)}» выходит из кнопки (${Math.round(r.left)}…${Math.round(r.right)}, кнопка ${Math.round(br.left)}…${Math.round(br.right)})`);
+      }
+    }
+    return [...new Set(out)];
+  };
+
   // Картинки без прямых срезов (критерий 3, 23.10.2026): если у рисунка с прозрачным фоном
   // край непрозрачен (обрезан прямой линией), он должен быть растушёван маской — иначе
   // в тёмной теме срез виден чертой («Свой позывной»). Асинхронный: ждёт загрузки картинок.

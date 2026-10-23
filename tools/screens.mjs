@@ -703,6 +703,7 @@ for (const theme of ['light', 'dark']) {
     problems.push(...await page.evaluate(() => checkNav()));
     problems.push(...await page.evaluate(() => checkImageEdges()));
     problems.push(...await page.evaluate(() => checkCodeWrap()));
+    problems.push(...await page.evaluate(() => checkSmall()));
     if (name.startsWith('home')) problems.push(...await tapCheck(page));
     if (name.startsWith('home') || name.startsWith('onboarding')) problems.push(...await page.evaluate(() => checkHeroGlow()));
     // Наложение заголовка на кнопки шапки: замер «за край экрана» его не видит.

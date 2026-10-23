@@ -199,6 +199,30 @@ INJECT_GUIDE=false;
   found?ok++:bad++;
   await c10.close();
 }
+// Замер checkSmall (мелочи): «7 дн.» в две строки, галочка оторвана от «Радиограмма принята»,
+// подпись «Короткая / Минута / Длинная» вылезает из кнопки — на настоящей вёрстке (320 точек)
+// чисто, с прежними правилами — каждое из трёх ловится.
+{
+  const c11=await browser.newContext({viewport:{width:320,height:640}});
+  await c11.addInitScript(CHECK_LAYOUT);
+  const p11=await c11.newPage();
+  await p11.goto(base,{waitUntil:'networkidle'}); await p11.waitForTimeout(250);
+  await p11.evaluate(()=>{document.querySelector('#screen').innerHTML=`
+    <div class="card" style="width:190px"><ul class="list"><li><span>Лучший результат</span><span class="num">7 дн.</span></li></ul></div>
+    <div class="card center"><div class="verdict ok"><svg width="26" height="26" viewBox="0 0 24 24"></svg> Радиограмма принята</div></div>
+    <div class="card"><div class="seg dur"><button class="active">Короткая</button><button>Минута</button><button>Длинная</button></div></div>`;});
+  const clean=await p11.evaluate(()=>checkSmall());
+  const res=[];
+  for (const css of ['.list .num{white-space:normal !important}', '.card .verdict{display:flex !important}', '.card .seg{flex-wrap:nowrap !important}']) {
+    const h=await p11.addStyleTag({content:css});
+    res.push(await p11.evaluate(()=>checkSmall()));
+    await h.evaluate((e)=>e.remove());
+  }
+  const found=clean.length===0&&res.every((r)=>r.length>0);
+  console.log(`${found?'✓':'✗'} ловится: «7 дн.» в две строки, оторванная галочка, подпись вылезает из кнопки${found?'  → «'+res.map((r)=>r[0]).join('»; «')+'»':'  — НЕ ПОЙМАНО (чисто до: '+JSON.stringify(clean)+', после: '+JSON.stringify(res)+')'}`);
+  found?ok++:bad++;
+  await c11.close();
+}
 // Замер checkHeroGlow: на главной — чисто, а с прежним кругом света в 92% ширины — ловится.
 {
   const seed=await page.evaluate(()=>localStorage.getItem('boni_m_state'));

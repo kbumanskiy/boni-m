@@ -425,6 +425,9 @@ input[type=range]{width:100%; height:44px; accent-color:var(--accent);}
 .slider-head label[for="ldah"]{white-space:nowrap;}
 #dah-hint{margin-top:8px;}
 .num.nowrap{white-space:nowrap;}
+/* «60 зн/мин» не рвётся на «60 зн/» и «мин» (Ключ и настройки на 320 точках), как и
+   «7 дн.», «9 / 32» в «Моих успехах» Журнала. */
+#lchar-val, #kspeed-val, label .num, .list .num{white-space:nowrap;}
 .num{font-family:var(--mono); font-variant-numeric:tabular-nums; font-weight:700; color:var(--accent-text);}
 
 
@@ -563,6 +566,11 @@ textarea{
 /* Приговор радиограмме — крупно и однозначно. */
 .card .verdict{font-size:24px; font-weight:750; display:flex; align-items:center;
   justify-content:center; gap:8px; margin-bottom:8px;}
+/* Галочка — прямо перед первым словом, а не у левого края карточки: «Радиограмма
+   принята» на телефоне встаёт в две строки, и значок в отдельной колонке отрывался
+   от заголовка (23.10.2026). */
+.card .verdict{display:block; text-align:center; text-wrap:balance;}
+.card .verdict svg{display:inline-block; vertical-align:-4px; margin-right:6px;}
 .card .verdict.ok{color:var(--ok);}
 .card .verdict.no{color:var(--bad);}
 .hint.done{color:var(--ok); font-weight:650;}
