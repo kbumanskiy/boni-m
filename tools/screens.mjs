@@ -632,7 +632,7 @@ async function tapCheck(page) {
 }
 
 // Экраны, вычищенные от наложений: на них ничего не выходит из карточки или клетки.
-const INSIDE_CARDS = ['learn', 'ref'];
+const INSIDE_CARDS = ['learn', 'ref', 'key'];
 let failures = 0, labelPairs = 0, labelStates = 0;
 const want = process.argv.slice(2);
 const list = want.length ? want.filter((n) => n in SCREENS) : Object.keys(SCREENS);

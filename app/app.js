@@ -1713,7 +1713,7 @@ function renderKey() {
       <p class="muted center hint">Отстукивайте — буквы складываются в строку. Пауза подольше — пробел.</p>
       <div class="keytext" id="text"></div>
       <button type="button" class="keypad" id="pad" aria-label="Ключ: нажимайте и держите"><span class="keyout" id="keyout" aria-live="polite">Нажимайте и держите</span></button>
-      <div class="btn-row">
+      <div class="btn-row keybtns">
         <button class="btn secondary" id="erase">${ICON.erase(24)} Стереть</button>
         <button class="btn secondary" id="clear">${ICON.clear(24)} Очистить</button>
       </div>${speedCtl}`;
