@@ -166,6 +166,22 @@ INJECT_GUIDE=false;
   found?ok++:bad++;
   await c8.close();
 }
+// Замер checkImageEdges: рисунок с обрезанным низом (hero-klyuch) с растушёвкой .hero.small —
+// чисто, без неё — ловится как «прямой срез».
+{
+  const c9=await browser.newContext({viewport:{width:390,height:844}});
+  await c9.addInitScript(CHECK_LAYOUT);
+  const p9=await c9.newPage();
+  await p9.goto(base,{waitUntil:'networkidle'}); await p9.waitForTimeout(250);
+  await p9.evaluate(()=>{document.querySelector('#screen').innerHTML='<div class="heroblock"><img class="hero small" src="assets/hero-klyuch.webp" alt=""></div>';});
+  const clean=await p9.evaluate(()=>checkImageEdges());
+  await p9.evaluate(()=>{document.querySelector('#screen img').className='hero';});
+  const out=await p9.evaluate(()=>checkImageEdges());
+  const found=clean.length===0&&out.length>0;
+  console.log(`${found?'✓':'✗'} ловится: картинка обрезана прямой линией без растушёвки${found?'  → «'+out[0]+'»':'  — НЕ ПОЙМАНО (чисто до: '+JSON.stringify(clean)+')'}`);
+  found?ok++:bad++;
+  await c9.close();
+}
 // Замер checkHeroGlow: на главной — чисто, а с прежним кругом света в 92% ширины — ловится.
 {
   const seed=await page.evaluate(()=>localStorage.getItem('boni_m_state'));

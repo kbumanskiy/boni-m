@@ -191,6 +191,10 @@ img{max-width:100%; height:auto;}
 .hero{display:block; position:relative; margin:0 auto; max-height:30vh;}
 .heroblock .hero{max-height:22vh;}
 .hero.small{max-height:22vh;}
+/* У рисунка «Боня за ключом» (hero-klyuch, экран «Свой позывной») стол обрезан снизу
+   прямой линией — в тёмной теме срез был виден чертой. Низ мягко растушёван. */
+.hero.small{-webkit-mask-image:linear-gradient(to bottom, #000 80%, transparent);
+  mask-image:linear-gradient(to bottom, #000 80%, transparent);}
 .greeting{position:relative; text-align:center; margin-top:2px;}
 
 .rankline{font-size:27px; font-weight:700; letter-spacing:-.015em; line-height:1.2; margin-top:3px;}

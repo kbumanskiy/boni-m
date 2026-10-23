@@ -701,6 +701,7 @@ for (const theme of ['light', 'dark']) {
     if (name === 'learnwrong' || name === 'learnwrong360') problems.push(...await page.evaluate(() => checkAboveNav(['#nextbtn'])));
     // Нижнее меню: подписи не слипаются и не выходят из кнопок, на компьютере — по содержимому.
     problems.push(...await page.evaluate(() => checkNav()));
+    problems.push(...await page.evaluate(() => checkImageEdges()));
     if (name.startsWith('home')) problems.push(...await tapCheck(page));
     if (name.startsWith('home') || name.startsWith('onboarding')) problems.push(...await page.evaluate(() => checkHeroGlow()));
     // Наложение заголовка на кнопки шапки: замер «за край экрана» его не видит.

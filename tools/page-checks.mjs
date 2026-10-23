@@ -153,6 +153,27 @@ const CHECK_LAYOUT = () => {
     return out;
   };
 
+  // Картинки без прямых срезов (критерий 3, 23.10.2026): если у рисунка с прозрачным фоном
+  // край непрозрачен (обрезан прямой линией), он должен быть растушёван маской — иначе
+  // в тёмной теме срез виден чертой («Свой позывной»). Асинхронный: ждёт загрузки картинок.
+  window.checkImageEdges = async () => {
+    const out = [];
+    for (const img of document.querySelectorAll('#screen img, .overlay img')) {
+      if (!img.getBoundingClientRect().width) continue;
+      try { await img.decode(); } catch { continue; }
+      const c = document.createElement('canvas'); c.width = img.naturalWidth; c.height = img.naturalHeight;
+      const g = c.getContext('2d'); g.drawImage(img, 0, 0);
+      const opaque = (x, y, w, h) => { const d = g.getImageData(x, y, w, h).data; let n = 0;
+        for (let i = 3; i < d.length; i += 4) if (d[i] > 200) n++; return n / (w * h); };
+      const W = c.width, H = c.height;
+      const edges = { снизу: opaque(0, H - 1, W, 1), сверху: opaque(0, 0, W, 1), слева: opaque(0, 0, 1, H), справа: opaque(W - 1, 0, 1, H) };
+      const mask = getComputedStyle(img).maskImage || getComputedStyle(img).webkitMaskImage || 'none';
+      for (const [side, share] of Object.entries(edges))
+        if (share > 0.05 && mask === 'none') out.push(`картинка ${img.getAttribute('src')} обрезана прямой линией ${side} (${Math.round(share * 100)}% края) без растушёвки`);
+    }
+    return out;
+  };
+
   // Доступность: экранный диктор и клавиатура. Папа пользуется пальцем, но зрение
   // с возрастом слабеет — рано или поздно понадобится увеличение и озвучивание.
   window.checkA11y = () => {
