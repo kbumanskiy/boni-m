@@ -106,6 +106,34 @@ const CHECK_LAYOUT = () => {
     return out;
   };
 
+  // Нижнее меню (критерий 6, 23.10.2026): подписи не выходят из своих кнопок и между
+  // соседними подписями одного ряда есть видимый зазор (GAP). Подпись — голый текст внутри
+  // кнопки без обрезки, поэтому замер «за край экрана» не видел «ГлавнаяУчиться».
+  // На компьютере меню не растягивается от края до края, а стоит по ширине содержимого.
+  window.checkNav = () => {
+    const GAP = 8, out = [];
+    const nav = document.querySelector('nav#tabs');
+    if (!nav || getComputedStyle(nav).display === 'none') return out;
+    const labels = [...nav.querySelectorAll('button')].map((b) => {
+      const t = [...b.childNodes].find((n) => n.nodeType === 3 && n.textContent.trim());
+      const range = document.createRange(); range.selectNodeContents(t);
+      return { name: t.textContent.trim(), r: range.getBoundingClientRect(), b: b.getBoundingClientRect() };
+    });
+    for (const l of labels) {
+      if (l.r.left < l.b.left - 0.5 || l.r.right > l.b.right + 0.5)
+        out.push(`подпись меню «${l.name}» выходит из кнопки (${Math.round(l.r.left)}…${Math.round(l.r.right)}, кнопка ${Math.round(l.b.left)}…${Math.round(l.b.right)})`);
+    }
+    for (let i = 1; i < labels.length; i++) {
+      const a = labels[i - 1], b = labels[i];
+      if (Math.min(a.r.bottom, b.r.bottom) - Math.max(a.r.top, b.r.top) <= 0) continue;   // разные ряды
+      if (b.r.left - a.r.right < GAP)
+        out.push(`подписи меню слиплись: «${a.name}» и «${b.name}» (зазор ${Math.round(b.r.left - a.r.right)}px, нужно от ${GAP})`);
+    }
+    const w = nav.getBoundingClientRect().width;
+    if (innerWidth >= 900 && w > 700) out.push(`меню растянуто на ${Math.round(w)}px при экране ${innerWidth}`);
+    return out;
+  };
+
   // Доступность: экранный диктор и клавиатура. Папа пользуется пальцем, но зрение
   // с возрастом слабеет — рано или поздно понадобится увеличение и озвучивание.
   window.checkA11y = () => {
@@ -174,3 +202,8 @@ const CHECK_LAYOUT = () => {
     return out;
   };
 };
+
+// Шрифт нижнего меню в кадрах и в selfcheck — Roboto, как на Android (см. screens.mjs, FONTS).
+// Файл отдаёт тестовый сервер по адресу /__fonts/.
+export const NAV_FONT_CSS = '@font-face{font-family:"Roboto Android";src:url(/__fonts/roboto-cyrillic-400-normal.woff2)}'
+  + 'nav#tabs button{font-family:"Roboto Android",var(--font)}';

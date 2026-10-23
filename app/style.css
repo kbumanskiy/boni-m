@@ -213,23 +213,43 @@ img{max-width:100%; height:auto;}
 
 /* ——— Нижняя навигация ——— */
 nav#tabs{
-  position:fixed; left:0; right:0; bottom:0; display:flex; gap:1px;
+  position:fixed; left:0; right:0; bottom:0; display:flex; gap:0;
   background:var(--surface); border-top:1px solid var(--line);
   box-shadow:0 -6px 24px rgba(0,0,0,.10);
   padding:6px 4px env(safe-area-inset-bottom); z-index:20;
 }
 nav#tabs button{
-  flex:1 1 0; min-width:0; min-height:var(--tap); border:none; background:none; color:var(--text-dim);
-  font-size:17px; line-height:1.1; padding:8px 1px; margin:0 1px; border-radius:14px; letter-spacing:-.02em;
+  flex:1 1 auto; min-width:0; min-height:var(--tap); border:none; background:none; color:var(--text-dim);
+  font-size:17px; line-height:1.1; padding:8px 1px; margin:0; border-radius:14px; letter-spacing:-.02em;
   display:flex; flex-direction:column; align-items:center; justify-content:center; gap:5px;
   position:relative;
 }
 nav#tabs button .ic{font-size:24px; line-height:1;}
 nav#tabs button .ic svg{width:27px; height:27px; display:block;}
-nav#tabs button.active{color:var(--accent-text); font-weight:700; background:var(--surface-2);}
+nav#tabs button.active{color:var(--accent-text); background:var(--surface-2);}
 nav#tabs button.active::before{
   content:""; position:absolute; top:0; left:50%; transform:translateX(-50%);
   width:26px; height:3px; border-radius:0 0 3px 3px; background:var(--accent);
+}
+
+/* Подписи меню не слипаются (23.10.2026). Было: пять равных ячеек, и «Главная»
+   жирным шрифтом не помещалась в свою — на 320 точках и при крупном шрифте слова
+   сливались в «ГлавнаяУчиться». Теперь ячейка по ширине подписи (короткий «Ключ» отдаёт
+   место длинным), а активная вкладка не жирная — её и так видно по цвету, подложке
+   и черте сверху, а жирный шрифт ещё и двигал бы соседей при переключении. */
+/* Узкий экран — 320 точек или крупный системный шрифт (телефон 360 точек вмещает тогда
+   277): пять подписей по 17px в ряд помещаются только впритык (замер в Roboto: 281 точка
+   при 312 свободных), — меню встаёт в два ряда, три и две кнопки, только подписи, без
+   значков. Тексту страницы оставлен запас под второй ряд. */
+@media (max-width:339px){
+  body{padding-bottom:calc(120px + env(safe-area-inset-bottom));}
+  nav#tabs{flex-wrap:wrap; row-gap:2px;}
+  nav#tabs button{flex:1 1 30%; min-height:48px;}
+  nav#tabs button .ic{display:none;}
+}
+/* Компьютер: меню по ширине колонки приложения, а не от края до края экрана. */
+@media (min-width:600px){
+  nav#tabs{max-width:560px; margin:0 auto; border:1px solid var(--line); border-bottom:none; border-radius:var(--r) var(--r) 0 0;}
 }
 
 /* ——— Викторина «Учиться» ——— */

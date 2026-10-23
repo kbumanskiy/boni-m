@@ -5,13 +5,14 @@ import { chromium } from 'playwright';
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { extname, join, normalize } from 'node:path';
-import { CHECK_LAYOUT } from './page-checks.mjs';
+import { CHECK_LAYOUT, NAV_FONT_CSS } from './page-checks.mjs';
 const ROOT = new URL('../app/', import.meta.url).pathname;
 const MIME={'.html':'text/html','.js':'text/javascript','.css':'text/css','.webp':'image/webp','.png':'image/png','.webmanifest':'application/manifest+json'};
 // INJECT_GUIDE — подмена адреса инструкции в support.js, как в screens.mjs (кадр settingsguide).
 let INJECT_GUIDE=false;
 
-const server=createServer(async(req,res)=>{const f=join(ROOT,normalize(req.url.split('?')[0]==='/'?'/index.html':req.url.split('?')[0]));
+const FONTS=new URL('./fonts/',import.meta.url).pathname;
+const server=createServer(async(req,res)=>{const u=req.url.split('?')[0];const f=u.startsWith('/__fonts/')?join(FONTS,normalize(u.slice(9))):join(ROOT,normalize(u==='/'?'/index.html':u));
   try{let b=await readFile(f);
     if(INJECT_GUIDE&&f.endsWith('/js/support.js')) b=Buffer.from(String(b).replace("export const GUIDE_URL = '';","export const GUIDE_URL = 'https://example.org/instrukciya/';"));
     res.writeHead(200,{'content-type':MIME[extname(f)]||'application/octet-stream'});res.end(b);}catch{res.writeHead(404);res.end();}});
@@ -125,7 +126,29 @@ INJECT_GUIDE=false;
   found?ok++:bad++;
   await c5.close();
 }
-
+// Замер checkNav (нижнее меню, 23.10.2026): на настоящей вёрстке — чисто на 360, 320 и
+// на компьютере; если вернуть прежние равные ячейки с жирной активной вкладкой в один ряд
+// (320 точек), подписи обязаны «слипнуться», а растянутое на весь экран меню — попасться.
+{
+  const seed=await page.evaluate(()=>localStorage.getItem('boni_m_state'));
+  const res=[];
+  for (const [w,h,css] of [[360,780,''],[320,640,''],[1280,800,''],
+    [320,640,'nav#tabs{flex-wrap:nowrap !important} nav#tabs button{flex:1 1 0 !important; margin:0 1px !important} nav#tabs button .ic{display:block !important} nav#tabs button.active{font-weight:700 !important}'],
+    [1280,800,'nav#tabs{max-width:none !important}']]) {
+    const c6=await browser.newContext({viewport:{width:w,height:h}});
+    await c6.addInitScript((s)=>localStorage.setItem('boni_m_state',s),seed);
+    await c6.addInitScript(CHECK_LAYOUT);
+    await c6.addInitScript((css)=>document.addEventListener('DOMContentLoaded',()=>{const st=document.createElement('style');st.textContent=css;document.head.append(st);}),NAV_FONT_CSS);
+    const p6=await c6.newPage();
+    await p6.goto(base,{waitUntil:'networkidle'}); await p6.evaluate(()=>document.fonts.ready); await p6.waitForTimeout(200);
+    if(css) await p6.addStyleTag({content:css});
+    res.push(await p6.evaluate(()=>checkNav()));
+    await c6.close();
+  }
+  const found=res.slice(0,3).every((r)=>r.length===0)&&res[3].some((m)=>m.includes('слиплись'))&&res[4].some((m)=>m.includes('растянуто'));
+  console.log(`${found?'✓':'✗'} ловится: подписи нижнего меню слиплись / меню растянуто на компьютере${found?'  → «'+res[3][0]+'»':'  — НЕ ПОЙМАНО: '+JSON.stringify(res)}`);
+  found?ok++:bad++;
+}
 console.log(`\n${bad?'✗ проверка неполная':'✓ проверка рабочая'}: поймано ${ok} из ${ok+bad}`);
 await browser.close(); server.close();
 process.exit(bad?1:0);

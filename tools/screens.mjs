@@ -6,7 +6,7 @@ import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { mkdirSync } from 'node:fs';
 import { extname, join, normalize } from 'node:path';
-import { CHECK_LAYOUT } from './page-checks.mjs';
+import { CHECK_LAYOUT, NAV_FONT_CSS } from './page-checks.mjs';
 import * as PZ from '../app/js/puzzle.js';
 import { CODE_BY_CHAR } from '../app/js/data.js';
 
@@ -33,8 +33,19 @@ const DEMO_GUIDE = 'https://example.org/instrukciya/';
 // то есть без этих блоков вовсе.
 const WITH_LINKS = new Set(['homesupport', 'cabinetsupport', 'cabinetfeedback', 'settingsguide']);
 
+// Шрифт нижнего меню в кадрах — Roboto, как на Android у папы (там system-ui = Roboto).
+// Здесь в Chromium system-ui — DejaVu Sans, он на четверть шире: пять подписей меню в нём
+// не помещаются на 360 точках ни при какой вёрстке, и кадры показывали бы не то, что на
+// телефоне. Подменяем только меню и только в кадрах; остальной текст — в DejaVu, как раньше
+// (он шире, значит проверка вёрстки страницы строже настоящей). Правило — NAV_FONT_CSS.
+const FONTS = new URL('./fonts/', import.meta.url).pathname;
 const server = createServer(async (req, res) => {
   const path = req.url.split('?')[0];
+  if (path.startsWith('/__fonts/')) {
+    try { const body = await readFile(join(FONTS, normalize(path.slice(9))));
+      res.writeHead(200, { 'content-type': 'font/woff2' }); return res.end(body);
+    } catch { res.writeHead(404); return res.end(); }
+  }
   const file = join(ROOT, normalize(path === '/' ? '/index.html' : path));
   try {
     let body = await readFile(file);
@@ -530,6 +541,24 @@ for (const base of ['learn', 'learnright', 'learnwrong', 'learnrep', 'learnhelp'
   }
 }
 FAST_AUDIO.add('learnright');
+// ——— Остальные экраны на тех же ширинах (чистка наложений, 23.10.2026) ———
+// Главная, Ключ, Азбука, Журнал, настройки, «Свой позывной», радиограмма и Радиоигра —
+// на 360, 320 и с крупным шрифтом. Посев, звук и подставленные адреса — как у основного кадра.
+// Экраны, которые и так снимаются на 360 (Радиоигра), получают только 320 и big.
+for (const base of ['home', 'homecall', 'key', 'keyfree', 'keyverdict', 'ref', 'refdigits', 'refpunct', 'refen', 'refcard',
+  'cabinet', 'settings', 'settingsknows', 'callsign', 'radiogram', 'radiogramresult', 'radiogramlongresult',
+  'puzzlecats', 'puzzleq', 'puzzleqwrong', 'puzzlecode', 'puzzlereveal']) {
+  for (const [suf, vp] of Object.entries(LEARN_SIZES)) {
+    if (VIEWPORT[base] && VIEWPORT[base].width === vp.width) continue;
+    const name = base + suf;
+    SCREENS[name] = SCREENS[base];
+    VIEWPORT[name] = vp;
+    if (SEED_PATCH[base]) SEED_PATCH[name] = SEED_PATCH[base];
+    for (const set of [NO_AUDIO, FAST_AUDIO, SLEEPY_AUDIO, WITH_LINKS]) if (set.has(base)) set.add(name);
+  }
+}
+// Компьютер (критерий 6: меню по ширине содержимого, а не от края до края экрана).
+for (const base of ['home', 'learn', 'ref']) { SCREENS[base + 'pc'] = SCREENS[base]; VIEWPORT[base + 'pc'] = { width: 1280, height: 800 }; }
 // Чёткость кадра: «крупный шрифт» — тот же телефон 360 точек, увеличенный в 1,3 раза.
 const SCALE = (name) => (name.endsWith('big') ? 2.6 : 2);
 const REV_RU = Object.fromEntries([...CODE_BY_CHAR.ru].map(([c, k]) => [k, c]));
@@ -641,9 +670,12 @@ for (const theme of ['light', 'dark']) {
       await ctx.addInitScript(() => { window.AudioContext = undefined; window.webkitAudioContext = undefined; });
     }
     await ctx.addInitScript(CHECK_LAYOUT);
+    await ctx.addInitScript((css) => document.addEventListener('DOMContentLoaded', () => {
+      const st = document.createElement('style'); st.textContent = css; document.head.append(st); }), NAV_FONT_CSS);
     INJECT_LINKS = WITH_LINKS.has(name);
     await page.goto(base, { waitUntil: 'networkidle' });
     await page.waitForTimeout(250);
+    await page.evaluate(() => document.fonts.ready);
     // Сценарий, не дошедший до нужного состояния, — ошибка прогона, а не кадр «как получилось».
     try { await SCREENS[name](page); } catch (e) { errors.push('сценарий: ' + e.message); }
     await page.waitForTimeout(200);
@@ -665,6 +697,8 @@ for (const theme of ['light', 'dark']) {
     if (name.startsWith('learn')) problems.push(...await page.evaluate(() => checkInsideCards()));
     // «Дальше» на обычных телефонах — в первом экране, не под нижним меню.
     if (name === 'learnwrong' || name === 'learnwrong360') problems.push(...await page.evaluate(() => checkAboveNav(['#nextbtn'])));
+    // Нижнее меню: подписи не слипаются и не выходят из кнопок, на компьютере — по содержимому.
+    problems.push(...await page.evaluate(() => checkNav()));
     if (name.startsWith('home')) problems.push(...await tapCheck(page));
     // Наложение заголовка на кнопки шапки: замер «за край экрана» его не видит.
     problems.push(...await page.evaluate(() => [...document.querySelectorAll('#screen .screenbar')].flatMap((bar) => {
