@@ -180,10 +180,12 @@ img{max-width:100%; height:auto;}
 .heroblock{position:relative; display:grid; place-items:center; padding:2px 0 0; margin:4px 0 0;}
 .heroblock::before{
   content:""; position:absolute; left:50%; top:52%; transform:translate(-50%,-50%);
-  width:min(92%, 420px); aspect-ratio:1/1; border-radius:50%;
+  /* Круг света — по ширине рисунка (у картинок ширина 0,78 высоты), а не шире экрана:
+     прежний круг в 92% ширины лежал под шестерёнкой, приветствием и кнопками и читался
+     как «коврик» (чистка оформления, 23.10.2026). */
+  height:78%; width:auto; aspect-ratio:1/1; border-radius:50%;
   background:radial-gradient(circle, var(--glow) 0%, transparent 68%);
-  /* Круг света шире самого блока и накрывает верх кнопок под приветствием: без этого
-     нажатие по верхней кромке «Принять свой позывной» уходило в картинку, а не в кнопку. */
+  /* Касания свет не перехватывает: нажатие по кромке кнопки рядом уходит в кнопку. */
   pointer-events:none;
 }
 .hero{display:block; position:relative; margin:0 auto; max-height:30vh;}

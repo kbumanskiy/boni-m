@@ -700,6 +700,7 @@ for (const theme of ['light', 'dark']) {
     // Нижнее меню: подписи не слипаются и не выходят из кнопок, на компьютере — по содержимому.
     problems.push(...await page.evaluate(() => checkNav()));
     if (name.startsWith('home')) problems.push(...await tapCheck(page));
+    if (name.startsWith('home') || name.startsWith('onboarding')) problems.push(...await page.evaluate(() => checkHeroGlow()));
     // Наложение заголовка на кнопки шапки: замер «за край экрана» его не видит.
     problems.push(...await page.evaluate(() => [...document.querySelectorAll('#screen .screenbar')].flatMap((bar) => {
       const h = bar.querySelector('h2'), act = bar.querySelector('.screenbar-actions, .iconbtn');

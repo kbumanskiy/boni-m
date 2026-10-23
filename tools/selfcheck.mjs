@@ -148,6 +148,21 @@ INJECT_GUIDE=false;
   const found=res.slice(0,3).every((r)=>r.length===0)&&res[3].some((m)=>m.includes('слиплись'))&&res[4].some((m)=>m.includes('растянуто'));
   console.log(`${found?'✓':'✗'} ловится: подписи нижнего меню слиплись / меню растянуто на компьютере${found?'  → «'+res[3][0]+'»':'  — НЕ ПОЙМАНО: '+JSON.stringify(res)}`);
   found?ok++:bad++;
+}// Замер checkHeroGlow: на главной — чисто, а с прежним кругом света в 92% ширины — ловится.
+{
+  const seed=await page.evaluate(()=>localStorage.getItem('boni_m_state'));
+  const c7=await browser.newContext({viewport:{width:390,height:844}});
+  await c7.addInitScript((s)=>localStorage.setItem('boni_m_state',s),seed);
+  await c7.addInitScript(CHECK_LAYOUT);
+  const p7=await c7.newPage();
+  await p7.goto(base,{waitUntil:'networkidle'}); await p7.waitForTimeout(250);
+  const clean=await p7.evaluate(()=>checkHeroGlow());
+  await p7.addStyleTag({content:'.heroblock::before{width:min(92%,420px) !important; height:auto !important}'});
+  const out=await p7.evaluate(()=>checkHeroGlow());
+  const found=clean.length===0&&out.length>0;
+  console.log(`${found?'✓':'✗'} ловится: круг света за Боней шире рисунка («коврик»)${found?'  → «'+out[0]+'»':'  — НЕ ПОЙМАНО (чисто до: '+JSON.stringify(clean)+')'}`);
+  found?ok++:bad++;
+  await c7.close();
 }
 console.log(`\n${bad?'✗ проверка неполная':'✓ проверка рабочая'}: поймано ${ok} из ${ok+bad}`);
 await browser.close(); server.close();

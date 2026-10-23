@@ -134,6 +134,24 @@ const CHECK_LAYOUT = () => {
     return out;
   };
 
+  // Круг света за Боней (критерий 3, 23.10.2026): не шире рисунка и не выходит за блок
+  // картинки — то есть не лежит под шестерёнкой, приветствием и кнопками («коврик»).
+  window.checkHeroGlow = () => {
+    const out = [];
+    for (const hb of document.querySelectorAll('#screen .heroblock')) {
+      const img = hb.querySelector('img'); if (!img) continue;
+      const cs = getComputedStyle(hb, '::before');
+      if (cs.content === 'none' || cs.display === 'none') continue;
+      const b = hb.getBoundingClientRect(), i = img.getBoundingClientRect();
+      const w = parseFloat(cs.width), h = parseFloat(cs.height);
+      const cx = b.left + b.width / 2, cy = b.top + parseFloat(cs.top);   // translate(-50%,-50%)
+      const r = { left: cx - w / 2, right: cx + w / 2, top: cy - h / 2, bottom: cy + h / 2 };
+      if (r.left < i.left - 2 || r.right > i.right + 2 || r.top < b.top - 2 || r.bottom > b.bottom + 2)
+        out.push(`круг света за картинкой больше рисунка: ${Math.round(w)}×${Math.round(h)} при рисунке ${Math.round(i.width)}×${Math.round(i.height)}`);
+    }
+    return out;
+  };
+
   // Доступность: экранный диктор и клавиатура. Папа пользуется пальцем, но зрение
   // с возрастом слабеет — рано или поздно понадобится увеличение и озвучивание.
   window.checkA11y = () => {
