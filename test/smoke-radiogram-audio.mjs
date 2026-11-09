@@ -281,5 +281,38 @@ assert.equal(errors.length, 0, 'необработанные ошибки: ' + e
   }
   ok(errs.length === 0, 'длина тире: без ошибок — ' + errs.map(String).join(' | '));
 }
+
+// ——— «Смесь»: каждый знак текста, в том числе знак препинания, звучит своим кодом ———
+{
+  const { JSDOM: J } = await import('jsdom');
+  const { charInfo } = await import('../app/js/data.js');
+  const d = new J(html, { url: 'https://example.com/', pretendToBeVisual: true });
+  const w = d.window;
+  const errs = [];
+  w.addEventListener('error', (e) => errs.push(e.error || e.message));
+  w.localStorage.setItem('boni_m_state', JSON.stringify(migrate({
+    profile: { name: 'Радист', callsign: '', points: 5 },
+    progress: { ru: { learnedCount: 4 } },
+    settings: { knowsAll: true, radiogramCpm: 60, radiogramKind: 'mixed', radiogramLong: true, radiogramGroups: 50 },
+    milestones: { first4: true }, totalSeconds: 1000,
+  })));
+  Object.assign(w, { scrollTo: () => {}, confirm: () => true, alert: () => {}, AudioContext: fake.AudioContext,
+    requestAnimationFrame: global.requestAnimationFrame, cancelAnimationFrame: global.cancelAnimationFrame });
+  setGlobal('window', w); setGlobal('document', w.document);
+  setGlobal('location', w.location); setGlobal('localStorage', w.localStorage);
+  await import('../app/app.js?mixed');
+  await sleep(20);
+  const $w = (sel) => w.document.querySelector(sel);
+  $w('#radiogram').click(); await sleep(5);
+  const n0 = fake.tones.length;
+  $w('#start').click(); await sleep(5);
+  const txt = [...w.__rgText].filter((c) => c !== ' ');
+  const punct = txt.filter((c) => '.,/?='.includes(c));
+  ok(punct.length > 0, `«Смесь»: в тексте есть знаки препинания (${punct.length} из ${txt.length})`);
+  const expected = txt.reduce((n, c) => n + (charInfo(c)?.code || '').length, 0);
+  const got = fake.tones.slice(n0).length;
+  ok(got === expected, `«Смесь»: звучит ${got} тонов из ${expected} — ни один знак не потерян`);
+  ok(errs.length === 0, '«Смесь»: без ошибок — ' + errs.map(String).join(' | '));
+}
 console.log(`\nДымовой тест радиограммы со звуком пройден: ${pass} проверок, ошибок ${errors.length}`);
 process.exit(0);

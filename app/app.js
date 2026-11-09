@@ -855,7 +855,8 @@ function longGroups() {
   return opts.includes(g) ? g : (LIMITS.radiogramGroups?.def ?? 30);
 }
 // Код знака радиограммы: латиница и русские из обеих таблиц, остальное — из текущей азбуки.
-const rgCodeOf = (ch) => codeAnywhere(ch) || DATA.CODE_BY_CHAR[state.settings.alphabet]?.get(ch) || '';
+// Знаки препинания («Смесь») в таблицах букв и цифр не лежат — их код берём из charInfo.
+const rgCodeOf = (ch) => codeAnywhere(ch) || DATA.CODE_BY_CHAR[state.settings.alphabet]?.get(ch) || DATA.charInfo?.(ch)?.code || '';
 
 // «около 30 секунд», «около 1 минуты», «около 1,5 минуты», «около 6 минут» — до полуминуты.
 function aboutDuration(sec) {
