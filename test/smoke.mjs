@@ -5,7 +5,7 @@ import { JSDOM } from 'jsdom';
 import { readFileSync } from 'node:fs';
 import assert from 'node:assert/strict';
 import { LIMITS } from '../app/js/timing.js';
-import { migrate } from '../app/js/state.js';
+import { migrate, defaultState } from '../app/js/state.js';
 import { makeFakeAudio } from './fake-audio.mjs';
 
 const html = readFileSync(new URL('../app/index.html', import.meta.url), 'utf8');
@@ -817,6 +817,65 @@ Object.defineProperty(document, 'hidden', { configurable: true, get: () => false
   ok(!d3.querySelector('#radiogram') && !d3.querySelector('#drill'), 'знаю азбуку: после «Выключить» кнопок радиограммы и позывного снова нет');
   ok(dialogs === 0, 'знаю азбуку: ни одного окна confirm/alert');
   ok(errors3.length === 0, 'знаю азбуку: без ошибок — ' + errors3.map(String).join(' | '));
+}
+
+// 9б) «Вернуть рекомендуемые» (H14): сбрасывает только скорость, паузу, ключ, длину тире и тон.
+{
+  const seed = migrate({ profile: { name: 'Радист', callsign: 'UA5B', points: 77 }, progress: { ru: { learnedCount: 4 } },
+    settings: { charWpm: 30, effWpm: 20, keyWpm: 20, dahRatio: 4, toneHz: 800, volume: 0.8, knowsAll: true,
+      theme: 'dark', keyMode: 'free', radiogramCpm: 90, radiogramGroups: 50, metrics: false, showChants: false },
+    milestones: { first4: true } });
+  const domR = new JSDOM(html, { url: 'https://example.com/', pretendToBeVisual: true });
+  const wR = domR.window, dR = wR.document;
+  const errorsR = [];
+  wR.addEventListener('error', (e) => errorsR.push(e.error || e.message));
+  wR.localStorage.setItem('boni_m_state', JSON.stringify(seed));
+  let dialogsR = 0;
+  Object.assign(wR, { scrollTo: () => {}, confirm: () => { dialogsR++; return true; }, alert: () => { dialogsR++; },
+    AudioContext: fakeAudio.AudioContext,
+    requestAnimationFrame: global.requestAnimationFrame, cancelAnimationFrame: global.cancelAnimationFrame });
+  setGlobal('window', wR); setGlobal('document', dR);
+  setGlobal('location', wR.location); setGlobal('localStorage', wR.localStorage);
+  await import('../app/app.js?rec');
+  await sleep(20);
+  const stR = () => JSON.parse(wR.localStorage.getItem('boni_m_state'));
+  const cR = (sel) => { const el = dR.querySelector(sel); assert.ok(el, `нет элемента ${sel}`); el.click(); };
+  const tR = () => dR.querySelector('#screen').textContent;
+  const D = defaultState().settings;
+  const KEYS = ['charWpm', 'effWpm', 'keyWpm', 'dahRatio', 'toneHz'];
+  const same = (a, b) => KEYS.every((k) => a[k] === b[k]);
+  const before = stR();
+  cR('#gear'); await sleep(10);
+  ok(dR.querySelector('#rec') && dR.querySelector('#rec').textContent.trim() === 'Вернуть рекомендуемые', 'рекомендуемые: кнопка «Вернуть рекомендуемые» есть, пока значения сдвинуты');
+  cR('#rec'); await sleep(10);
+  ok(tR().includes('Вернуть скорость и тон как при первом запуске? Прогресс не изменится.') && dR.querySelector('#rec-yes') && dR.querySelector('#rec-no'),
+    'рекомендуемые: подтверждение на странице (Да / Отмена)');
+  ok(same(stR().settings, before.settings), 'рекомендуемые: до «Да» ничего не меняется');
+  cR('#rec-no'); await sleep(10);
+  ok(dR.querySelector('#rec') && same(stR().settings, before.settings) && JSON.stringify(stR()) === JSON.stringify(before), 'рекомендуемые: «Отмена» ничего не меняет');
+  cR('#rec'); await sleep(10);
+  cR('#rec-yes'); await sleep(10);
+  const after = stR();
+  ok(same(after.settings, D), 'рекомендуемые: «Да» вернул скорость, паузу, ключ, длину тире и тон к значениям новой установки');
+  ok(dR.querySelector('#lchar').value === String(D.charWpm) && dR.querySelector('#key').value === String(D.keyWpm)
+    && dR.querySelector('#tone').value === String(D.toneHz) && dR.querySelector('#ldah').value === '0',
+    'рекомендуемые: ползунки на экране сразу показывают новые значения');
+  const sorted = (o) => Object.fromEntries(Object.entries(o).sort(([a], [b]) => (a < b ? -1 : 1)));
+  const rest = (st) => JSON.stringify({ ...sorted({ ...st, _greeted: 0 }), settings: sorted({ ...st.settings, ...Object.fromEntries(KEYS.map((k) => [k, 0])) }) });
+  ok(rest(after) === rest(before), 'рекомендуемые: прогресс, очки, вехи, тема, позывной, radiogram*, knowsAll, громкость и прочее не тронуты');
+  ok(after.progress.ru.learnedCount === 4 && after.profile.points === 77 && after.settings.volume === 0.8 && after.settings.knowsAll === true,
+    'рекомендуемые: освоено, очки, громкость, knowsAll на месте');
+  ok(!dR.querySelector('#rec') && dR.querySelector('#rec-ok'), 'рекомендуемые: когда всё по умолчанию, кнопки нет — строка «Сейчас стоят рекомендуемые»');
+  // Сдвиг ползунка возвращает кнопку без перерисовки всего экрана.
+  const lc = dR.querySelector('#lchar'); lc.value = '25'; lc.dispatchEvent(new wR.Event('input', { bubbles: true })); await sleep(10);
+  ok(dR.querySelector('#rec') && stR().settings.charWpm === 25, 'рекомендуемые: после сдвига ползунка кнопка снова появилась');
+  cR('#rec'); await sleep(10); cR('#rec-yes'); await sleep(10);
+  const tn = dR.querySelector('#tone'); tn.value = '800'; tn.dispatchEvent(new wR.Event('input', { bubbles: true })); await sleep(10);
+  ok(dR.querySelector('#rec') && stR().settings.toneHz === 800, 'рекомендуемые: сдвиг тона тоже возвращает кнопку');
+  cR('#back'); await sleep(10); cR('#gear'); await sleep(10);
+  ok(dR.querySelector('#rec') && !dR.querySelector('#rec-yes'), 'рекомендуемые: после ухода с экрана вопрос закрыт, видна кнопка');
+  ok(dialogsR === 0, 'рекомендуемые: ни одного окна confirm/alert');
+  ok(errorsR.length === 0, 'рекомендуемые: без ошибок — ' + errorsR.map(String).join(' | '));
 }
 
 // 10) Длинная радиограмма (ТЗ-длинные-радиограммы.md, 4.6, пункты 1–5 и 9). Своё окно:

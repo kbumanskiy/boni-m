@@ -90,10 +90,12 @@ let settingsFrom = 'home';
 // Раскрыт ли на экране настроек вопрос «Открыть радиограмму со всеми знаками?» (см. knowsCard).
 // Сбрасывается при любом уходе с экрана: вернувшись, человек видит кнопку, а не вопрос.
 let knowsAsk = false;
+// То же для вопроса «Вернуть скорость и тон…?» (см. recCard).
+let recAsk = false;
 function go(tab) {
   const from = currentTab;
   if (tab === 'settings' && currentTab !== 'settings') settingsFrom = currentTab;
-  if (tab !== 'settings') knowsAsk = false;
+  if (tab !== 'settings') { knowsAsk = false; recAsk = false; }
   // Уход из «Учиться» любым путём (нижнее меню, кнопка) фиксирует сессию — иначе серия
   // дней и журнал не запишутся, когда папа просто тапнет «Главная».
   // Сначала остановить часы (время войдёт в totalSeconds), потом засчитывать занятие —
@@ -2174,6 +2176,7 @@ function renderSettings() {
       <label for="vol">Громкость</label>
       <input type="range" id="vol" min="${LIMITS.volume.min}" max="${LIMITS.volume.max}" step="0.05" value="${s.volume}">
     </div>
+    ${recCard(s)}
     <div class="card">
       <div class="eyebrow">Помощь при обучении</div>
       ${toggleRow('chants', 'Напевы букв', s.showChants)}
@@ -2207,6 +2210,7 @@ function renderSettings() {
     ${ST.saveBlocked?.() ? `<p class="muted center hint" id="savewarn">Прогресс сейчас не сохраняется — напишите автору через «Журнал».</p>` : ''}`;
   $('#back').addEventListener('click', () => go(settingsFrom));
   wireKnows(s);
+  wireRec(s);
   // Пишем сразу по вводу, но экран НЕ перерисовываем: перерисовка увела бы курсор
   // из поля на первой же букве. Позывной приводим к верхнему регистру при сохранении.
   $('#s-name').addEventListener('input', (e) => { state.profile.name = e.target.value.slice(0, 20); persist(); });
@@ -2219,6 +2223,8 @@ function renderSettings() {
   $('#key').addEventListener('input', (e) => { s.keyWpm = +e.target.value; persist(); renderSettings(); });
   $('#tone').addEventListener('input', (e) => { s.toneHz = +e.target.value; $('#tone-val').textContent = `${s.toneHz} Гц`; persist(); });
   $('#vol').addEventListener('input', (e) => { s.volume = +e.target.value; persist(); });
+  // После обработчиков, меняющих значения: иначе карточка прочтёт ещё старое.
+  ['#lchar', '#lspeed', '#ldah', '#tone'].forEach((id) => { const el = $(id); if (el) el.addEventListener('input', () => refreshRec(s)); });
   $('#tone').addEventListener('change', sample);
   $('#vol').addEventListener('change', sample);
   $('#chants').addEventListener('click', () => { s.showChants = !s.showChants; persist(); renderSettings(); });
@@ -2294,6 +2300,58 @@ function knowsCard(s) {
       ${body}
     </div>`;
 }
+// «Вернуть рекомендуемые» — возвращает регуляторы скорости и тон к значениям новой установки
+// (defaultState() из state.js, новых чисел здесь нет). Сбрасывается ТОЛЬКО это: скорость знака,
+// пауза, скорость ключа, длина тире, высота тона. Громкость не трогаем: она подобрана под
+// телефон и уши, а сброс мог бы сделать звук непривычно тихим или громким. Прогресс, очки,
+// радиограмма, тема, позывной и прочее — вне списка. Всё по умолчанию — вместо кнопки строка.
+// Подтверждение на странице, не окном (РЕШЕНИЯ.md, «Ни одного всплывающего окна»).
+// Через пространство имён: при смешанном кэше старого state.js функции нет — карточки нет вовсе.
+const REC_KEYS = ['charWpm', 'effWpm', 'keyWpm', 'dahRatio', 'toneHz'];
+function recDefaults() { return ST.defaultState?.().settings || null; }
+function recIsDefault(s) {
+  const d = recDefaults();
+  return !d || REC_KEYS.every((k) => s[k] === d[k]);
+}
+function recCard(s) {
+  if (!recDefaults()) return '';
+  let body;
+  if (recIsDefault(s)) {
+    body = `<p class="muted hint" id="rec-ok">Сейчас стоят рекомендуемые значения скорости и тона.</p>`;
+  } else if (recAsk) {
+    body = `<p><b>Вернуть скорость и тон как при первом запуске? Прогресс не изменится.</b></p>
+      <div class="btn-row">
+        <button class="btn" id="rec-yes">Да</button>
+        <button class="btn secondary" id="rec-no">Отмена</button>
+      </div>`;
+  } else {
+    body = `<button class="btn secondary" id="rec">Вернуть рекомендуемые</button>
+      <p class="muted hint">Скорость знака, паузы, ключа, длина тире и высота тона — как у новичка.
+         Прогресс и громкость не меняются.</p>`;
+  }
+  return `<div class="card" id="rec-card">
+      <div class="eyebrow">Рекомендуемые значения</div>
+      ${body}
+    </div>`;
+}
+// Ползунки не перерисовывают экран (увело бы палец), поэтому карточку обновляем отдельно.
+function refreshRec(s) {
+  const c = $('#rec-card'); if (!c) return;
+  c.outerHTML = recCard(s);
+  wireRec(s);
+}
+function wireRec(s) {
+  const on = (id, fn) => { const el = $(id); if (el) el.addEventListener('click', fn); };
+  const redraw = () => { renderSettings(); const c = $('#rec-card'); if (c && c.scrollIntoView) c.scrollIntoView({ block: 'center' }); };
+  on('#rec', () => { recAsk = true; redraw(); });
+  on('#rec-no', () => { recAsk = false; redraw(); });
+  on('#rec-yes', () => {
+    const d = recDefaults();
+    if (d) REC_KEYS.forEach((k) => { s[k] = d[k]; });
+    recAsk = false; persist(); redraw();
+  });
+}
+
 function wireKnows(s) {
   const on = (id, fn) => { const el = $(id); if (el) el.addEventListener('click', fn); };
   const redraw = () => { renderSettings(); const c = $('#knows-card'); if (c && c.scrollIntoView) c.scrollIntoView({ block: 'center' }); };

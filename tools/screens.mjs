@@ -275,6 +275,12 @@ const SCREENS = {
                                      await page.click('#knows'); await page.waitForTimeout(200);
                                      await page.click('#knows-yes'); await page.waitForTimeout(200);
                                      await page.evaluate(() => document.querySelector('#knows-card').scrollIntoView({ block: 'center' })); await page.waitForTimeout(150); },
+  // «Вернуть рекомендуемые»: при значениях по умолчанию кнопки нет, поэтому сначала двигаем высоту тона (короткая подпись: у быстрой скорости знака в крупном шрифте подпись шире карточки — старое замечание, см. отчёт).
+  settingsrecask: async (page) => { await page.click('#gear'); await page.waitForTimeout(300);
+                                    await page.evaluate(() => { const r = document.querySelector('#tone'); r.value = 800; r.dispatchEvent(new Event('input', { bubbles: true })); });
+                                    await page.waitForTimeout(200);
+                                    await page.click('#rec'); await page.waitForTimeout(200);
+                                    await page.evaluate(() => document.querySelector('#rec-card').scrollIntoView({ block: 'center' })); await page.waitForTimeout(150); },
   onboarding: async () => {},
   onboarding360: async () => {},
   onboarding320: async () => {},
@@ -546,7 +552,7 @@ FAST_AUDIO.add('learnright');
 // на 360, 320 и с крупным шрифтом. Посев, звук и подставленные адреса — как у основного кадра.
 // Экраны, которые и так снимаются на 360 (Радиоигра), получают только 320 и big.
 for (const base of ['home', 'homecall', 'key', 'keyfree', 'keyverdict', 'ref', 'refdigits', 'refpunct', 'refen', 'refcard',
-  'cabinet', 'settings', 'settingsknows', 'callsign', 'radiogram', 'radiogramresult', 'radiogramlongresult',
+  'cabinet', 'settings', 'settingsknows', 'settingsrecask', 'callsign', 'radiogram', 'radiogramresult', 'radiogramlongresult',
   'puzzlecats', 'puzzleq', 'puzzleqwrong', 'puzzlecode', 'puzzlereveal',
   // Подсказка «Учиться» со всем алфавитом: самые длинные напевы (русские и латинские).
   'learnhelpru', 'learnhelpen']) {
