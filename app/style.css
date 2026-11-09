@@ -416,7 +416,9 @@ input[type=range]{width:100%; height:44px; accent-color:var(--accent);}
 /* Регулятор: иконки по краям, значение цифрой справа — вместо длинной подписи со скобками. */
 .slider{margin:6px 0 0;}
 .slider input[type=range]{width:100%; margin:0;}
-.slider-head{display:flex; align-items:baseline; justify-content:space-between; gap:10px;}
+.slider-head{display:flex; align-items:baseline; justify-content:space-between; flex-wrap:wrap; gap:0 10px;}
+/* Крупный шрифт: подпись и значение не помещаются в одну строку — значение уходит на свою, справа. */
+.slider-head .num{margin-left:auto;}
 .slider-head label{margin:0; font-size:19px; font-weight:600; color:var(--text-dim);}
 .slider-head .num{font-size:21px;}
 .slider-ends{display:flex; justify-content:space-between; color:var(--text-dim); font-size:17px; margin-top:-2px;}
