@@ -104,7 +104,7 @@ ok(document.documentElement.dataset.theme === 'dark', 'тема тёмная, к
 
 click('#radiogram'); await sleep(10);
 ok(text().includes('110 зн/мин'), 'подготовка: 110 зн/мин');
-ok($('[data-kind="mixed"]').classList.contains('active'), 'подготовка: «Смесь»');
+ok($('[data-kind="mixed"]').classList.contains('active'), 'подготовка: «Всё вместе»');
 ok($('[data-dur="minute"]').classList.contains('active') && !$('[data-groups]'), 'подготовка: активна «Минута», ряда групп нет');
 ok(text().includes('Лучшая принятая радиограмма: 100 зн/мин'), '«Лучшая принятая радиограмма: 100 зн/мин»');
 

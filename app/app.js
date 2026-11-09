@@ -908,7 +908,7 @@ function drawRadiogramSetup() {
   const kinds = [
     ['letters', 'Буквы'],
     ['digits', 'Цифры'],
-    ['mixed', 'Смесь'],
+    ['mixed', 'Всё вместе'],
   ];
   const digitsReady = radiogramSet('digits').length > 0;
   if (s.radiogramKind === 'digits' && !digitsReady) s.radiogramKind = 'letters';
@@ -943,7 +943,7 @@ function drawRadiogramSetup() {
         <button data-kind="${k}" class="${s.radiogramKind === k ? 'active' : ''}"
           ${k === 'digits' && !digitsReady ? 'disabled' : ''}>${label}</button>`).join('')}</div>
       ${!digitsReady ? '<p class="muted hint">Цифры откроются, когда вы начнёте их проходить в занятиях.</p>' : ''}
-      ${s.radiogramKind === 'mixed' ? '<p class="muted hint">В смеси встречаются знаки препинания . , / ? = — их коды есть в разделе «Азбука».</p>' : ''}
+      ${s.radiogramKind === 'mixed' ? '<p class="muted hint">Буквы, цифры и знаки препинания . , / ? = вперемешку. Коды знаков — в разделе «Азбука».</p>' : ''}
     </div>
     <div class="card">
       <div class="eyebrow">Скорость</div>

@@ -122,6 +122,7 @@ const SEED_PATCH = {
   settingsdah390: (s) => SEED_PATCH.settingsdah(s),
   // Самая быстрая скорость знака (самое длинное значение «NNN зн/мин» + WPM) — в крупном шрифте.
   settingsfast: (s) => { s.settings.charWpm = LIMITS.charWpm.max; return s; },
+  radiogramall: (s) => SEED_PATCH.radiogram(s),
   radiogramlongwork: (s) => { SEED_PATCH.radiogram(s); s.settings.radiogramLong = true; s.settings.radiogramGroups = 50; return s; },
   radiogramlongresult: (s) => SEED_PATCH.radiogramlongwork(s),
   // Обрыв: на 225 зн/мин первая полная группа звучит за пару секунд.
@@ -340,6 +341,12 @@ const SCREENS = {
   radiogram: async (page) => {
     await page.click('#radiogram'); await page.waitForTimeout(300);
   },
+  // «Всё вместе» выбрано: подпись третьей кнопки и подсказка под выбором.
+  radiogramall: async (page) => {
+    await page.click('#radiogram'); await page.waitForTimeout(250);
+    await page.click('[data-kind="mixed"]'); await page.waitForTimeout(250);
+    if (!(await page.locator('[data-kind="mixed"].active').count())) throw new Error('radiogramall: «Всё вместе» не выбрано');
+  },
   radiogramwork: async (page) => {
     await page.click('#radiogram'); await page.waitForTimeout(250);
     await page.click('#start'); await page.waitForTimeout(400);
@@ -557,7 +564,7 @@ FAST_AUDIO.add('learnright');
 // на 360, 320 и с крупным шрифтом. Посев, звук и подставленные адреса — как у основного кадра.
 // Экраны, которые и так снимаются на 360 (Радиоигра), получают только 320 и big.
 for (const base of ['home', 'homecall', 'key', 'keyfree', 'keyverdict', 'ref', 'refdigits', 'refpunct', 'refen', 'refcard',
-  'cabinet', 'settings', 'settingsfast', 'settingsknows', 'settingsrecask', 'callsign', 'radiogram', 'radiogramresult', 'radiogramlongresult',
+  'cabinet', 'settings', 'settingsfast', 'settingsknows', 'settingsrecask', 'callsign', 'radiogram', 'radiogramall', 'radiogramresult', 'radiogramlongresult',
   'puzzlecats', 'puzzleq', 'puzzleqwrong', 'puzzlecode', 'puzzlereveal',
   // Подсказка «Учиться» со всем алфавитом: самые длинные напевы (русские и латинские).
   'learnhelpru', 'learnhelpen']) {

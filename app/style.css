@@ -784,6 +784,11 @@ textarea{
   .card .seg{flex-wrap:wrap;}
   .card .seg button{flex:1 1 auto;}
 }
+/* «Что передавать» в радиограмме: подпись «Всё вместе» не рвётся на два слова внутри кнопки —
+   если три кнопки в ряд не помещаются, третья встаёт строкой ниже. */
+.seg button[data-kind]{white-space:nowrap;}
+.card .seg:has(> button[data-kind]){flex-wrap:wrap;}
+.card .seg > button[data-kind]{flex:1 1 auto;}
 /* Радиоигра при крупном шрифте: счёт «0 из 30 ›» встаёт под название категории, а не
    за край; «Медленнее» и «Показать точки-тире» — одна под другой. */
 @media (max-width:300px){

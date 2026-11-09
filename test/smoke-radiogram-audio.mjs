@@ -282,7 +282,7 @@ assert.equal(errors.length, 0, 'необработанные ошибки: ' + e
   ok(errs.length === 0, 'длина тире: без ошибок — ' + errs.map(String).join(' | '));
 }
 
-// ——— «Смесь»: каждый знак текста, в том числе знак препинания, звучит своим кодом ———
+// ——— «Всё вместе»: каждый знак текста, в том числе знак препинания, звучит своим кодом ———
 {
   const { JSDOM: J } = await import('jsdom');
   const { charInfo } = await import('../app/js/data.js');
@@ -308,11 +308,11 @@ assert.equal(errors.length, 0, 'необработанные ошибки: ' + e
   $w('#start').click(); await sleep(5);
   const txt = [...w.__rgText].filter((c) => c !== ' ');
   const punct = txt.filter((c) => '.,/?='.includes(c));
-  ok(punct.length > 0, `«Смесь»: в тексте есть знаки препинания (${punct.length} из ${txt.length})`);
+  ok(punct.length > 0, `«Всё вместе»: в тексте есть знаки препинания (${punct.length} из ${txt.length})`);
   const expected = txt.reduce((n, c) => n + (charInfo(c)?.code || '').length, 0);
   const got = fake.tones.slice(n0).length;
-  ok(got === expected, `«Смесь»: звучит ${got} тонов из ${expected} — ни один знак не потерян`);
-  ok(errs.length === 0, '«Смесь»: без ошибок — ' + errs.map(String).join(' | '));
+  ok(got === expected, `«Всё вместе»: звучит ${got} тонов из ${expected} — ни один знак не потерян`);
+  ok(errs.length === 0, '«Всё вместе»: без ошибок — ' + errs.map(String).join(' | '));
 }
 console.log(`\nДымовой тест радиограммы со звуком пройден: ${pass} проверок, ошибок ${errors.length}`);
 process.exit(0);
