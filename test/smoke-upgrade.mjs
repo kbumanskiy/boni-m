@@ -7,6 +7,7 @@ import { JSDOM } from 'jsdom';
 import { readFileSync } from 'node:fs';
 import assert from 'node:assert/strict';
 import { makeFakeAudio } from './fake-audio.mjs';
+import { PAPA_OLD_STATE } from './fixtures-state.mjs';
 
 const html = readFileSync(new URL('../app/index.html', import.meta.url), 'utf8');
 const dom = new JSDOM(html, { url: 'https://example.com/', pretendToBeVisual: true });
@@ -15,27 +16,8 @@ const { document } = window;
 
 // Состояние прежней сборки: НЕТ полей lastFirst и settings.theme, и НЕ записаны вехи,
 // хотя по числу освоенных знаков они давно заслужены.
-const OLD_STATE = {
-  version: 2,
-  profile: { name: 'Бонислав', callsign: 'Boney M', points: 148 },
-  progress: {
-    ru: {
-      learnedCount: 20, digitsLearned: 0,
-      perChar: { 'Е': { correct: 31, total: 34 }, 'Ь': { correct: 9, total: 11 } },
-      recent: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-      parked: [],
-    },
-    en: { learnedCount: 0, digitsLearned: 0, perChar: {}, recent: [], parked: [] },
-  },
-  settings: {
-    alphabet: 'ru', charWpm: 18, effWpm: 9, keyWpm: 12,
-    toneHz: 600, volume: 0.5, showChants: true, vibration: true, keyMode: 'train',
-  },
-  streak: { current: 4, longest: 7, lastActiveDate: '2026-07-29' },
-  totalSeconds: 3420,
-  history: [{ date: '2026-07-29', answers: 24, accuracyPct: 87 }],
-  milestones: {},
-};
+// Само состояние лежит в test/fixtures-state.mjs (PAPA_OLD_STATE): его же берёт test/move.test.js.
+const OLD_STATE = PAPA_OLD_STATE;
 window.localStorage.setItem('boni_m_state', JSON.stringify(OLD_STATE));
 
 const errors = [];

@@ -11,7 +11,7 @@ import * as G from '../app/js/gamify.js';
 import * as DATA from '../app/js/data.js';
 import * as PZ from '../app/js/puzzle.js';
 import * as V27 from '../fixtures/v27/state.js';
-import { v25State } from './fixtures-state.mjs';
+import { v25State, PAPA_OLD_STATE } from './fixtures-state.mjs';
 
 const { migrate, defaultState, readIncoming, exportText } = S;
 
@@ -255,7 +255,9 @@ test('9. parked: настоящий формат проходит, осталь�
 });
 
 test('9. настоящее состояние не меняется: вывод прежнего migrate (v27) и нового совпадает', () => {
-  const raws = [v25State('2026-10-17'), maxState(), defaultState(), V27.defaultState()];
+  // PAPA_OLD_STATE — сырое, непромигрированное состояние с телефона папы: только оно по-настоящему
+  // упражняет новые правила. Расхождение здесь — находка про прогресс настоящих людей, а не повод править тест.
+  const raws = [PAPA_OLD_STATE, v25State('2026-10-17'), maxState(), defaultState(), V27.defaultState()];
   for (const raw of raws) {
     const text = JSON.stringify(raw);
     assert.deepEqual(migrate(JSON.parse(text)), V27.migrate(JSON.parse(text)));

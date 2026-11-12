@@ -41,3 +41,28 @@ export function v25State(yesterday = localDay(-1)) {
   puzzle: { ...structuredClone(def25.puzzle), word: { seen: ['w01', 'w05'], last: 'w05', solved: ['w01'] }, isNew: false },
   });
 }
+
+// Сырое состояние прежней сборки на телефоне папы (test/smoke-upgrade.mjs): НЕТ полей lastFirst и
+// settings.theme, вехи не записаны. НЕ пропущено через migrate — это ровно то, что лежит в хранилище,
+// поэтому только оно по-настоящему упражняет ужесточение migrate (test/move.test.js, 9).
+export const PAPA_OLD_STATE = {
+  version: 2,
+  profile: { name: 'Бонислав', callsign: 'Boney M', points: 148 },
+  progress: {
+    ru: {
+      learnedCount: 20, digitsLearned: 0,
+      perChar: { 'Е': { correct: 31, total: 34 }, 'Ь': { correct: 9, total: 11 } },
+      recent: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+      parked: [],
+    },
+    en: { learnedCount: 0, digitsLearned: 0, perChar: {}, recent: [], parked: [] },
+  },
+  settings: {
+    alphabet: 'ru', charWpm: 18, effWpm: 9, keyWpm: 12,
+    toneHz: 600, volume: 0.5, showChants: true, vibration: true, keyMode: 'train',
+  },
+  streak: { current: 4, longest: 7, lastActiveDate: '2026-07-29' },
+  totalSeconds: 3420,
+  history: [{ date: '2026-07-29', answers: 24, accuracyPct: 87 }],
+  milestones: {},
+};
