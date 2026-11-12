@@ -2301,7 +2301,7 @@ function knowsCard(s) {
       ${body}
     </div>`;
 }
-// «Вернуть рекомендуемые» — возвращает регуляторы скорости и тон к значениям новой установки
+// «Вернуть по умолчанию» — возвращает регуляторы скорости и тон к значениям новой установки
 // (defaultState() из state.js, новых чисел здесь нет). Сбрасывается ТОЛЬКО это: скорость знака,
 // пауза, скорость ключа, длина тире, высота тона. Громкость не трогаем: она подобрана под
 // телефон и уши, а сброс мог бы сделать звук непривычно тихим или громким. Прогресс, очки,
@@ -2318,7 +2318,7 @@ function recCard(s) {
   if (!recDefaults()) return '';
   let body;
   if (recIsDefault(s)) {
-    body = `<p class="muted hint" id="rec-ok">Сейчас стоят рекомендуемые значения скорости и тона.</p>`;
+    body = `<p class="muted hint" id="rec-ok">Сейчас стоят настройки по умолчанию.</p>`;
   } else if (recAsk) {
     body = `<p><b>Вернуть скорость и тон как при первом запуске? Прогресс не изменится.</b></p>
       <div class="btn-row">
@@ -2326,12 +2326,12 @@ function recCard(s) {
         <button class="btn secondary" id="rec-no">Отмена</button>
       </div>`;
   } else {
-    body = `<button class="btn secondary" id="rec">Вернуть рекомендуемые</button>
+    body = `<button class="btn secondary" id="rec">Вернуть по умолчанию</button>
       <p class="muted hint">Скорость знака, паузы, ключа, длина тире и высота тона — как у новичка.
          Прогресс и громкость не меняются.</p>`;
   }
   return `<div class="card" id="rec-card">
-      <div class="eyebrow">Рекомендуемые значения</div>
+      <div class="eyebrow">Настройки по умолчанию</div>
       ${body}
     </div>`;
 }

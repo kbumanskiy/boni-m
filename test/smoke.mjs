@@ -819,7 +819,7 @@ Object.defineProperty(document, 'hidden', { configurable: true, get: () => false
   ok(errors3.length === 0, 'знаю азбуку: без ошибок — ' + errors3.map(String).join(' | '));
 }
 
-// 9б) «Вернуть рекомендуемые» (H14): сбрасывает только скорость, паузу, ключ, длину тире и тон.
+// 9б) «Вернуть по умолчанию» (H14): сбрасывает только скорость, паузу, ключ, длину тире и тон.
 {
   const seed = migrate({ profile: { name: 'Радист', callsign: 'UA5B', points: 77 }, progress: { ru: { learnedCount: 4 } },
     settings: { charWpm: 30, effWpm: 20, keyWpm: 20, dahRatio: 4, toneHz: 800, volume: 0.8, knowsAll: true,
@@ -846,7 +846,7 @@ Object.defineProperty(document, 'hidden', { configurable: true, get: () => false
   const same = (a, b) => KEYS.every((k) => a[k] === b[k]);
   const before = stR();
   cR('#gear'); await sleep(10);
-  ok(dR.querySelector('#rec') && dR.querySelector('#rec').textContent.trim() === 'Вернуть рекомендуемые', 'рекомендуемые: кнопка «Вернуть рекомендуемые» есть, пока значения сдвинуты');
+  ok(dR.querySelector('#rec') && dR.querySelector('#rec').textContent.trim() === 'Вернуть по умолчанию', 'рекомендуемые: кнопка «Вернуть по умолчанию» есть, пока значения сдвинуты');
   cR('#rec'); await sleep(10);
   ok(tR().includes('Вернуть скорость и тон как при первом запуске? Прогресс не изменится.') && dR.querySelector('#rec-yes') && dR.querySelector('#rec-no'),
     'рекомендуемые: подтверждение на странице (Да / Отмена)');
@@ -865,7 +865,7 @@ Object.defineProperty(document, 'hidden', { configurable: true, get: () => false
   ok(rest(after) === rest(before), 'рекомендуемые: прогресс, очки, вехи, тема, позывной, radiogram*, knowsAll, громкость и прочее не тронуты');
   ok(after.progress.ru.learnedCount === 4 && after.profile.points === 77 && after.settings.volume === 0.8 && after.settings.knowsAll === true,
     'рекомендуемые: освоено, очки, громкость, knowsAll на месте');
-  ok(!dR.querySelector('#rec') && dR.querySelector('#rec-ok'), 'рекомендуемые: когда всё по умолчанию, кнопки нет — строка «Сейчас стоят рекомендуемые»');
+  ok(!dR.querySelector('#rec') && dR.querySelector('#rec-ok'), 'рекомендуемые: когда всё по умолчанию, кнопки нет — строка «Сейчас стоят настройки по умолчанию»');
   // Сдвиг ползунка возвращает кнопку без перерисовки всего экрана.
   const lc = dR.querySelector('#lchar'); lc.value = '25'; lc.dispatchEvent(new wR.Event('input', { bubbles: true })); await sleep(10);
   ok(dR.querySelector('#rec') && stR().settings.charWpm === 25, 'рекомендуемые: после сдвига ползунка кнопка снова появилась');

@@ -281,7 +281,7 @@ const SCREENS = {
                                      await page.click('#knows'); await page.waitForTimeout(200);
                                      await page.click('#knows-yes'); await page.waitForTimeout(200);
                                      await page.evaluate(() => document.querySelector('#knows-card').scrollIntoView({ block: 'center' })); await page.waitForTimeout(150); },
-  // «Вернуть рекомендуемые»: при значениях по умолчанию кнопки нет, поэтому сначала двигаем высоту тона (короткая подпись: у быстрой скорости знака в крупном шрифте подпись шире карточки — старое замечание, см. отчёт).
+  // «Вернуть по умолчанию»: при значениях по умолчанию кнопки нет, поэтому сначала двигаем высоту тона (короткая подпись: у быстрой скорости знака в крупном шрифте подпись шире карточки — старое замечание, см. отчёт).
   settingsrecask: async (page) => { await page.click('#gear'); await page.waitForTimeout(300);
                                     await page.evaluate(() => { const r = document.querySelector('#tone'); r.value = 800; r.dispatchEvent(new Event('input', { bubbles: true })); });
                                     await page.waitForTimeout(200);
