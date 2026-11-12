@@ -239,6 +239,22 @@ INJECT_GUIDE=false;
   found?ok++:bad++;
   await c7.close();
 }
+// Замер checkMoveTargets: ссылка-кнопка переезда в 64px — чисто, а в 40px — ловится.
+// Общая проверка высоты смотрит только BUTTON и порог 44px, поэтому эту подсадку она не увидела бы.
+{
+  const c8=await browser.newContext({viewport:{width:390,height:844}});
+  await c8.addInitScript(CHECK_LAYOUT);
+  const p8=await c8.newPage();
+  await p8.goto(base,{waitUntil:'networkidle'}); await p8.waitForTimeout(250);
+  const mk=(h)=>p8.evaluate((hh)=>{document.querySelector('#plant')?.remove();const d=document.createElement('div');d.id='plant';d.className='card mv';
+    d.innerHTML='<a class="btn" id="m-go" href="#">Перенести прогресс</a><a class="linkbtn" id="m-open" href="#">Открыть новый адрес</a>';document.querySelector('#screen').append(d);
+    if(hh)d.querySelectorAll('a').forEach((a)=>{a.style.minHeight=hh+'px';a.style.height=hh+'px';a.style.padding='0';});return checkMoveTargets();},h);
+  const clean=await mk(0), out=await mk(40);
+  const found=clean.length===0&&out.length>0;
+  console.log(`${found?'✓':'✗'} ловится: ссылка-кнопка переезда ниже 64px${found?'  → «'+out[0]+'»':'  — НЕ ПОЙМАНО (чисто до: '+JSON.stringify(clean)+', после: '+JSON.stringify(out)+')'}`);
+  found?ok++:bad++;
+  await c8.close();
+}
 console.log(`\n${bad?'✗ проверка неполная':'✓ проверка рабочая'}: поймано ${ok} из ${ok+bad}`);
 await browser.close(); server.close();
 process.exit(bad?1:0);

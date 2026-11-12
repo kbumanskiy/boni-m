@@ -802,7 +802,7 @@ textarea{
 .mv{text-align:left;}
 .mv h2{margin:0 0 8px; font-size:26px; line-height:1.2; text-wrap:balance;}
 .mv p{margin:8px 0;}
-.mv .btn, .mv .linkbtn, .mv-link{min-height:64px;}
+.mv .btn, .mv .linkbtn, .mv-link, #m-new-card .btn, #m-new-card .linkbtn, .mv-versions .btn, .mv-versions .linkbtn, #m-undo{min-height:64px;}
 .mv-link{margin-top:6px;}
 .mv-addr{white-space:nowrap; font-weight:650;}
 .mv-list li{gap:12px;}

@@ -10,6 +10,8 @@ import { CHECK_LAYOUT, NAV_FONT_CSS } from './page-checks.mjs';
 import * as PZ from '../app/js/puzzle.js';
 import { CODE_BY_CHAR } from '../app/js/data.js';
 import { LIMITS } from '../app/js/timing.js';
+import { migrate, exportText } from '../app/js/state.js';
+import * as MVN from '../app/js/move.js';
 
 const ROOT = new URL('../app/', import.meta.url).pathname;
 
@@ -27,6 +29,13 @@ const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css
 // доедет до телефона папы. Подставляем адреса на лету, отдавая файл: правим не проект,
 // а то, что видит браузер в конкретном кадре.
 let INJECT_LINKS = false;
+// Переезд (ТЗ-переезд.md, раздел 8): роль адреса подставляется на лету, как адреса выше, а проект
+// не правится. 'old' — OLD_HOST/OLD_PATH под localhost; 'new' — NEW_ORIGIN под локальный адрес;
+// home — MOVE_HOME = true (главная и знакомство старого адреса). MIXED — state.js прежнего релиза
+// (fixtures/v27) для кадра «Приложение ещё обновляется».
+let MOVE_CFG = null;
+let MIXED = false;
+let LOCAL_ORIGIN = '';
 const DEMO_DONATE = 'https://example.org/donate';
 const DEMO_FEEDBACK = 'https://example.org/feedback';
 const DEMO_GUIDE = 'https://example.org/instrukciya/';
@@ -56,12 +65,22 @@ const server = createServer(async (req, res) => {
         .replace("export const FEEDBACK_URL = '';", `export const FEEDBACK_URL = '${DEMO_FEEDBACK}';`)
         .replace("export const GUIDE_URL = '';", `export const GUIDE_URL = '${DEMO_GUIDE}';`));
     }
+    if (MOVE_CFG && path.endsWith('/js/move.js')) {
+      let src = String(body);
+      if (MOVE_CFG.role === 'new') src = src.replace("export const NEW_ORIGIN = 'https://app.morse73.ru';", `export const NEW_ORIGIN = '${LOCAL_ORIGIN}';`);
+      if (MOVE_CFG.role === 'old') src = src.replace("export const OLD_HOST = 'kbumanskiy.github.io';", "export const OLD_HOST = '127.0.0.1';")
+        .replace("export const OLD_PATH = '/boni-m/';", "export const OLD_PATH = '/';");
+      if (MOVE_CFG.home) src = src.replace('export const MOVE_HOME = false;', 'export const MOVE_HOME = true;');
+      body = Buffer.from(src);
+    }
+    if (MIXED && path.endsWith('/js/state.js')) body = await readFile(join(ROOT, '../fixtures/v27/state.js'));
     res.writeHead(200, { 'content-type': MIME[extname(file)] || 'application/octet-stream' });
     res.end(body);
   } catch { res.writeHead(404); res.end('нет файла'); }
 });
 await new Promise((r) => server.listen(0, r));
 const base = `http://127.0.0.1:${server.address().port}/`;
+LOCAL_ORIGIN = base.slice(0, -1);
 
 // Состояние «папа уже позанимался» — чтобы экраны были не пустыми, а живыми.
 const SEED = {
@@ -651,8 +670,93 @@ async function tapCheck(page) {
   });
 }
 
+
+// ——— Переезд на app.morse73.ru: кадры (ТЗ-переезд.md, раздел 8) ———
+// Все — 360×780 в обеих темах; ключевые — ещё на 320 и при крупном шрифте (…320, …big).
+// Роль адреса — MOVE_FRAMES; что лежит в хранилище/сессии, какой телефон и какой фрагмент в адресе — MOVE_EXTRA.
+const IPHONE = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1';
+const ANDROID = 'Mozilla/5.0 (Linux; Android 14; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Mobile Safari/537.36';
+const OLD_ROLE = { role: 'old', home: true }, NEW_ROLE = { role: 'new' };
+const MOVE_FRAMES = {
+  moveoldhome: OLD_ROLE, moveoldsettings: OLD_ROLE, moveoldios: OLD_ROLE, moveoldafter: OLD_ROLE, moveoldstale: OLD_ROLE,
+  moveoldfresh: OLD_ROLE, moveoldonbprogress: OLD_ROLE,
+  movenewconfirm: NEW_ROLE, movenewcompare: NEW_ROLE, movenewdone: NEW_ROLE, movenewpaste: NEW_ROLE, movenewsettings: NEW_ROLE,
+  restorelist: NEW_ROLE, onboardingnew: NEW_ROLE, restoreconfirm: NEW_ROLE, movenewalready: NEW_ROLE, movenewdoneios: NEW_ROLE,
+  movenewmixed: NEW_ROLE,
+};
+// Что пришло со старого адреса, и что уже лежит у человека (сравнение: здесь прогресса больше).
+const incomingBig = () => migrate({ ...structuredClone(SEED), profile: { name: 'Бонислав', callsign: '', points: 412 },
+  progress: { ru: { ...SEED.progress.ru, learnedCount: 27, digitsLearned: 6 }, en: SEED.progress.en }, totalSeconds: 18000 });
+const incomingSmall = () => migrate({ profile: { name: 'Вася', callsign: '', points: 12 },
+  progress: { ru: { learnedCount: 4, digitsLearned: 0, perChar: { 'Е': { correct: 3, total: 4 } }, recent: [], parked: [], lastFirst: null } },
+  history: [{ date: '2026-11-01', answers: 4, accuracyPct: 75 }] });
+const answersOf = (st) => MVN.answersOf(migrate(st));
+const slotItems = () => [0, 1, 2].map((i) => ({ at: ['2026-10-18', '2026-10-05', '2026-09-20'][i],
+  state: JSON.stringify(migrate({ ...structuredClone(SEED), profile: { ...SEED.profile, name: ['Бонислав', 'Бонислав', 'Борис Петрович'][i], points: [412, 260, 40][i] },
+    progress: { ru: { ...SEED.progress.ru, learnedCount: [27, 20, 6][i] }, en: SEED.progress.en }, totalSeconds: [18000, 9000, 1200][i] })) }));
+const withCode = async (st) => `#perenos=${await MVN.encodeTransfer(exportText(st), { date: '20261018' })}`;
+const MOVE_EXTRA = {
+  moveoldafter: async () => ({ store: { boni_m_moved: JSON.stringify({ at: '2026-10-18', secs: SEED.totalSeconds, answers: answersOf(SEED) }) } }),
+  moveoldstale: async () => ({ store: { boni_m_moved: JSON.stringify({ at: '2026-10-18', secs: SEED.totalSeconds - 3000, answers: answersOf(SEED) - 60 }) } }),
+  moveoldios: async () => ({ ua: IPHONE, standalone: true }),
+  movenewconfirm: async () => ({ hash: await withCode(incomingBig()) }),
+  movenewcompare: async () => ({ hash: await withCode(incomingSmall()) }),
+  movenewalready: async () => ({ hash: await withCode(migrate(SEED)) }),
+  movenewmixed: async () => ({ hash: await withCode(incomingBig()) }),
+  movenewdone: async () => ({ ua: ANDROID, session: { boni_m_moved_ok: '1' } }),
+  movenewdoneios: async () => ({ ua: IPHONE, session: { boni_m_moved_ok: '1' } }),
+  restorelist: async () => ({ store: { boni_m_state_before_move: JSON.stringify(slotItems()) } }),
+};
+const moveKey = (name) => name.replace(/(320|big)$/, '');
+const scrollTo = (sel, block = 'center') => (page) => page.evaluate(([q, b]) => document.querySelector(q).scrollIntoView({ block: b }), [sel, block]);
+const linkReady = (page) => page.waitForFunction(() => /^(A)$/.test(document.querySelector('#m-go')?.tagName || ''), null, { timeout: 5000 });
+const oldHome = async (page) => { await linkReady(page); await scrollTo('#move-card')(page); await page.waitForTimeout(150); };
+Object.assign(SCREENS, {
+  moveoldhome: oldHome,
+  moveoldsettings: async (page) => { await page.click('#gear'); await page.waitForTimeout(300);
+    await page.waitForFunction(() => { const b = document.querySelector('#m-copy'); return b && !b.disabled; }, null, { timeout: 5000 });
+    await scrollTo('#move-card', 'start')(page); await page.waitForTimeout(150); },
+  moveoldios: oldHome, moveoldafter: oldHome, moveoldstale: oldHome,
+  moveoldfresh: async () => {},
+  moveoldonbprogress: async (page) => { await linkReady(page); },
+  movenewconfirm: async (page) => { await page.waitForSelector('#mv-confirm'); },
+  movenewcompare: async (page) => { await page.waitForSelector('#mv-confirm'); },
+  movenewdone: async (page) => { await page.waitForSelector('#m-done'); },
+  movenewdoneios: async (page) => { await page.waitForSelector('#m-done'); },
+  movenewpaste: async (page) => { await page.click('#m-have'); await page.waitForSelector('#m-code');
+    const code = await MVN.encodeTransfer(exportText(incomingBig()), { date: '20261018' });
+    await page.fill('#m-code', code.slice(0, code.length - 70)); await page.click('#m-check');
+    await page.waitForFunction(() => document.querySelector('#m-err')?.textContent, null, { timeout: 3000 }); },
+  movenewsettings: async (page) => { await page.click('#gear'); await page.waitForTimeout(300); await scrollTo('#m-new-card')(page); await page.waitForTimeout(150); },
+  restorelist: async (page) => { await page.click('#gear'); await page.waitForTimeout(300); await page.click('#m-undo'); await page.waitForTimeout(200);
+    await scrollTo('#m-versions', 'start')(page); await page.waitForTimeout(150); },
+  onboardingnew: async () => {},
+  restoreconfirm: async (page) => { await page.click('#gear'); await page.waitForTimeout(300);
+    await page.setInputFiles('#file', { name: 'копия.json', mimeType: 'application/json', buffer: Buffer.from(exportText(incomingBig())) });
+    await page.waitForSelector('#mv-confirm'); },
+  movenewalready: async (page) => { await page.waitForSelector('#mv-confirm'); await page.click('#mv-yes'); await page.waitForSelector('#mv-msg'); },
+  movenewmixed: async (page) => { await page.waitForSelector('#mv-msg'); },
+});
+Object.assign(SEED_PATCH, {
+  // Знакомство открылось, а прогресс есть: имя стёрто в настройках.
+  moveoldonbprogress: (s) => { s.profile.name = ''; return s; },
+  // Для «Восстановить из копии» без своего прогресса: после знакомства, ни одного ответа.
+  restoreconfirm: () => ({ version: 2, profile: { name: 'Бонислав', callsign: '', points: 0 } }),
+});
+for (const n of ['moveoldfresh', 'movenewpaste', 'onboardingnew', 'movenewmixed', 'movenewconfirm']) CLEAN.add(n);
+for (const n of Object.keys(MOVE_FRAMES)) VIEWPORT[n] = SMALL;
+// Те же кадры на 320 и при крупном шрифте.
+for (const base of ['moveoldhome', 'moveoldsettings', 'moveoldios', 'movenewconfirm', 'movenewcompare', 'movenewpaste', 'restorelist', 'movenewdone']) {
+  for (const suf of ['320', 'big']) {
+    const n = base + suf;
+    SCREENS[n] = SCREENS[base]; VIEWPORT[n] = LEARN_SIZES[suf];
+    if (SEED_PATCH[base]) SEED_PATCH[n] = SEED_PATCH[base];
+    if (CLEAN.has(base)) CLEAN.add(n);
+  }
+}
+
 // Экраны, вычищенные от наложений: на них ничего не выходит из карточки или клетки.
-const INSIDE_CARDS = ['learn', 'ref', 'key', 'puzzle', 'home', 'cabinet', 'settings', 'radiogram', 'callsign', 'onboarding'];
+const INSIDE_CARDS = ['learn', 'ref', 'key', 'puzzle', 'home', 'cabinet', 'settings', 'radiogram', 'callsign', 'onboarding', 'move', 'restore'];
 let failures = 0, labelPairs = 0, labelStates = 0;
 const want = process.argv.slice(2);
 const list = want.length ? want.filter((n) => n in SCREENS) : Object.keys(SCREENS);
@@ -672,10 +776,18 @@ const browser = await launch();
 
 for (const theme of ['light', 'dark']) {
   for (const name of list) {
+    const mk = moveKey(name);
+    MOVE_CFG = MOVE_FRAMES[mk] || null;
+    MIXED = mk === 'movenewmixed';
+    const extra = MOVE_EXTRA[mk] ? await MOVE_EXTRA[mk]() : {};
     const ctx = await browser.newContext({
       viewport: VIEWPORT[name] || { width: 390, height: 844 }, deviceScaleFactor: SCALE(name),
-      colorScheme: theme, reducedMotion: 'no-preference',
+      colorScheme: theme, reducedMotion: 'no-preference', ...(extra.ua ? { userAgent: extra.ua } : {}),
     });
+    // Хранилище, сессия и «значок на экране» — только тем кадрам, которым они нужны.
+    if (extra.store) await ctx.addInitScript((kv) => { for (const [k, v] of Object.entries(kv)) localStorage.setItem(k, v); }, extra.store);
+    if (extra.session) await ctx.addInitScript((kv) => { for (const [k, v] of Object.entries(kv)) if (!sessionStorage.getItem('__seen_' + k)) { sessionStorage.setItem(k, v); sessionStorage.setItem('__seen_' + k, '1'); } }, extra.session);
+    if (extra.standalone) await ctx.addInitScript(() => Object.defineProperty(navigator, 'standalone', { value: true, configurable: true }));
     const page = await ctx.newPage();
     const errors = [];
     page.on('pageerror', (e) => errors.push(String(e)));
@@ -695,7 +807,7 @@ for (const theme of ['light', 'dark']) {
     await ctx.addInitScript((css) => document.addEventListener('DOMContentLoaded', () => {
       const st = document.createElement('style'); st.textContent = css; document.head.append(st); }), NAV_FONT_CSS);
     INJECT_LINKS = WITH_LINKS.has(name);
-    await page.goto(base, { waitUntil: 'networkidle' });
+    await page.goto(base + (extra.hash || ''), { waitUntil: 'networkidle' });
     await page.waitForTimeout(250);
     await page.evaluate(() => document.fonts.ready);
     // Сценарий, не дошедший до нужного состояния, — ошибка прогона, а не кадр «как получилось».
@@ -726,6 +838,8 @@ for (const theme of ['light', 'dark']) {
     problems.push(...await page.evaluate(() => checkImageEdges()));
     problems.push(...await page.evaluate(() => checkCodeWrap()));
     problems.push(...await page.evaluate(() => checkSmall()));
+    // Новые элементы переезда — не ниже 64px, включая ссылки-кнопки (РЕШЕНИЯ.md, «Постоянные требования», п. 5).
+    problems.push(...await page.evaluate(() => checkMoveTargets()));
     if (name.startsWith('home')) problems.push(...await tapCheck(page));
     if (/^(home|onboarding|callsign)/.test(name)) problems.push(...await page.evaluate(() => checkHeroGlow()));
     // Наложение заголовка на кнопки шапки: замер «за край экрана» его не видит.

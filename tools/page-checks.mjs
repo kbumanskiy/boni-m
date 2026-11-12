@@ -172,6 +172,21 @@ const CHECK_LAYOUT = () => {
   // Мелочи (23.10.2026): число с единицей «60 зн/мин» не рвётся на две строки, галочка
   // приговора стоит у первого слова, а не у края карточки, подпись кнопки не выходит
   // за саму кнопку (переключатель «Короткая / Минута / Длинная» на 320 слипался).
+  // Элементы переезда (ТЗ-переезд.md, раздел 8): площадь нажатия не ниже 64px (РЕШЕНИЯ.md,
+  // «Постоянные требования», п. 5). Общая проверка выше смотрит только BUTTON и порог 44px,
+  // поэтому ссылки-кнопки (a.btn) и .linkbtn здесь — отдельно. Общий порог 64px — не здесь.
+  window.checkMoveTargets = () => {
+    const SEL = '.mv .btn, .mv .linkbtn, .mv-link, #m-new-card .btn, #m-new-card .linkbtn, .mv-versions .btn, .mv-versions .linkbtn, #m-undo';
+    const out = [];
+    for (const el of document.querySelectorAll(SEL)) {
+      const cs = getComputedStyle(el);
+      if (cs.display === 'none' || cs.visibility === 'hidden') continue;
+      const h = el.getBoundingClientRect().height;
+      if (h > 0 && h < 63.5) out.push(`элемент переезда ниже 64px (${Math.round(h)}px): ${el.tagName.toLowerCase()}#${el.id || '—'} — «${el.textContent.trim().slice(0, 24)}»`);
+    }
+    return out;
+  };
+
   window.checkSmall = () => {
     const out = [];
     for (const n of document.querySelectorAll('#screen .num')) {
