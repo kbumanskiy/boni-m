@@ -20,13 +20,39 @@ import * as RG from './js/radiogram.js';
 import * as PZ from './js/puzzle.js';
 import { donateUrl, feedbackUrl, pingUrl, validateFeedback, MESSAGE_MAX, CONTACT_MAX, NAME_MAX } from './js/support.js';
 import * as M from './js/metrics.js';
+import * as MV from './js/move.js';
 import { APP_VERSION } from './js/version.js';
+
+// ——— Переезд: первым делом, до load() и до любой записи (ТЗ-переезд.md, 3.4) ———
+// Фрагмент #perenos=… стираем из адресной строки СРАЗУ и при битой строке тоже: перезагрузка,
+// «назад» и вкладка из списка не должны снова подсунуть то же состояние. Строку держим только
+// в переменной модуля — ни в localStorage, ни в sessionStorage, ни в консоль.
+const role = MV.siteRole(location);
+let incoming = null;
+try {
+  const h = String(location.hash || '');
+  if (h.startsWith('#perenos=')) {
+    incoming = h.slice('#perenos='.length);
+    window.history.replaceState(null, '', location.pathname + location.search);
+  }
+} catch {}
+// Старый адрес только отправляет: фрагмент стёрт, но не принимается.
+if (role === 'old') incoming = null;
+// Метка последнего приёма на момент старта: если её изменит другое окно, это окно перезапустится
+// (иначе его устаревшее состояние легло бы поверх принятого).
+let importMark = MV.readMark();
+let frozen = false; // после успешного приёма это окно больше ничего не пишет в основной ключ
+// Перезапуск — отдельная функция: в JSDOM location.reload не подменить, тесты задают window.__restart.
+function restart() {
+  if (typeof window.__restart === 'function') window.__restart();
+  else location.reload();
+}
 
 let state = load();
 // Страховка от смешанного кэша при обновлении: новый app.js мог приехать со старым
 // state.js, который поля puzzle не знает. Без этой строки главная падала бы на плитке.
 if (!state.puzzle || typeof state.puzzle !== 'object') state.puzzle = PZ.puzzleFresh();
-const persist = () => save(state);
+const persist = () => (frozen ? false : save(state));
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const screenEl = $('#screen');
@@ -95,7 +121,11 @@ let recAsk = false;
 function go(tab) {
   const from = currentTab;
   if (tab === 'settings' && currentTab !== 'settings') settingsFrom = currentTab;
-  if (tab !== 'settings') { knowsAsk = false; recAsk = false; }
+  if (tab !== 'settings') {
+    knowsAsk = false; recAsk = false;
+    moveSteps = false; moveCopied = false; moveAddrCopied = false; moveBox = false;
+    undoOpen = false; undoAsk = null; undoNote = ''; moveSeq++;
+  }
   // Уход из «Учиться» любым путём (нижнее меню, кнопка) фиксирует сессию — иначе серия
   // дней и журнал не запишутся, когда папа просто тапнет «Главная».
   // Сначала остановить часы (время войдёт в totalSeconds), потом засчитывать занятие —
@@ -328,6 +358,7 @@ function renderOnboarding() {
   tabsEl.classList.add('hidden');
   screenEl.innerHTML = `
     <div class="center intro">
+      ${moveCardOld('onboarding')}
       <div class="heroblock"><img class="hero" src="assets/hero-zastavka.webp" alt="Радист Боня за ключом"></div>
       <div class="eyebrow">Школа Морзе 73</div>
       <h1>Здравствуйте!</h1>
@@ -340,7 +371,10 @@ function renderOnboarding() {
                autocapitalize="characters" spellcheck="false" value="${esc(state.profile.callsign)}">
       </div>
       <button class="btn" id="next" disabled>Дальше</button>
+      ${moveReceives() ? '<button class="linkbtn mv-link" id="m-have">У меня уже есть прогресс в старом приложении</button>' : ''}
     </div>`;
+  wireMoveOld('onboarding');
+  $('#m-have')?.addEventListener('click', () => renderMovePaste('onboarding'));
   const name = $('#name'), next = $('#next');
   name.addEventListener('input', () => { next.disabled = !name.value.trim(); });
   next.addEventListener('click', () => {
@@ -415,6 +449,7 @@ function renderHome() {
       <img class="hero" src="assets/hero-zastavka.webp" alt="">
     </div>
     <div class="greeting">${esc(greeted)}, ${esc(state.profile.name)}!</div>
+    ${role !== 'old' && takeDoneFlag() ? doneHtml() : ''}
     ${drill ? `<button class="btn secondary" id="drill">${ICON.inbox(24)} Принять свой позывной</button>` : ''}
     ${radiogramOpen() ? `<button class="btn secondary" id="radiogram">${ICON.inbox(24)} Контрольная радиограмма</button>` : ''}
     <button class="btn" id="continue">${fresh ? 'Начать обучение' : 'Продолжить обучение'}</button>
@@ -430,7 +465,10 @@ function renderHome() {
         <div class="stat"><div class="eyebrow">Рекорд</div><b>${state.streak.longest}</b></div>
       </div>
     </div>
+    ${moveCardOld('home')}
     ${supportLine()}`;
+  wireMoveOld('home');
+  wireDone();
   $('#continue').addEventListener('click', () => { learnOpts.repetition = false; go('learn'); });
   $('#puzzle').addEventListener('click', () => go('puzzle'));
   if (!fresh) $('#review').addEventListener('click', () => { learnOpts.repetition = true; go('learn'); });
@@ -2154,6 +2192,7 @@ function renderSettings() {
       <input type="text" id="s-call" maxlength="12" value="${esc(state.profile.callsign)}"
              autocomplete="off" autocapitalize="characters" spellcheck="false">
     </div>
+    ${moveCardOld('settings')}
     ${guideCard()}
     <div class="card">
       <div class="eyebrow">Чему учимся</div>
@@ -2198,13 +2237,16 @@ function renderSettings() {
         ${themeBtn('theme-dark', 'dark', ICON.moon(22), 'Тёмное')}
       </div>
     </div>
-    <div class="card">
+    ${moveCardNew()}
+    <div class="card" id="backup-card">
       <div class="eyebrow">Резервная копия</div>
       <p class="muted hint">Прогресс хранится в телефоне. Копию стоит переслать себе на почту:
          этим файлом он вернётся на новом телефоне.</p>
-      <button class="btn secondary" id="backup">${ICON.save(24)} Сохранить копию</button>
+      <button class="btn secondary" id="backup">${ICON.save(24)} ${shareType() ? 'Отправить копию' : 'Сохранить копию'}</button>
       <button class="btn secondary" id="restore">${ICON.restore(24)} Восстановить из копии</button>
-      <input type="file" id="file" accept="application/json" class="hidden">
+      <input type="file" id="file" accept=".json,application/json,text/plain" class="hidden">
+      <p class="fb-status no" id="m-note" role="status"></p>
+      ${undoHtml()}
     </div>
     <button class="linkbtn danger" id="reset">Начать обучение заново</button>
     <p class="muted center hint" id="about">${aboutText()}</p>
@@ -2240,6 +2282,9 @@ function renderSettings() {
   $('#backup').addEventListener('click', doBackup);
   $('#restore').addEventListener('click', () => $('#file').click());
   $('#file').addEventListener('change', doRestore);
+  wireUndo();
+  wireMoveNew();
+  wireMoveOld('settings');
   $('#reset').addEventListener('click', () => {
     if (confirm('Начать обучение заново? Все освоенные знаки и журнал занятий будут удалены. Это не отменить.')) {
       try { localStorage.removeItem('boni_m_state'); } catch {}
@@ -2362,25 +2407,510 @@ function wireKnows(s) {
   on('#knows-off', () => { s.knowsAll = false; knowsAsk = false; persist(); redraw(); });
 }
 
-function doBackup() {
-  const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url; a.download = `boni-m-backup-${G.localDate()}.json`;
-  a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+// ——————————————————————————— Переезд на app.morse73.ru (ТЗ-переезд.md) ———————————————————————————
+// Старый адрес только отправляет, новый только принимает (siteRole). Прогресс нигде не стирается:
+// перенос — только по явному «Да», прежнее перед заменой уходит в список прежних версий
+// («Вернуть как было»). Всё подтверждение — на странице, без всплывающих окон.
+// Чужое состояние идёт только через ST.readIncoming; запись основного ключа — только через save.
+
+const moveReady = () => typeof ST.readIncoming === 'function' && typeof ST.exportText === 'function';
+const isIphone = () => /iPhone|iPad|iPod/.test(String(navigator.userAgent || ''));
+const isStandalone = () => {
+  try { return navigator.standalone === true || !!globalThis.matchMedia?.('(display-mode: standalone)').matches; } catch { return false; }
+};
+const ADDR = '<span class="mv-addr">app.morse73.ru</span>';
+const OUTDATED = 'Приложение ещё обновляется. Закройте его совсем и откройте снова.';
+
+function storedRaw() { try { return localStorage.getItem('boni_m_state'); } catch { return null; } }
+// Сохранённое сейчас: сырая строка (по ней потом проверяется «не изменилось ли») и разобранное.
+function storedState() {
+  const raw = storedRaw();
+  if (raw === null || !moveReady()) return { raw, st: null };
+  const rd = ST.readIncoming(raw);
+  return { raw, st: rd.ok ? rd.state : null };
 }
+
+// ——— Общий экран «Перенести? / Сравнение» для ссылки, кода и файла ———
+// ctx: { kind: 'link'|'code'|'file', incoming, date, onCancel, onPaste? }
+function moveWords(ctx) {
+  if (ctx.kind === 'file') {
+    return { title: 'Восстановить из копии?', intro: 'В файле копии — прогресс:', side: 'из копии', yes: 'Да, восстановить', take: 'Взять из копии' };
+  }
+  return { title: 'Перенести ваш прогресс?', intro: `Со старого адреса пришёл прогресс (снято ${G.formatDate(ctx.date)}):`, side: 'со старого', yes: 'Да, перенести', take: 'Взять со старого адреса' };
+}
+
+function drawMoveConfirm(ctx, note = '') {
+  tabsEl.classList.add('hidden');
+  const w = moveWords(ctx);
+  const cur = storedState();
+  ctx.expectRaw = cur.raw;
+  const inc = MV.summary(ctx.incoming);
+  const empty = !cur.st || MV.isEmptyProgress(cur.st);
+  const noteHtml = note ? `<p class="fb-status no" id="mv-note" role="status">${esc(note)}</p>` : '';
+  const other = '<p class="muted hint">Если приложение открыто ещё в других окнах — закройте их.</p>';
+  let body;
+  if (empty) {
+    const rows = MV.compareRows(inc, inc).map((r) => `<li><span>${esc(r.label)}</span><b>${esc(r.a)}</b></li>`).join('');
+    body = `<h2>${esc(w.title)}</h2>
+      <p>${esc(w.intro)}</p>
+      <ul class="list mv-list">${rows}</ul>
+      ${noteHtml}${other}
+      <button class="btn" id="mv-yes">${w.yes}</button>
+      <button class="btn secondary" id="mv-no">Отмена</button>`;
+  } else {
+    const c = MV.summary(cur.st);
+    const rows = MV.compareRows(inc, c).map((r) => `<div class="mv-cmp${r.key === 'name' && r.differs ? ' diff' : ''}">
+        <div class="mv-lab">${esc(r.label)}</div>
+        <div class="mv-vals"><span>${w.side}: <b>${esc(r.a)}</b></span><span>здесь: <b>${esc(r.b)}</b></span></div>
+      </div>`).join('');
+    const more = MV.hereHasMore(inc, c) ? '<p class="mv-more">Здесь прогресса больше. Скорее всего, переносить не нужно.</p>' : '';
+    body = `<h2>Здесь уже есть прогресс</h2>
+      <p>Выберите, какой оставить. Второй не пропадёт: ${ctx.kind === 'file' ? 'файл копии останется у вас' : 'старый адрес хранит свой'}, а здешний можно будет вернуть в настройках.</p>
+      ${noteHtml}
+      <div class="mv-table">${rows}</div>
+      ${more}${other}
+      <button class="btn" id="mv-yes">${w.take}</button>
+      <button class="btn secondary" id="mv-no">Оставить как здесь</button>`;
+  }
+  screenEl.innerHTML = `<div class="card mv" id="mv-confirm">${body}</div>`;
+  window.scrollTo(0, 0);
+  $('#mv-yes').addEventListener('click', () => moveYes(ctx));
+  $('#mv-no').addEventListener('click', () => ctx.onCancel());
+}
+
+function drawMoveMessage(title, text, buttons) {
+  tabsEl.classList.add('hidden');
+  screenEl.innerHTML = `<div class="card mv" id="mv-msg">
+    ${title ? `<h2>${esc(title)}</h2>` : ''}<p id="mv-err">${esc(text)}</p>
+    ${buttons.map((b, i) => `<button class="btn${b.primary ? '' : ' secondary'}" id="mv-b${i}">${esc(b.label)}</button>`).join('')}
+  </div>`;
+  buttons.forEach((b, i) => $(`#mv-b${i}`).addEventListener('click', b.fn));
+  window.scrollTo(0, 0);
+}
+
+function moveErrorText(reason, kind) {
+  if (kind === 'file') {
+    if (reason === 'not-json' || reason === 'not-state') return 'В этом файле нет прогресса «Школы Морзе 73».';
+    if (reason === 'too-long') return 'Это не файл копии: он слишком длинный.';
+  }
+  return MV.ERRORS[reason] || MV.ERRORS.corrupt;
+}
+
+function moveYes(ctx) {
+  const r = MV.applyImport(ctx.incoming, { expectRaw: ctx.expectRaw, save: (s) => save(s), at: G.localDate() });
+  if (r.ok && r.same) {
+    drawMoveMessage('Этот прогресс уже здесь', 'Переносить нечего — всё на месте.', [{ label: 'Продолжить', primary: true, fn: () => ctx.onCancel() }]);
+    return;
+  }
+  if (!r.ok && r.reason === 'changed') { drawMoveConfirm(ctx, 'Здесь только что занимались — проверьте ещё раз.'); return; }
+  if (!r.ok) {
+    drawMoveMessage('', moveErrorText(r.reason, ctx.kind), [{ label: 'Продолжить', primary: true, fn: () => ctx.onCancel() }]);
+    return;
+  }
+  // Записано. Своё окно больше ничего не пишет: иначе устаревшее состояние в памяти легло бы
+  // поверх принятого. Метку запоминаем — свой же перезапуск по ней второй раз не нужен.
+  importMark = r.mark;
+  frozen = true;
+  if (ctx.kind !== 'file') { try { sessionStorage.setItem('boni_m_moved_ok', '1'); } catch {} }
+  restart();
+}
+
+// ——— Приём по ссылке (фрагмент #perenos=…, уже стёртый из адресной строки) ———
+async function startIncoming(str) {
+  tabsEl.classList.add('hidden');
+  screenEl.innerHTML = '<p class="center muted" id="mv-wait">Проверяю…</p>';
+  const ctx = { kind: 'link', onCancel: startNormal };
+  if (!moveReady()) {
+    drawMoveMessage('', OUTDATED, [{ label: 'Продолжить', primary: true, fn: startNormal }]);
+    return;
+  }
+  const fail = (reason) => drawMoveMessage('', moveErrorText(reason, 'link'), [
+    { label: 'Продолжить', primary: true, fn: startNormal },
+    { label: 'Перенести кодом', fn: () => renderMovePaste('start') },
+  ]);
+  const d = await MV.decodeTransfer(str);
+  if (!d.ok) { fail(d.reason); return; }
+  const rd = ST.readIncoming(d.json);
+  if (!rd.ok) { fail(rd.reason); return; }
+  ctx.incoming = rd.state; ctx.date = d.date;
+  drawMoveConfirm(ctx);
+}
+
+// ——— Приём кодом: поле вставки ———
+function renderMovePaste(from) {
+  tabsEl.classList.add('hidden');
+  const back = () => { if (from === 'settings') go('settings'); else if (from === 'onboarding') renderOnboarding(); else startNormal(); };
+  if (!moveReady()) {
+    drawMoveMessage('', OUTDATED, [{ label: 'Назад', primary: true, fn: back }]);
+    return;
+  }
+  screenEl.innerHTML = `<div class="card mv" id="mv-paste">
+    <h2>Перенос кодом</h2>
+    <p>В старом приложении нажмите «Скопировать код переноса», вернитесь сюда и вставьте.</p>
+    <textarea id="m-code" class="mv-code" rows="5" spellcheck="false" autocomplete="off" autocapitalize="off"
+      aria-label="Код переноса"></textarea>
+    <p class="fb-status no" id="m-err" role="alert"></p>
+    ${typeof navigator.clipboard?.readText === 'function' ? '<button class="btn secondary" id="m-paste">Вставить из буфера</button>' : ''}
+    <button class="btn" id="m-check">Проверить код</button>
+    <button class="btn secondary" id="m-back">Назад</button>
+  </div>`;
+  window.scrollTo(0, 0);
+  const err = $('#m-err'), box = $('#m-code');
+  $('#m-back').addEventListener('click', back);
+  $('#m-paste')?.addEventListener('click', () => {
+    let p;
+    try { p = navigator.clipboard.readText(); } catch { p = null; }
+    if (!p) { err.textContent = 'Нажмите на поле и удерживайте палец, затем выберите «Вставить».'; return; }
+    p.then((t) => { box.value = t; err.textContent = ''; },
+      () => { err.textContent = 'Нажмите на поле и удерживайте палец, затем выберите «Вставить».'; });
+  });
+  $('#m-check').addEventListener('click', async () => {
+    err.textContent = '';
+    const d = await MV.decodeTransfer(box.value);
+    if (!d.ok) { err.textContent = moveErrorText(d.reason, 'code'); return; }
+    const rd = ST.readIncoming(d.json);
+    if (!rd.ok) { err.textContent = moveErrorText(rd.reason, 'code'); return; }
+    drawMoveConfirm({ kind: 'code', incoming: rd.state, date: d.date, onCancel: () => renderMovePaste(from) });
+  });
+}
+
+// ——— Файл копии: тот же приём (раздел 12.2) ———
 function doRestore(e) {
-  const file = e.target.files[0]; if (!file) return;
+  const file = e.target.files && e.target.files[0]; if (!file) return;
+  const note = (t) => { const el = $('#m-note'); if (el) el.textContent = t; };
+  if (!moveReady()) { note(OUTDATED); e.target.value = ''; return; }
   const reader = new FileReader();
   reader.onload = () => {
-    try {
-      const data = JSON.parse(reader.result);
-      if (!confirm('Восстановить прогресс из копии? Текущий прогресс будет заменён.')) return;
-      localStorage.setItem('boni_m_state', JSON.stringify(data));
-      location.reload();
-    } catch { alert('Не удалось прочитать файл копии.'); }
+    const rd = ST.readIncoming(String(reader.result || ''));
+    if (!rd.ok) { note(moveErrorText(rd.reason, 'file')); return; }
+    note('');
+    drawMoveConfirm({ kind: 'file', incoming: rd.state, date: null, onCancel: () => go('settings') });
   };
+  reader.onerror = () => note('Не удалось прочитать файл копии.');
   reader.readAsText(file);
+  e.target.value = '';
+}
+
+// ——— Копия: отправить или сохранить файлом ———
+const BACKUP_TYPES = ['application/json', 'text/plain'];
+// Подходящий тип файла для «Поделиться» — выбирается синхронно, до касания: share() обязан
+// вызываться прямо в обработчике, а повтор после отказа уже без жеста человека.
+function shareType() {
+  try {
+    if (typeof navigator.share !== 'function' || typeof navigator.canShare !== 'function' || typeof File !== 'function') return null;
+    return BACKUP_TYPES.find((t) => navigator.canShare({ files: [new File(['x'], 'boni-m-backup.json', { type: t })] })) || null;
+  } catch { return null; }
+}
+const backupText = () => (typeof ST.exportText === 'function' ? ST.exportText(state) : JSON.stringify(state, null, 2));
+const backupName = () => `boni-m-backup-${G.localDate()}.json`;
+function downloadBackup(text) {
+  const blob = new Blob([text], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = backupName();
+  a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+function doBackup() {
+  const text = backupText();
+  const type = shareType();
+  if (type) {
+    try {
+      navigator.share({ files: [new File([text], backupName(), { type })], title: 'Школа Морзе 73 — копия прогресса' })
+        .catch((err) => { if (err && err.name === 'AbortError') return; downloadBackup(text); });
+      return;
+    } catch { /* падаем на обычное скачивание */ }
+  }
+  downloadBackup(text);
+}
+
+// ——— Прежние версии: «Вернуть как было» ———
+let undoOpen = false;
+let undoAsk = null; // { mode: 'restore'|'delete', state, at, expectRaw }
+let undoNote = '';
+
+function versionLine(e) {
+  const rd = moveReady() ? ST.readIncoming(e.state) : { ok: false };
+  if (!rd.ok) return `${G.formatDate(e.at)} · прогресс не читается`;
+  const s = MV.summary(rd.state);
+  return `${G.formatDate(e.at)} · ${s.name || 'без имени'} · букв ${s.ru} из 32 · очков ${s.points} · ${s.minutes} мин`;
+}
+
+function undoHtml() {
+  const slot = MV.readSlot();
+  if (!slot.ok || !slot.list.length) return '';
+  if (!undoOpen) return `<button class="btn secondary" id="m-undo">${ICON.restore(24)} Вернуть как было</button>`;
+  const items = slot.list.map((e, i) => {
+    if (undoAsk && undoAsk.state === e.state && undoAsk.at === e.at) {
+      const restore = undoAsk.mode === 'restore';
+      return `<div class="mv-ver ask">
+        <p>${restore
+          ? `Вернуть прогресс от ${esc(G.formatDate(e.at))}? Нынешний тоже сохранится в этом списке.`
+          : `Удалить прогресс от ${esc(G.formatDate(e.at))}? Его нельзя будет вернуть.`}</p>
+        <div class="btn-row">
+          <button class="btn" id="mv-vyes">${restore ? 'Да, вернуть' : 'Да, удалить'}</button>
+          <button class="btn secondary" id="mv-vno">Отмена</button>
+        </div></div>`;
+    }
+    return `<div class="mv-ver">
+      <p>${esc(versionLine(e))}</p>
+      <button class="btn secondary" data-vrestore="${i}">Вернуть эту</button>
+      <button class="linkbtn" data-vdel="${i}">Удалить</button>
+    </div>`;
+  }).join('');
+  return `<div class="mv-versions" id="m-versions">
+    <div class="eyebrow">Прежние версии</div>
+    ${undoNote ? `<p class="fb-status no" role="status">${esc(undoNote)}</p>` : ''}
+    ${items}
+    <button class="linkbtn" id="m-undo-close">Свернуть</button>
+  </div>`;
+}
+
+function wireUndo() {
+  const redraw = () => { renderSettings(); const c = $('#backup-card'); if (c && c.scrollIntoView) c.scrollIntoView({ block: 'center' }); };
+  const on = (sel, fn) => { const el = $(sel); if (el) el.addEventListener('click', fn); };
+  on('#m-undo', () => { undoOpen = true; undoAsk = null; undoNote = ''; redraw(); });
+  on('#m-undo-close', () => { undoOpen = false; undoAsk = null; undoNote = ''; redraw(); });
+  const slot = MV.readSlot();
+  const list = slot.ok ? slot.list : [];
+  screenEl.querySelectorAll('[data-vrestore]').forEach((b) => b.addEventListener('click', () => {
+    const e = list[+b.dataset.vrestore]; if (!e) return;
+    undoAsk = { mode: 'restore', state: e.state, at: e.at, expectRaw: storedRaw() }; undoNote = ''; redraw();
+  }));
+  screenEl.querySelectorAll('[data-vdel]').forEach((b) => b.addEventListener('click', () => {
+    const e = list[+b.dataset.vdel]; if (!e) return;
+    undoAsk = { mode: 'delete', state: e.state, at: e.at }; undoNote = ''; redraw();
+  }));
+  on('#mv-vno', () => { undoAsk = null; redraw(); });
+  on('#mv-vyes', () => {
+    const ask = undoAsk; if (!ask) return;
+    if (ask.mode === 'delete') {
+      const r = MV.removeFromSlot(ask.state);
+      undoAsk = null; undoNote = r.ok ? '' : MV.ERRORS.write; redraw();
+      return;
+    }
+    const rd = moveReady() ? ST.readIncoming(ask.state) : { ok: false, reason: 'not-state' };
+    if (!rd.ok) { undoAsk = null; undoNote = 'В этой версии нет прочитанного прогресса — вернуть её нельзя.'; redraw(); return; }
+    const r = MV.applyImport(rd.state, { expectRaw: ask.expectRaw, save: (s) => save(s), at: G.localDate() });
+    if (r.ok && r.same) { undoAsk = null; undoNote = 'Этот прогресс уже здесь.'; redraw(); return; }
+    if (!r.ok && r.reason === 'changed') { undoAsk = null; undoNote = 'Здесь только что занимались — проверьте ещё раз.'; redraw(); return; }
+    if (!r.ok) { undoAsk = null; undoNote = MV.ERRORS[r.reason] || MV.ERRORS.write; redraw(); return; }
+    importMark = r.mark; frozen = true;
+    restart();
+  });
+}
+
+// ——— Новый адрес: вставка кода в настройках и на знакомстве ———
+const moveReceives = () => role !== 'old';
+function moveCardNew() {
+  if (!moveReceives()) return '';
+  return `<div class="card" id="m-new-card">
+    <div class="eyebrow">Перенос с другого адреса</div>
+    <p class="muted hint">Если вы занимались по старому адресу (kbumanskiy.github.io), перенесите прогресс сюда.</p>
+    <button class="btn secondary" id="m-open-paste">Вставить код переноса</button>
+  </div>`;
+}
+function wireMoveNew() {
+  $('#m-open-paste')?.addEventListener('click', () => renderMovePaste('settings'));
+}
+
+// ——— Новый адрес: карточка «Готово» на главной, один раз после переноса ———
+let installEvt = null;
+const donePending = () => { try { return sessionStorage.getItem('boni_m_moved_ok') === '1'; } catch { return false; } };
+window.addEventListener('beforeinstallprompt', (e) => {
+  // Мини-панель браузера гасим только тогда, когда карточка «Готово» ждёт своей очереди.
+  if (!donePending() && !$('#m-done')) return;
+  e.preventDefault(); installEvt = e;
+  refreshDone();
+});
+function doneHtml() {
+  let how;
+  if (isIphone() && !isStandalone()) {
+    return `<div class="card mv" id="m-done">
+      <h2>Готово, прогресс перенесён в Safari</h2>
+      <p>Если хотите заниматься со значка: поставьте значок («Поделиться» → «На экран «Домой»»), откройте его, нажмите «У меня уже есть прогресс в старом приложении» и перенесите кодом со старого адреса.</p>
+      <p class="muted hint">Старый значок пока не удаляйте.</p></div>`;
+  }
+  if (isStandalone()) how = '';
+  else if (/Android/.test(String(navigator.userAgent || ''))) {
+    how = ` Чтобы приложение открывалось с экрана телефона, поставьте значок из этого же браузера: ${installEvt ? 'нажмите кнопку ниже.' : 'меню ⋮ → «Добавить на главный экран» (в Яндекс.Браузере — «Добавить ярлык»). Если окно встроенное — сначала «Открыть в браузере».'}`;
+  } else if (isIphone()) {
+    how = ' Чтобы приложение открывалось с экрана телефона, поставьте значок: «Поделиться» → «На экран «Домой»».';
+  } else {
+    how = ' Сохраните новый адрес в закладки или поставьте значок.';
+  }
+  return `<div class="card mv" id="m-done">
+    <h2>Готово, прогресс перенесён</h2>
+    <p>Теперь занимайтесь здесь.${esc(how)}</p>
+    ${installEvt ? '<button class="btn" id="m-install">Поставить значок на экран</button>' : ''}
+    <p class="muted hint">Старый значок пока не удаляйте.</p>
+  </div>`;
+}
+function wireDone() {
+  $('#m-install')?.addEventListener('click', () => {
+    const e = installEvt; installEvt = null;
+    try { e.prompt(); } catch {}
+    refreshDone();
+  });
+}
+function refreshDone() {
+  const el = $('#m-done'); if (!el) return;
+  el.outerHTML = doneHtml(); wireDone();
+}
+function takeDoneFlag() {
+  try {
+    if (sessionStorage.getItem('boni_m_moved_ok') !== '1') return false;
+    sessionStorage.removeItem('boni_m_moved_ok');
+    return true;
+  } catch { return false; }
+}
+
+// ——— Старый адрес: карточка «Приложение переехало» ———
+// Ссылка и код собираются ЗАРАНЕЕ, при отрисовке (сборка асинхронная из-за сжатия, а после
+// await браузер мог бы счесть открытие окна всплывающим). Пока не готово — неактивная кнопка.
+let moveCache = null;          // { text, built }
+let moveSeq = 0;               // отсчёт отрисовок: опоздавший ответ не пишет в чужую разметку
+let moveSteps = false;         // раскрыты шаги для айфона
+let moveCopied = false;        // «Код скопирован» (3 секунды)
+let moveAddrCopied = false;
+let moveBox = false;           // показать поле с кодом (буфер недоступен)
+let moveCopyTimer = null;
+const NEW_URL = MV.NEW_ORIGIN;
+const moveOldOn = (where) => role === 'old' && (where === 'settings' ? MV.MOVE_SETTINGS : MV.MOVE_HOME);
+const moveBuiltNow = () => {
+  if (!moveReady()) return null;
+  const text = ST.exportText(state);
+  return moveCache && moveCache.text === text ? moveCache.built : null;
+};
+
+function moveStepsHtml() {
+  return `<div class="mv-steps">
+    <p><b>Как перенести на айфоне</b></p>
+    <p class="muted hint">На айфоне у значка своя память, поэтому порядок такой:</p>
+    <ol>
+      <li>Поставьте новый значок. Нажмите «Скопировать адрес», откройте Safari, вставьте адрес и откройте его. Затем «Поделиться» → «На экран «Домой»».</li>
+      <li>Откройте новый значок и нажмите внизу «У меня уже есть прогресс в старом приложении».</li>
+      <li>Вернитесь сюда и нажмите «Скопировать код переноса».</li>
+      <li>В новом значке нажмите «Вставить» и «Проверить код».</li>
+    </ol>
+    <p class="muted hint"><i>Этот значок не удаляйте, пока не убедитесь, что на новом всё на месте.</i></p>
+  </div>`;
+}
+
+function moveCardOld(where) {
+  if (!moveOldOn(where)) return '';
+  const settings = where === 'settings';
+  const head = settings ? 'Переезд на новый адрес' : 'Новый адрес';
+  const open = (cls) => `<a class="btn${cls}" id="m-open" href="${NEW_URL}/" target="_blank" rel="noopener noreferrer">Открыть новый адрес</a>`;
+  if (MV.isEmptyProgress(state)) {
+    // Прогресса нет: переносить нечего. Только в настройках; на главной карточки нет.
+    if (where === 'home') return '';
+    return `<div class="card mv" id="move-card">${settings ? `<div class="eyebrow">${head}</div>` : ''}
+      <p>Приложение переехало на ${ADDR}</p>${open('')}</div>`;
+  }
+  const info = MV.movedInfo(MV.loadMoved(), state);
+  const built = moveBuiltNow();               // null — ещё собирается
+  const noCode = !!built && !built.ok;        // самопроверка не прошла
+  const badLink = !!built && built.ok && !built.linkOk;
+  const ios = isIphone() && isStandalone() && !noCode && !badLink;
+  const online = navigator.onLine === false ? '<p class="muted hint" id="m-offline">Нужен интернет</p>' : '';
+  const goBtn = (cls, label) => (built && built.ok && built.linkOk
+    ? `<a class="btn${cls}" id="m-go" href="${esc(built.link)}" target="_blank" rel="noopener noreferrer">${label}</a>`
+    : `<button class="btn${cls}" id="m-go" disabled>Готовлю перенос…</button>`);
+  const copyBtn = `<button class="btn secondary" id="m-copy"${built && built.ok ? '' : ' disabled'}>${moveCopied ? 'Код скопирован' : 'Скопировать код переноса'}</button>`
+    + (moveBox && built && built.ok ? `<textarea readonly id="m-code-box" class="mv-code" rows="4" aria-label="Код переноса">${esc(built.code)}</textarea>
+      <p class="muted hint">Нажмите на поле и удерживайте палец, затем выберите «Скопировать».</p>` : '');
+  const fileBtn = '<button class="btn secondary" id="m-file">Сохранить копию файлом</button>';
+  let title = 'Приложение переехало', text, buttons, hints = '', copyIn = false;
+  if (noCode) {
+    text = 'Перенос кнопкой на этом телефоне не сработает. Перенесите код или файл.';
+    buttons = `${fileBtn}${open(' secondary')}`;
+  } else if (badLink) {
+    text = 'Перенос кнопкой на этом телефоне не сработает. Перенесите код или файл.';
+    buttons = `${copyBtn}${fileBtn}`; copyIn = true;
+  } else if (ios) {
+    text = `Теперь «Школа Морзе 73» живёт по адресу ${ADDR}. На айфоне у значка своя память, поэтому ниже порядок по шагам.`;
+    buttons = `<div class="mv-steps">
+      <ol>
+        <li>Поставьте новый значок. Нажмите «Скопировать адрес», откройте Safari, вставьте адрес и откройте его. Затем «Поделиться» → «На экран «Домой»».</li>
+        <li>Откройте новый значок и нажмите внизу «У меня уже есть прогресс в старом приложении».</li>
+        <li>Вернитесь сюда и нажмите «Скопировать код переноса».</li>
+        <li>В новом значке нажмите «Вставить» и «Проверить код».</li>
+      </ol>
+      <p class="muted hint"><i>Этот значок не удаляйте, пока не убедитесь, что на новом всё на месте.</i></p></div>
+      <button class="btn secondary" id="m-copy-addr">${moveAddrCopied ? 'Адрес скопирован' : 'Скопировать адрес'}</button>
+      ${copyBtn}
+      <p class="muted hint">Если вы занимаетесь в Safari, без значка:</p>
+      ${built && built.ok && built.linkOk
+        ? `<a class="linkbtn" id="m-go" href="${esc(built.link)}" target="_blank" rel="noopener noreferrer">Перенести прогресс</a>`
+        : '<button class="linkbtn" id="m-go" disabled>Готовлю перенос…</button>'}${online}`;
+    copyIn = true;
+  } else if (info.kind === 'opened') {
+    title = `Вы открывали перенос ${G.formatDate(info.at)}`;
+    text = 'Если на новом адресе вы нажали «Да, перенести», ваш прогресс там — занимайтесь теперь там. Если нет — перенесите ещё раз. Здесь всё сохранено на всякий случай.';
+    buttons = `${open('')}${goBtn(' secondary', 'Перенести ещё раз')}${online}`;
+  } else if (info.kind === 'stale') {
+    title = 'После переноса вы занимались здесь';
+    text = 'Эти занятия на новый адрес не попали. Перенесите прогресс ещё раз — новый адрес покажет, что заменится.';
+    buttons = `${goBtn('', 'Перенести ещё раз')}${online}`;
+  } else if (where === 'onboarding') {
+    title = '';
+    text = `Приложение переехало на ${ADDR}. Ваш прогресс можно перенести туда.`;
+    buttons = `${goBtn('', 'Перенести прогресс')}${copyBtn}${online}`; copyIn = true;
+  } else {
+    text = `Теперь «Школа Морзе 73» живёт по адресу ${ADDR}. Ваш прогресс можно перенести туда одной кнопкой. Здесь он тоже останется.`;
+    buttons = `${goBtn('', 'Перенести прогресс')}${online}`;
+    hints = `<p class="muted hint">Нужен интернет. Откроется новый адрес и попросит подтвердить.</p>
+      <p class="muted hint">Если там не появилось предложение перенести — закройте новый адрес совсем и нажмите эту кнопку ещё раз. Сразу после обновления так бывает, иногда не один раз.${settings ? ' Можно и кодом: «Настройки» → «Скопировать код переноса».' : ''}</p>`;
+  }
+  const copyExtra = !copyIn && settings && !noCode ? copyBtn : '';
+  const toggle = settings && !ios && !noCode
+    ? `<button class="linkbtn" id="m-ios">Как перенести на айфоне</button>${moveSteps ? moveStepsHtml() : ''}` : '';
+  return `<div class="card mv" id="move-card">
+    <div class="eyebrow">${head}</div>
+    ${title ? `<p><b>${esc(title)}</b></p>` : ''}<p>${text}</p>
+    ${buttons}${hints}${copyExtra}${toggle}
+  </div>`;
+}
+
+function refreshMoveCard(where) {
+  const el = $('#move-card'); if (!el) return;
+  const html = moveCardOld(where);
+  if (!html) return;
+  el.outerHTML = html;
+  wireMoveOld(where, true);
+}
+
+function wireMoveOld(where, noBuild = false) {
+  if (!moveOldOn(where) || !$('#move-card')) return;
+  const on = (sel, fn) => { const el = $(sel); if (el) el.addEventListener('click', fn); };
+  // Касание «Перенести»: помечаем, что перенос открывали (отдельный ключ, вне состояния).
+  on('#m-go', () => {
+    MV.saveMoved({ at: G.localDate(), secs: state.totalSeconds, answers: MV.answersOf(state) });
+    setTimeout(() => refreshMoveCard(where), 400);
+  });
+  on('#m-ios', () => { moveSteps = !moveSteps; refreshMoveCard(where); });
+  const done = () => {
+    clearTimeout(moveCopyTimer);
+    moveCopyTimer = setTimeout(() => { moveCopied = false; moveAddrCopied = false; refreshMoveCard(where); }, 3000);
+  };
+  const copy = (text, flag) => {
+    let p;
+    try { p = navigator.clipboard.writeText(text); } catch { p = null; }
+    const fallback = () => { moveBox = true; refreshMoveCard(where); const b = $('#m-code-box'); if (b) { b.focus(); b.select(); } };
+    if (!p || typeof p.then !== 'function') { fallback(); return; }
+    p.then(() => { if (flag === 'code') { moveCopied = true; moveSteps = true; } else moveAddrCopied = true; refreshMoveCard(where); done(); },
+      () => { if (flag === 'code') fallback(); });
+  };
+  on('#m-copy', () => { const b = moveBuiltNow(); if (b && b.code) copy(b.code, 'code'); });
+  on('#m-copy-addr', () => copy(`${NEW_URL}/`, 'addr'));
+  on('#m-file', () => downloadBackup(backupText()));
+  if (noBuild || !moveReady() || moveBuiltNow()) return;
+  const seq = ++moveSeq;
+  const text = ST.exportText(state);
+  MV.buildTransfer(state).then((built) => {
+    moveCache = { text, built };
+    if (seq === moveSeq && $('#move-card')) refreshMoveCard(where);
+  });
 }
 
 // ——————————————————————————— Анонимная статистика ———————————————————————————
@@ -2456,6 +2986,9 @@ document.addEventListener('visibilitychange', () => {
     return;
   }
   if (sessionStart == null) sessionStart = Date.now();
+  // Другое окно принимало прогресс, пока это было в фоне (замороженная вкладка событие
+  // storage могла не получить): перезапускаемся, чтобы не затереть принятое своим снимком.
+  if (!frozen && MV.readMark() !== importMark) { restart(); return; }
   // Радиоигра: часы идут, пока открыт вопрос (как у занятия), без автоповтора звука.
   if (currentTab === 'puzzle' && Z && Z.q) startActiveClock();
   if (currentTab === 'learn' || currentTab === 'key') {
@@ -2507,14 +3040,27 @@ if ('serviceWorker' in navigator) {
 // Сохранность данных (§13.12).
 try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch {}
 
-// Старт.
-applyTheme();
-if (needsOnboarding(state)) renderOnboarding();
-else {
-  // У тех, кто уже занимался прежней версией, заслуженные вехи могли не записаться.
-  // Доначисляем их ТИХО при запуске: иначе они выпадут баннером «Новая веха!» посреди
-  // занятия — за то, что человек сделал месяц назад.
-  G.checkMilestones(state, { triggers: ['chars'] });
-  persist();
-  go('home');
+// Другое окно этого же адреса приняло прогресс (перенос, код, файл, «Вернуть как было»).
+// Слушаем ТОЛЬКО метку приёма, а не boni_m_state: то пришло бы на каждый ответ в другом окне,
+// и занятие перезагружалось бы посреди работы.
+window.addEventListener('storage', (e) => {
+  if (e.key === MV.KEY_IMPORT_AT && !frozen) restart();
+});
+
+// Обычный старт: знакомство или главная.
+function startNormal() {
+  if (needsOnboarding(state)) renderOnboarding();
+  else {
+    // У тех, кто уже занимался прежней версией, заслуженные вехи могли не записаться.
+    // Доначисляем их ТИХО при запуске: иначе они выпадут баннером «Новая веха!» посреди
+    // занятия — за то, что человек сделал месяц назад.
+    G.checkMilestones(state, { triggers: ['chars'] });
+    persist();
+    go('home');
+  }
 }
+
+// Старт. Пришла ссылка переноса — сначала вопрос человеку, ничего не пишется до его «Да».
+applyTheme();
+if (incoming !== null) startIncoming(incoming);
+else startNormal();
