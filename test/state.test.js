@@ -70,7 +70,7 @@ test('миграция зажимает настройки и держит ин�
 
 test('parked обрезается до двух, recent до 30', () => {
   const s = migrate({
-    progress: { ru: { parked: [{ char: 'А' }, { char: 'Б' }, { char: 'В' }], recent: new Array(50).fill(1) } },
+    progress: { ru: { parked: [{ char: 'А', returnAt: 5 }, { char: 'Б', returnAt: 6 }, { char: 'В', returnAt: 7 }], recent: new Array(50).fill(1) } },
   });
   assert.equal(s.progress.ru.parked.length, 2);
   assert.equal(s.progress.ru.recent.length, 30);

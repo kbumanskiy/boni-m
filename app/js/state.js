@@ -61,14 +61,45 @@ const isObj = (v) => v && typeof v === 'object' && !Array.isArray(v);
 const num = (v, d) => (typeof v === 'number' && isFinite(v) ? v : d);
 const clampNum = (v, lo, hi, d) => Math.min(hi, Math.max(lo, num(v, d)));
 
+// Строка длиной 1–3 кодовые точки. Каждый знак курса сейчас — один символ, три — запас
+// (ТЗ-переезд.md, 3.3). Белого списка по DATA нет: знак, убранный из курса, не должен тихо
+// терять статистику.
+const shortKey = (k) => typeof k === 'string' && [...k].length >= 1 && [...k].length <= 3;
+const PERCHAR_MAX = 200;
+
+// perChar приходит и из чужого файла (копия, перенос): оставляем только пары вида
+// { correct, total } с целыми 0 ≤ correct ≤ total. Порядок ключей сохраняется.
+function cleanPerChar(raw) {
+  const out = {};
+  if (!isObj(raw)) return out;
+  let n = 0;
+  for (const [k, v] of Object.entries(raw)) {
+    if (n >= PERCHAR_MAX) break;
+    if (!shortKey(k) || !isObj(v)) continue;
+    if (!Number.isInteger(v.correct) || !Number.isInteger(v.total) || v.correct < 0 || v.total < 0) continue;
+    out[k] = { correct: Math.min(v.correct, v.total), total: v.total };
+    n++;
+  }
+  return out;
+}
+
+// Отложенный знак — объект { char, returnAt } (progress.js), а не строка.
+function cleanParked(raw) {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((p) => isObj(p) && shortKey(p.char) && Number.isInteger(p.returnAt) && p.returnAt >= 0)
+    .slice(0, 2) // одновременно не более двух (§6.1)
+    .map((p) => ({ char: p.char, returnAt: p.returnAt }));
+}
+
 function sanitizeTrack(raw, def) {
   const t = isObj(raw) ? raw : {};
   return {
     learnedCount: Math.max(0, Math.floor(num(t.learnedCount, def.learnedCount))),
     digitsLearned: Math.max(0, Math.floor(num(t.digitsLearned, def.digitsLearned))),
-    perChar: isObj(t.perChar) ? t.perChar : {},
-    recent: Array.isArray(t.recent) ? t.recent.slice(-30) : [],
-    parked: Array.isArray(t.parked) ? t.parked.slice(0, 2) : [], // одновременно не более двух (§6.1)
+    perChar: cleanPerChar(t.perChar),
+    recent: Array.isArray(t.recent) ? t.recent.slice(-30).map((v) => (v === 1 || v === true ? 1 : 0)) : [],
+    parked: cleanParked(t.parked),
     lastFirst: typeof t.lastFirst === 'string' && t.lastFirst ? t.lastFirst : null,
   };
 }
@@ -265,4 +296,25 @@ export function save(state, storage) {
 // Нужен ли онбординг (имя пустое) — §7.1.
 export function needsOnboarding(state) {
   return !state.profile.name || !state.profile.name.trim();
+}
+
+// ——— Чужое состояние: один вход (ТЗ-переезд.md, 3.3) ———
+// Файл копии, ссылка переноса и код переноса проходят ровно через эту функцию:
+// разбор → «это наш прогресс» → migrate. Другого пути в app.js нет (тест в move.test.js).
+// Пределы длины в БАЙТАХ UTF-8 — те же, что у распаковки в move.js (JSON_MAX).
+export const INCOMING_MAX_BYTES = 262144;
+
+export function readIncoming(jsonText) {
+  if (typeof jsonText !== 'string') return { ok: false, reason: 'not-json' };
+  if (new TextEncoder().encode(jsonText).length > INCOMING_MAX_BYTES) return { ok: false, reason: 'too-long' };
+  let raw;
+  try { raw = JSON.parse(jsonText); } catch { return { ok: false, reason: 'not-json' }; }
+  // migrate({}) отдал бы чистое состояние и молча обнулил человека — поэтому проверяем сами.
+  if (!isObj(raw) || !(isObj(raw.progress) || isObj(raw.profile))) return { ok: false, reason: 'not-state' };
+  return { ok: true, state: migrate(raw) };
+}
+
+// Текст файла копии и ядро кода переноса — одна функция на оба случая.
+export function exportText(state) {
+  return JSON.stringify(state, null, 2);
 }
