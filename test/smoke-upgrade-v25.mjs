@@ -13,39 +13,16 @@ import { makeFakeAudio } from './fake-audio.mjs';
 import * as V25 from '../fixtures/v25/state.js';
 import { MILESTONES } from '../app/js/gamify.js';
 import { LIMITS } from '../app/js/timing.js';
+import { v25State, V25_MILESTONES, localDay } from './fixtures-state.mjs';
 
 const html = readFileSync(new URL('../app/index.html', import.meta.url), 'utf8');
 const dom = new JSDOM(html, { url: 'https://example.com/', pretendToBeVisual: true });
 const { window } = dom;
 const { document } = window;
 
-const yesterday = (() => { const d = new Date(); d.setDate(d.getDate() - 1);
-  const p = (n) => String(n).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`; })();
-const def25 = V25.defaultState();
-const MS = ['first4', 'tenMin', 'radiogram', 'callsign', 'half'];
-for (const k of MS) assert.ok(MILESTONES[k], `веха ${k} есть в каталоге`);
-
-const V25_STATE = V25.migrate({
-  version: 2,
-  profile: { name: 'Бонислав', callsign: 'Boney M', points: 412 },
-  progress: {
-    ru: { learnedCount: 27, digitsLearned: 6,
-          perChar: { 'Е': { correct: 31, total: 34 }, 'Ь': { correct: 4, total: 11 }, 'Щ': { correct: 6, total: 8 } },
-          recent: [1, 1, 0, 1, 1, 1, 1, 0, 1, 1], parked: [{ char: 'Ь', returnAt: 36 }], lastFirst: 'Щ' },
-    en: { learnedCount: 6, digitsLearned: 0, perChar: { 'K': { correct: 9, total: 10 } }, recent: [1, 1, 1], parked: [], lastFirst: 'E' },
-  },
-  settings: { alphabet: 'ru', charWpm: 20, effWpm: 12, keyWpm: 14, toneHz: 700, volume: 0.6,
-    showChants: false, vibration: true, answerSound: false, keyMode: 'free',
-    radiogramCpm: 110, radiogramKind: 'mixed', radiogramFull: true,
-    theme: 'dark', metrics: false, knowsAll: true },
-  streak: { current: 9, longest: 21, lastActiveDate: yesterday },
-  records: { radiogramCpm: 100 },
-  totalSeconds: 18000,
-  history: [{ date: '2026-10-13', answers: 22, accuracyPct: 88 }, { date: '2026-10-15', answers: 31, accuracyPct: 91 },
-    { date: yesterday, answers: 25, accuracyPct: 94 }],
-  milestones: Object.fromEntries(MS.map((k) => [k, true])),
-  puzzle: { ...structuredClone(def25.puzzle), word: { seen: ['w01', 'w05'], last: 'w05', solved: ['w01'] }, isNew: false },
-});
+const yesterday = localDay(-1);
+const MS = V25_MILESTONES;
+const V25_STATE = v25State(yesterday);
 assert.equal(V25_STATE.settings.radiogramLong, undefined, 'снимок без полей v26');
 assert.equal(V25_STATE.settings.dahRatio, undefined, 'снимок без поля длины тире');
 window.localStorage.setItem('boni_m_state', JSON.stringify(V25_STATE));

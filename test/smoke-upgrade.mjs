@@ -209,6 +209,8 @@ ok(saved().milestones.radiogram === true, 'радиограмма: веха за
   document.querySelector('#gear').click(); await sleep(20);
   ok(document.querySelector('#knows') && !text().includes('Включено: радиограмма'),
     'знаю азбуку: в настройках кнопка, а не «Включено»');
+  ok(!document.querySelector('#move-card') && document.querySelector('#m-new-card'),
+    'переезд: на адресе example.com (роль «другое») карточек старого адреса нет, приём есть');
 }
 
 // 10) Длинная радиограмма (morse-v26): у папы прежний выбор, рекорд и веха «Короткой»

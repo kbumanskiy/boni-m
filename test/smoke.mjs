@@ -65,6 +65,9 @@ const ok = (cond, msg) => { assert.ok(cond, msg); pass++; console.log('  ✓', m
 
 // 1) Онбординг показан
 ok(text().includes('Как вас зовут'), 'онбординг: вопрос имени');
+// Адрес example.com — роль «другое» (ТЗ-переезд.md, 3.7): принимает перенос, но не отправляет.
+ok(document.querySelector('#m-have')?.textContent === 'У меня уже есть прогресс в старом приложении', 'онбординг: есть «У меня уже есть прогресс в старом приложении»');
+ok(!document.querySelector('#move-card'), 'онбординг: карточки «Приложение переехало» нет (не старый адрес)');
 
 // 2) Заполнить имя → Дальше → Начать
 const name = document.querySelector('#name');
@@ -363,6 +366,8 @@ ok(document.querySelector('#lang-ru') && document.querySelector('#lang-en'), 'н
 // Позывной звучит в упражнении «Принять свой позывной», поэтому его должно быть где менять:
 // с форума спросили, почему у всех звучит «Boney M».
 ok(document.querySelector('#s-name')?.value === 'Бонислав', 'настройки: имя подставлено');
+ok(document.querySelector('#m-new-card') && !document.querySelector('#move-card'), 'настройки: «Перенос с другого адреса» есть, «Переезд на новый адрес» нет');
+ok(document.querySelector('#backup') && document.querySelector('#restore') && !document.querySelector('#m-undo'), 'настройки: копия и восстановление на месте, прежних версий нет');
 const callField = document.querySelector('#s-call');
 ok(callField, 'настройки: есть поле позывного');
 callField.value = 'ra9flc';

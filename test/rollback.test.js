@@ -12,6 +12,8 @@ import { registerHooks } from 'node:module';
 import * as V26 from '../app/js/state.js';
 import { LIMITS } from '../app/js/timing.js';
 import * as V25 from '../fixtures/v25/state.js';
+import * as V27 from '../fixtures/v27/state.js';
+import * as M from '../app/js/move.js';
 
 // ——— Снимок v25 настоящий ———
 // Каждый файл fixtures/v25/*.js = одна строка-шапка + файл из коммита ff06879 как есть.
@@ -172,4 +174,44 @@ test('смешанный кэш: новый state.js на настоящем tim
 test('повторное обновление после отката: длина тире — «как в эфире» (3)', () => {
   const again = V26.migrate(V25.migrate(JSON.parse(JSON.stringify(fullV26()))));
   assert.equal(again.settings.dahRatio, 3);
+});
+
+// ——— Откат релиза переезда (ТЗ-переезд.md, 7.3) ———
+// Переезд (morse-v28) выходит после morse-v27 (в ТЗ — «после v26»: к выкладке вышла ещё v27,
+// state.js/timing.js/puzzle.js у них побайтно те же). Откатный код — fixtures/v27/, снимок
+// с 9cb57cd; сверка как у v25: хэш файла целиком и хэш тела из git.
+const FIXTURES_V27 = {
+  'state.js':  ['58aa697b8ba1e6879f14637ff1e76794395608c76bed130b26a3d4b01209682e', 'fa359865cf2ad0c4f3eb6d91fb1bc0ab63d228c9a45a2e48f9b9ba1bb58abe24'],
+  'timing.js': ['c140ee5dbd422b61d0f33838a2b7ee3ee1e5cd7dc185ed3ef030ed18fecf18bf', '53dc76f0be74396baaec85fee3e8f552e8e7cd4e5fc4751218703fdf7265532d'],
+  'puzzle.js': ['b93959cf07f09886d44f811f4440dc5b6e54b47b08c056fea439523e199cacd7', 'b9e3490b922a24034e9cd99a0cae85dd35845631147025b2b9ee469d0058a3ee'],
+};
+
+test('снимок v27 настоящий: файлы fixtures/v27 совпадают с коммитом 9cb57cd', () => {
+  for (const [file, [whole, original]] of Object.entries(FIXTURES_V27)) {
+    const buf = readFileSync(new URL(`../fixtures/v27/${file}`, import.meta.url));
+    assert.equal(sha(buf), whole, `${file}: снимок изменён`);
+    assert.equal(sha(buf.subarray(buf.indexOf(10) + 1)), original, `${file}: тело не совпадает с 9cb57cd`);
+    assert.match(buf.toString('utf8', 0, 80), /^\/\/ снято с 9cb57cd/, `${file}: нет шапки`);
+  }
+});
+
+test('откат на v27: состояние, принятое переносом, читается прежним кодом полностью', async () => {
+  const s = fullV26();
+  const code = await M.encodeTransfer(V26.exportText(s), { date: '20261018' });
+  const rd = V26.readIncoming((await M.decodeTransfer(code)).json);
+  assert.equal(rd.ok, true);
+  assert.deepEqual(V27.migrate(JSON.parse(JSON.stringify(rd.state))), rd.state, 'v27 читает принятое без потерь');
+  assert.deepEqual(rd.state, s, 'перенос не меняет настоящее состояние');
+});
+
+test('откат на v25: принятое переносом — без трёх новых полей, остальное цело', async () => {
+  const s = fullV26();
+  const code = await M.encodeTransfer(V26.exportText(s), { date: '20261018' });
+  const rd = V26.readIncoming((await M.decodeTransfer(code)).json);
+  assert.deepEqual(V25.migrate(JSON.parse(JSON.stringify(rd.state))), withoutNew(s));
+});
+
+test('у переноса нет новых полей состояния', () => {
+  assert.deepEqual(Object.keys(fullV26()).sort(), Object.keys(V27.defaultState()).sort());
+  assert.deepEqual(Object.keys(V26.defaultState()).sort(), Object.keys(V27.defaultState()).sort());
 });
