@@ -800,6 +800,7 @@ textarea{
 /* ——— Переезд на app.morse73.ru (ТЗ-переезд.md): карточки, сравнение, код, версии ———
    Все новые элементы — не ниже 64px (площадь нажатия), цвета — только из переменных тем. */
 .mv{text-align:left;}
+.mv .btn{text-align:center;}
 .mv h2{margin:0 0 8px; font-size:26px; line-height:1.2; text-wrap:balance;}
 .mv p{margin:8px 0;}
 .mv .btn, .mv .linkbtn, .mv-link, #m-new-card .btn, #m-new-card .linkbtn, .mv-versions .btn, .mv-versions .linkbtn, #m-undo{min-height:64px;}

@@ -2797,7 +2797,9 @@ function moveStepsHtml() {
 }
 
 function moveCardOld(where) {
-  if (!moveOldOn(where)) return '';
+  // Смешанный кэш (старый state.js без exportText/readIncoming): ссылку не собрать — карточки нет вовсе,
+  // а не вечное «Готовлю перенос…».
+  if (!moveOldOn(where) || !moveReady()) return '';
   const settings = where === 'settings';
   const head = settings ? 'Переезд на новый адрес' : 'Новый адрес';
   const open = (cls) => `<a class="btn${cls}" id="m-open" href="${NEW_URL}/" target="_blank" rel="noopener noreferrer">Открыть новый адрес</a>`;
@@ -2901,7 +2903,13 @@ function wireMoveOld(where, noBuild = false) {
     p.then(() => { if (flag === 'code') { moveCopied = true; moveSteps = true; } else moveAddrCopied = true; refreshMoveCard(where); done(); },
       () => { if (flag === 'code') fallback(); });
   };
-  on('#m-copy', () => { const b = moveBuiltNow(); if (b && b.code) copy(b.code, 'code'); });
+  // «Скопировать код переноса» — тоже перенос (основной путь айфона): отметка пишется и здесь (ТЗ 3.5).
+  on('#m-copy', () => {
+    const b = moveBuiltNow();
+    if (!b || !b.code) return;
+    MV.saveMoved({ at: G.localDate(), secs: state.totalSeconds, answers: MV.answersOf(state) });
+    copy(b.code, 'code');
+  });
   on('#m-copy-addr', () => copy(`${NEW_URL}/`, 'addr'));
   on('#m-file', () => downloadBackup(backupText()));
   if (noBuild || !moveReady() || moveBuiltNow()) return;
