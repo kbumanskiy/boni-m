@@ -330,8 +330,7 @@ test('сравнение и «здесь больше»', () => {
   assert.equal(rows.find((r) => r.key === 'name').differs, true);
   assert.equal(rows.find((r) => r.key === 'ru').a, '27 из 32');
   assert.equal(rows.find((r) => r.key === 'ru').b, '4 из 32');
-  assert.ok(rows.some((r) => r.key === 'en'), 'латиница показана, если у кого-то есть');
-  assert.ok(!M.compareRows(few, few).some((r) => r.key === 'en' || r.key === 'puzzle'), 'нулевые строки скрыты');
+  assert.deepEqual(rows.map((r) => r.key), ['name', 'ru', 'digits', 'last'], 'ровно четыре строки (решение 12.11.2026)');
 });
 
 test('movedInfo: «открывали» / «занимались после»', () => {
@@ -528,16 +527,6 @@ test('15. слот: больше 1 МБ → отказ без записи; «У
   assert.equal(slotOf(st).length, 11);
 });
 
-test('15. слот: нечитаемый список не затирается', () => {
-  const st = mapStore();
-  st.setItem(M.KEY_SLOT, '{не json');
-  putState(st, mk('А', 3)); const raw = rawOf(st);
-  const r = apply(st, mk('Б', 9));
-  assert.deepEqual([r.ok, r.reason], [false, 'write']);
-  assert.equal(st.getItem(M.KEY_SLOT), '{не json');
-  assert.equal(rawOf(st), raw);
-});
-
 test('15. другое окно успело записать: перед записью основное перечитывается', () => {
   const st = mapStore();
   putState(st, mk('А', 3)); const rawShown = rawOf(st);
@@ -570,4 +559,63 @@ test('перенос не добавляет полей в состояние', 
     assert.deepEqual(Object.keys(migrate(s)).sort(), Object.keys(defaultState()).sort());
   }
   assert.ok(!exportText(maxState()).includes('boni_m_metrics'), 'номера установки статистики в строке нет');
+});
+
+// ——— Тупик со списком прежних версий (решение 12.11.2026) ———
+const JUNK_LISTS = ['мусор {не json', '{"a":1}', '[{"at":"x"}]', '[1,2]'];
+
+test('15. нечитаемый список: лежит в аварийном слоте байт в байт, приём проходит', () => {
+  for (const junk of JUNK_LISTS) {
+    const st = mapStore();
+    putState(st, mk('А', 3)); const before = rawOf(st);
+    st.setItem(M.KEY_SLOT, junk);
+    const r = apply(st, mk('Б', 9));
+    assert.equal(r.ok, true, junk);
+    const keys = [...st.m.keys()].filter((k) => k.startsWith(M.SLOT_BROKEN_PREFIX));
+    assert.equal(keys.length, 1, 'один аварийный слот');
+    assert.equal(st.getItem(keys[0]), junk, 'мусор — байт в байт');
+    assert.deepEqual(slotOf(st).map((e) => e.state), [before], 'список начат заново: в нём прежнее');
+    assert.equal(readIncoming(rawOf(st)).state.profile.name, 'Б');
+  }
+});
+
+test('15. нечитаемый список: два разных мусора — два слота, ничего не затёрто', () => {
+  const st = mapStore();
+  putState(st, mk('А', 3));
+  st.setItem(M.KEY_SLOT, 'первый мусор');
+  assert.equal(apply(st, mk('Б', 9)).ok, true);
+  st.setItem(M.KEY_SLOT, 'второй мусор');
+  assert.equal(apply(st, mk('В', 12)).ok, true);
+  const vals = [...st.m.entries()].filter(([k]) => k.startsWith(M.SLOT_BROKEN_PREFIX)).map(([, v]) => v).sort();
+  assert.deepEqual(vals, ['второй мусор', 'первый мусор']);
+});
+
+test('15. нечитаемый список: хранилище отказало — ошибка записи, ничего не стёрто', () => {
+  // Слот не пишется.
+  let st = mapStore();
+  putState(st, mk('А', 3)); const raw = rawOf(st);
+  st.setItem(M.KEY_SLOT, 'мусор');
+  const real = st.setItem;
+  st.setItem = (k, v) => { if (k.startsWith(M.SLOT_BROKEN_PREFIX)) throw new Error('квота'); return real(k, v); };
+  let r = apply(st, mk('Б', 9));
+  assert.deepEqual([r.ok, r.reason], [false, 'write']);
+  assert.equal(st.getItem(M.KEY_SLOT), 'мусор', 'исходный список на месте');
+  assert.equal(rawOf(st), raw);
+  // Копия не совпала при чтении.
+  st = mapStore();
+  putState(st, mk('А', 3));
+  st.setItem(M.KEY_SLOT, 'мусор');
+  const real2 = st.setItem;
+  st.setItem = (k, v) => { if (k.startsWith(M.SLOT_BROKEN_PREFIX)) { st.m.set(k, 'испорчено'); return; } return real2(k, v); };
+  r = apply(st, mk('Б', 9));
+  assert.deepEqual([r.ok, r.reason], [false, 'write']);
+  assert.equal(st.getItem(M.KEY_SLOT), 'мусор');
+  // Нельзя стереть исходный ключ.
+  st = mapStore();
+  putState(st, mk('А', 3));
+  st.setItem(M.KEY_SLOT, 'мусор');
+  st.removeItem = () => {};
+  r = apply(st, mk('Б', 9));
+  assert.deepEqual([r.ok, r.reason], [false, 'write']);
+  assert.equal(st.getItem('boni_m_import_at'), null, 'метка не записана');
 });

@@ -30,6 +30,7 @@ export const FORMAT_VERSION = 1;
 export const KEY_MOVED = 'boni_m_moved';
 export const KEY_SLOT = 'boni_m_state_before_move';
 export const KEY_IMPORT_AT = 'boni_m_import_at';
+export const SLOT_BROKEN_PREFIX = 'boni_m_state_before_move_broken_'; // нечитаемый список лежит здесь как есть
 const KEY_STATE = 'boni_m_state';
 
 // Где мы находимся. old — только отправляет, new — только принимает, other — принимает,
@@ -271,24 +272,16 @@ export function summary(state) {
   };
 }
 
-// Строки сравнения: подпись, значение «со старого адреса», значение «здесь». Строка показывается,
-// если хотя бы у одной стороны там не пусто (необязательные строки скрыты, когда нули у обеих).
+// Строки сравнения и подтверждения (решение 12.11.2026, упрощение экранов): ровно четыре —
+// подпись, значение «со старого адреса», значение «здесь», differs.
 export function compareRows(inc, cur) {
   const fmtDate = (d) => (d ? G.formatDate(d) : '—');
-  const rows = [
+  return [
     { key: 'name', label: 'Имя', a: inc.name || '—', b: cur.name || '—', differs: inc.name !== cur.name },
     { key: 'ru', label: 'Освоено букв', a: `${inc.ru} из 32`, b: `${cur.ru} из 32`, differs: inc.ru !== cur.ru },
+    { key: 'digits', label: 'Освоено цифр', a: `${inc.digits} из 10`, b: `${cur.digits} из 10`, differs: inc.digits !== cur.digits },
+    { key: 'last', label: 'Последнее занятие', a: fmtDate(inc.last), b: fmtDate(cur.last), differs: inc.last !== cur.last },
   ];
-  if (inc.en > 0 || cur.en > 0) rows.push({ key: 'en', label: 'Латиница', a: `${inc.en} из 26`, b: `${cur.en} из 26`, differs: inc.en !== cur.en });
-  rows.push({ key: 'digits', label: 'Освоено цифр', a: `${inc.digits} из 10`, b: `${cur.digits} из 10`, differs: inc.digits !== cur.digits });
-  rows.push({ key: 'streak', label: 'Дней подряд', a: String(inc.streak), b: String(cur.streak), differs: inc.streak !== cur.streak });
-  rows.push({ key: 'minutes', label: 'Всего в эфире', a: `${inc.minutes} мин`, b: `${cur.minutes} мин`, differs: inc.minutes !== cur.minutes });
-  if (inc.radiogram > 0 || cur.radiogram > 0) rows.push({ key: 'radiogram', label: 'Лучшая радиограмма', a: inc.radiogram ? `${inc.radiogram} зн/мин` : '—', b: cur.radiogram ? `${cur.radiogram} зн/мин` : '—', differs: inc.radiogram !== cur.radiogram });
-  rows.push({ key: 'points', label: 'Очки', a: String(inc.points), b: String(cur.points), differs: inc.points !== cur.points });
-  if (inc.puzzle > 0 || cur.puzzle > 0) rows.push({ key: 'puzzle', label: 'Радиоигра, разгадано', a: String(inc.puzzle), b: String(cur.puzzle), differs: inc.puzzle !== cur.puzzle });
-  if (inc.milestones > 0 || cur.milestones > 0) rows.push({ key: 'milestones', label: 'Вех получено', a: String(inc.milestones), b: String(cur.milestones), differs: inc.milestones !== cur.milestones });
-  rows.push({ key: 'last', label: 'Последнее занятие', a: fmtDate(inc.last), b: fmtDate(cur.last), differs: inc.last !== cur.last });
-  return rows;
 }
 
 // «Здесь прогресса больше»: по всем числам здешнее не меньше пришедшего, и хотя бы одно больше.
@@ -368,18 +361,43 @@ export function saveMoved(meta, st) {
   try { store(st).setItem(KEY_MOVED, JSON.stringify(meta)); return true; } catch { return false; }
 }
 
-// → { ok: true, list } | { ok: false }  (ключа нет — пустой список; нечитаемое — ok:false:
+function hash4(str) {
+  let h = 0x811c9dc5; // FNV-1a, как в state.js
+  for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
+  return h.toString(16).padStart(8, '0').slice(0, 4);
+}
+
+// → { ok: true, list } | { ok: false, raw? }  (raw — сырая строка, если она есть, но не читается; ключа нет — пустой список; нечитаемое — ok:false:
 // затирать неизвестное содержимое нельзя)
 export function readSlot(st) {
   try {
     const raw = store(st).getItem(KEY_SLOT);
     if (raw === null || raw === undefined) return { ok: true, list: [] };
-    const list = JSON.parse(raw);
-    if (!Array.isArray(list)) return { ok: false };
+    let list;
+    try { list = JSON.parse(raw); } catch { return { ok: false, raw }; }
+    if (!Array.isArray(list)) return { ok: false, raw };
     const clean = list.filter((e) => e && typeof e === 'object' && typeof e.state === 'string' && typeof e.at === 'string');
-    if (clean.length !== list.length) return { ok: false };
+    if (clean.length !== list.length) return { ok: false, raw };
     return { ok: true, list: clean };
   } catch { return { ok: false }; }
+}
+
+// Нечитаемый список прежних версий: переложить как есть в свой аварийный слот, проверить
+// чтением и только потом очистить исходный ключ. Ничего чужого не удаляется (слотов не лимитируем).
+// → true — копия подтверждена и список начат заново; false — хранилище отказало, ничего не тронуто
+// (кроме, возможно, лишней копии).
+function quarantineSlot(st, raw, at) {
+  try {
+    const base = `${SLOT_BROKEN_PREFIX}${at || 'x'}`;
+    let key = base;
+    for (let n = 2; st.getItem(key) !== null && st.getItem(key) !== raw; n++) key = `${base}_${n}`;
+    if (st.getItem(key) !== raw) {
+      st.setItem(key, raw);
+      if (st.getItem(key) !== raw) return false;
+    }
+    st.removeItem(KEY_SLOT);
+    return st.getItem(KEY_SLOT) === null;
+  } catch { return false; }
 }
 
 export function readMark(st) {
@@ -397,7 +415,11 @@ export function applyImport(incoming, opts) {
   let cur;
   try { cur = st.getItem(KEY_STATE); } catch { return { ok: false, reason: 'write' }; }
   if ((cur ?? null) !== (opts.expectRaw ?? null)) return { ok: false, reason: 'changed' };
-  const slot = readSlot(st);
+  let slot = readSlot(st);
+  if (!slot.ok && typeof slot.raw === 'string') {
+    if (!quarantineSlot(st, slot.raw, `${opts.at || ''}_${hash4(slot.raw)}`)) return { ok: false, reason: 'write' };
+    slot = readSlot(st);
+  }
   if (!slot.ok) return { ok: false, reason: 'write' };
   const plan = planImport(cur, slot.list, incoming, opts.at || '');
   if (!plan.ok) return { ok: false, reason: plan.reason };
