@@ -10,9 +10,11 @@ const rawMine = JSON.stringify(mine);
 const T = await boot({ url: `${NEW}#perenos=${await codeFor(snap)}`, store: { boni_m_state: rawMine }, name: 'smoke-move-compare' });
 
 T.ok(T.$('#mv-confirm') && T.text().includes('Здесь уже есть прогресс'), 'видно сравнение');
-T.ok(T.$$('.mv-cmp').length >= 8, 'строки сравнения на месте');
+T.ok(T.$$('table.mv-table tr.mv-cmp').length === 4, 'таблица сравнения: ровно четыре строки');
+T.ok(T.$$('table.mv-table thead th').length === 2 && T.text().includes('Старый адрес'), 'заголовки столбцов: Старый адрес | Здесь');
 T.ok(T.$('.mv-cmp.diff') && T.$('.mv-cmp.diff').textContent.includes('Имя'), 'строка «Имя» выделена (имена разные)');
-for (const s of ['со старого: 27 из 32', 'здесь: 4 из 32', 'со старого: Бонислав', 'здесь: Вася']) T.ok(T.text().includes(s), `числа обеих сторон: «${s}»`);
+const cells = (T.$$('tr.mv-cmp').map((r) => [...r.children].map((c) => c.textContent.trim()).join('|')));
+for (const s of ['Освоено букв|27 из 32|4 из 32', 'Имя|Бонислав|Вася']) T.ok(cells.includes(s), `строка таблицы: «${s}»`);
 T.ok(T.$('#mv-yes').textContent === 'Взять со старого адреса' && T.$('#mv-no').textContent === 'Оставить как здесь', 'подписи кнопок точные');
 T.ok(T.text().includes('закройте их'), 'строка про другие окна');
 T.ok(!T.text().includes('Здесь прогресса больше'), 'здесь меньше — строки «больше» нет');

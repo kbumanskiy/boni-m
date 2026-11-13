@@ -30,6 +30,11 @@ T.ok(!JSON.stringify(dec.state).includes('boni_m_metrics'), 'номера уст
 // Касание пишет только отметку.
 const rawBefore = T.store('boni_m_state'), metricsBefore = T.store('boni_m_metrics');
 T.ok(T.store('boni_m_moved') === null, 'до касания отметки нет');
+T.ok(T.$('#m-help') && !T.$('#m-help-text'), '«Не открылось?» есть и свёрнуто');
+T.click('#m-help'); await T.sleep(10);
+T.ok(T.$('#m-help-text') && T.$('#m-help-text').textContent.includes('Закройте новый адрес совсем'), '«Не открылось?» раскрывается');
+T.click('#m-help'); await T.sleep(10);
+T.ok(!T.$('#m-help-text'), 'и сворачивается обратно');
 T.click('#m-go');
 T.ok(T.store('boni_m_moved') !== null, 'касание пишет boni_m_moved');
 const moved = JSON.parse(T.store('boni_m_moved'));

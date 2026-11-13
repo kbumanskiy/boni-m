@@ -17,7 +17,7 @@ T.ok(T.store('boni_m_state') === rawMine2, 'после касания ничег
 T.ok(T.store('boni_m_state_before_move') === null && T.store('boni_m_import_at') === null, 'ни слота, ни метки');
 T.ok(T.restarts === 0, 'перезапуска нет');
 T.ok(T.text().includes('Здесь только что занимались — проверьте ещё раз.'), 'сказано «только что занимались»');
-T.ok(T.$('#mv-confirm') && T.text().includes('здесь: 7'), 'сравнение перерисовано с новыми числами (очки 7)');
+T.ok(T.$('#mv-confirm') && T.$$('tr.mv-cmp').length === 4, 'сравнение перерисовано (таблица, четыре строки)');
 // Второе касание: в список прежних версий попало именно «прежнее + 1 ответ».
 T.click('#mv-yes'); await T.sleep(20);
 T.eq(T.saved(), snap, '«Взять»: boni_m_state = снимок');

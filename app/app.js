@@ -2434,9 +2434,9 @@ function storedState() {
 // ctx: { kind: 'link'|'code'|'file', incoming, date, onCancel, onPaste? }
 function moveWords(ctx) {
   if (ctx.kind === 'file') {
-    return { title: 'Восстановить из копии?', intro: 'В файле копии — прогресс:', side: 'из копии', yes: 'Да, восстановить', take: 'Взять из копии' };
+    return { title: 'Восстановить из копии?', intro: 'В файле копии — прогресс:', side: 'из копии', col: 'Из копии', yes: 'Да, восстановить', take: 'Взять из копии' };
   }
-  return { title: 'Перенести ваш прогресс?', intro: `Со старого адреса пришёл прогресс (снято ${G.formatDate(ctx.date)}):`, side: 'со старого', yes: 'Да, перенести', take: 'Взять со старого адреса' };
+  return { title: 'Перенести ваш прогресс?', intro: `Со старого адреса пришёл прогресс (сохранён ${G.formatDate(ctx.date)}):`, side: 'со старого', col: 'Старый адрес', yes: 'Да, перенести', take: 'Взять со старого адреса' };
 }
 
 function drawMoveConfirm(ctx, note = '') {
@@ -2450,7 +2450,7 @@ function drawMoveConfirm(ctx, note = '') {
   const other = '<p class="muted hint">Если приложение открыто ещё в других окнах — закройте их.</p>';
   let body;
   if (empty) {
-    const rows = MV.compareRows(inc, inc).map((r) => `<li><span>${esc(r.label)}</span><b>${esc(r.a)}</b></li>`).join('');
+    const rows = MV.compareRows(inc, inc).map((r) => `<li><span>${esc(r.label)}</span><b${r.key === 'last' ? ' class="nw"' : ''}>${esc(r.a)}</b></li>`).join('');
     body = `<h2>${esc(w.title)}</h2>
       <p>${esc(w.intro)}</p>
       <ul class="list mv-list">${rows}</ul>
@@ -2459,15 +2459,14 @@ function drawMoveConfirm(ctx, note = '') {
       <button class="btn secondary" id="mv-no">Отмена</button>`;
   } else {
     const c = MV.summary(cur.st);
-    const rows = MV.compareRows(inc, c).map((r) => `<div class="mv-cmp${r.key === 'name' && r.differs ? ' diff' : ''}">
-        <div class="mv-lab">${esc(r.label)}</div>
-        <div class="mv-vals"><span>${w.side}: <b>${esc(r.a)}</b></span><span>здесь: <b>${esc(r.b)}</b></span></div>
-      </div>`).join('');
+    const rows = MV.compareRows(inc, c).map((r) => `<tr class="mv-cmp${r.key === 'name' && r.differs ? ' diff' : ''}">
+        <th scope="row" class="mv-lab">${esc(r.label)}</th><td${r.key === 'last' ? ' class="nw"' : ''}>${esc(r.a)}</td><td${r.key === 'last' ? ' class="nw"' : ''}>${esc(r.b)}</td>
+      </tr>`).join('');
     const more = MV.hereHasMore(inc, c) ? '<p class="mv-more">Здесь прогресса больше. Скорее всего, переносить не нужно.</p>' : '';
     body = `<h2>Здесь уже есть прогресс</h2>
       <p>Выберите, какой оставить. Второй не пропадёт: ${ctx.kind === 'file' ? 'файл копии останется у вас' : 'старый адрес хранит свой'}, а здешний можно будет вернуть в настройках.</p>
       ${noteHtml}
-      <div class="mv-table">${rows}</div>
+      <table class="mv-table"><thead><tr><td></td><th scope="col">${w.col}</th><th scope="col">Здесь</th></tr></thead><tbody>${rows}</tbody></table>
       ${more}${other}
       <button class="btn" id="mv-yes">${w.take}</button>
       <button class="btn secondary" id="mv-no">Оставить как здесь</button>`;
@@ -2770,6 +2769,7 @@ function takeDoneFlag() {
 let moveCache = null;          // { text, built }
 let moveSeq = 0;               // отсчёт отрисовок: опоздавший ответ не пишет в чужую разметку
 let moveSteps = false;         // раскрыты шаги для айфона
+let moveHelp = false;          // раскрыто «Не открылось?»
 let moveCopied = false;        // «Код скопирован» (3 секунды)
 let moveAddrCopied = false;
 let moveBox = false;           // показать поле с кодом (буфер недоступен)
@@ -2862,7 +2862,8 @@ function moveCardOld(where) {
     text = `Теперь «Школа Морзе 73» живёт по адресу ${ADDR}. Ваш прогресс можно перенести туда одной кнопкой. Здесь он тоже останется.`;
     buttons = `${goBtn('', 'Перенести прогресс')}${online}`;
     hints = `<p class="muted hint">Нужен интернет. Откроется новый адрес и попросит подтвердить.</p>
-      <p class="muted hint">Если там не появилось предложение перенести — закройте новый адрес совсем и нажмите эту кнопку ещё раз. Сразу после обновления так бывает, иногда не один раз.${settings ? ' Можно и кодом: «Настройки» → «Скопировать код переноса».' : ''}</p>`;
+      <button class="linkbtn" id="m-help" aria-expanded="${moveHelp}">Не открылось?</button>${moveHelp
+        ? `<p class="muted hint" id="m-help-text">Закройте новый адрес совсем и нажмите «Перенести прогресс» ещё раз. Иногда нужно не раз.${settings ? ' Можно и кодом: «Настройки» → «Скопировать код переноса».' : ''}</p>` : ''}`;
   }
   const copyExtra = !copyIn && settings && !noCode ? copyBtn : '';
   const toggle = settings && !ios && !noCode
@@ -2891,6 +2892,7 @@ function wireMoveOld(where, noBuild = false) {
     setTimeout(() => refreshMoveCard(where), 400);
   });
   on('#m-ios', () => { moveSteps = !moveSteps; refreshMoveCard(where); });
+  on('#m-help', () => { moveHelp = !moveHelp; refreshMoveCard(where); });
   const done = () => {
     clearTimeout(moveCopyTimer);
     moveCopyTimer = setTimeout(() => { moveCopied = false; moveAddrCopied = false; refreshMoveCard(where); }, 3000);

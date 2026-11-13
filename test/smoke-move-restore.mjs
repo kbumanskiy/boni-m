@@ -27,7 +27,7 @@ T.ok(T.dialogs.length === 0, 'ни confirm, ни alert');
 
 // Настоящая копия, свой прогресс есть → сравнение; «Оставить как здесь» → обратно в настройки.
 await pick(JSON.stringify(snap, null, 2));
-T.ok(T.$('#mv-confirm') && T.text().includes('Здесь уже есть прогресс') && T.text().includes('из копии: Бонислав'), 'сравнение «из копии» / «здесь»');
+T.ok(T.$('#mv-confirm') && T.text().includes('Здесь уже есть прогресс') && T.text().includes('Из копии') && T.text().includes('Бонислав'), 'сравнение «из копии» / «здесь»');
 T.click('#mv-no'); await T.sleep(20);
 T.ok(T.text().includes('Резервная копия') && T.store('boni_m_state') === rawBase, '«Оставить как здесь» → настройки, прогресс прежний');
 // «Взять из копии».

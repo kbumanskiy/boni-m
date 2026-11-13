@@ -12,8 +12,9 @@ T.ok(T.window.history.length === T.historyBefore, 'история вкладки
 T.ok(T.store('boni_m_state') === null, 'до касания в хранилище ничего нет');
 T.ok(T.$('#mv-confirm') && T.text().includes('Перенести ваш прогресс?'), 'на экране «Перенести ваш прогресс?», а не знакомство');
 T.ok(!T.text().includes('Как вас зовут'), 'знакомство не открылось');
-T.ok(T.text().includes('снято 18 октября'), 'дата снимка на экране');
-for (const s of ['Бонислав', '27 из 32', '6 из 10', '300 мин', '412', '17 октября']) T.ok(T.text().includes(s), `сводка: «${s}»`);
+T.ok(T.text().includes('сохранён 18 октября'), 'дата снимка на экране');
+T.ok(T.$$('#mv-confirm .mv-list li').length === 4, 'в подтверждении ровно четыре строки');
+for (const s of ['Бонислав', '27 из 32', '6 из 10', '17 октября']) T.ok(T.text().includes(s), `сводка: «${s}»`);
 T.ok(T.text().includes('закройте их'), 'строка про другие окна');
 T.ok(document.activeElement !== T.$('#mv-yes') && document.activeElement !== T.$('#mv-no'), 'ни одна кнопка не в фокусе');
 T.ok(T.$('#tabs').classList.contains('hidden'), 'нижнее меню спрятано');

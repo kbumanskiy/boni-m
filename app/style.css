@@ -808,15 +808,26 @@ textarea{
 .mv-addr{white-space:nowrap; font-weight:650;}
 .mv-list li{gap:12px;}
 .mv-list li > b{text-align:right; overflow-wrap:anywhere;}
-.mv-table{margin:10px 0;}
-.mv-cmp{padding:10px 0; border-top:1px solid var(--line);}
-.mv-cmp:first-child{border-top:none;}
-.mv-cmp.diff{background:color-mix(in srgb, var(--accent) 14%, transparent); border-radius:var(--r-sm); padding-inline:10px; margin-inline:-10px;
-  border-top-color:transparent;}
-.mv-lab{font-family:var(--mono); font-size:17px; font-weight:600; letter-spacing:.06em; text-transform:uppercase; color:var(--text-dim);}
-.mv-vals{display:flex; flex-direction:column; gap:2px; margin-top:4px;}
-.mv-vals span{overflow-wrap:anywhere;}
-.mv-vals b{font-weight:700;}
+.mv-table{width:100%; margin:10px 0; border-collapse:collapse; table-layout:fixed;}
+.mv-table th, .mv-table td{padding:10px 4px; text-align:left; vertical-align:top; border-top:1px solid var(--line);}
+.mv-table thead th, .mv-table thead td{border-top:none; font-size:17px; font-weight:600; color:var(--text-dim);}
+.mv-table tbody th{font-weight:500; color:var(--text-dim); font-size:17px; overflow-wrap:normal;}
+.mv-table td{font-weight:700;}
+.mv-table thead td, .mv-table tbody th{width:36%;}
+.mv-list .nw{white-space:nowrap;}
+.mv-cmp.diff{background:color-mix(in srgb, var(--accent) 14%, transparent);}
+/* Совсем узкий экран (крупный шрифт): значения под подписью, две колонки. */
+@media (max-width:330px){
+  .mv-table, .mv-table tbody, .mv-table thead{display:block;}
+  .mv-table tr{display:grid; grid-template-columns:1fr 1fr;}
+  .mv-cmp.diff{border-radius:var(--r-sm);}
+  .mv-table thead td, .mv-table tbody th{width:auto;}
+  .mv-table thead td{display:none;}
+  .mv-table tbody th{grid-column:1/-1; padding-bottom:0; border-bottom:none;}
+  .mv-table tbody td{border-top:none; padding-top:2px;}
+  .mv-table tbody tr{border-top:1px solid var(--line);}
+  .mv-table tbody th, .mv-table tbody td{border-top:none;}
+}
 .mv-more{font-weight:650; color:var(--accent-text);}
 .mv-code{font-family:var(--mono); font-size:20px; line-height:1.45; word-break:break-all; overflow-wrap:anywhere; min-height:140px;}
 .mv-steps ol{margin:8px 0; padding-left:26px;}
