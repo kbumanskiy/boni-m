@@ -292,6 +292,9 @@ nav#tabs button.active::before{
 .codeline{font-family:var(--mono); font-size:32px; letter-spacing:6px; color:var(--accent-text); font-weight:700;}
 .codeline.small{font-size:22px; letter-spacing:4px;}
 .chant{color:var(--text-dim); font-style:italic;}
+/* Сам напев переносится целиком на следующую строку («напев:» / «и-краат-коо-ее»), а не по
+   дефису посреди слова; по слогам рвётся, только если и одной строки ему мало. */
+.chant-w{display:inline-block;}
 
 /* ——— Оверлей события ——— */
 .overlay{

@@ -684,7 +684,7 @@ function answer(ch) {
     if (state.settings.answerSound !== false) A.cue('error');
     vibrate([20, 40, 20]);
     const ct = chantFor(L.target);
-    const chant = ct ? `<div class="chant">${ct.twin ? `напев русской ${esc(ct.twin)}` : 'напев'}: ${esc(ct.chant)}</div>` : '';
+    const chant = ct ? `<div class="chant">${ct.twin ? `напев русской ${esc(ct.twin)}` : 'напев'}: <span class="chant-w">${esc(ct.chant)}</span></div>` : '';
     screenEl.classList.add('revealing');
     $('#fb').className = 'feedback center no';
     $('#fb').textContent = 'Не угадали';
@@ -2004,7 +2004,7 @@ function refCard(ch) {
   const info = DATA.charInfo(ch);
   const code = info.code;
   const ct = chantFor(ch, refAlpha);
-  const chant = ct ? `<div class="chant">${ct.twin ? `напев русской ${esc(ct.twin)}` : 'напев'}: ${esc(ct.chant)}</div>` : '';
+  const chant = ct ? `<div class="chant">${ct.twin ? `напев русской ${esc(ct.twin)}` : 'напев'}: <span class="chant-w">${esc(ct.chant)}</span></div>` : '';
   overlayRoot.innerHTML = `<div class="overlay">
     <button class="closebtn" id="x" aria-label="Закрыть">✕</button>
     <div class="bigchar">${esc(glyphText(ch))}</div>
