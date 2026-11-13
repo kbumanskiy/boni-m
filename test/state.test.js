@@ -384,6 +384,7 @@ test('длина тире: умолчание 3; старое состояние
   const got = structuredClone(s);
   delete got.settings.dahRatio;
   delete got.settings.radiogramLong; delete got.settings.radiogramGroups; // поля v26, в v25 их нет
+  delete got.settings.chantSet; // поле v29
   delete want.settings.radiogramLong; delete want.settings.radiogramGroups;
   assert.deepEqual(got, want, 'кроме полей v26 миграция совпадает с v25');
   assert.equal(s.settings.charWpm, 20);

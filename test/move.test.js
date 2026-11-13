@@ -257,10 +257,15 @@ test('9. parked: настоящий формат проходит, осталь�
 test('9. настоящее состояние не меняется: вывод прежнего migrate (v27) и нового совпадает', () => {
   // PAPA_OLD_STATE — сырое, непромигрированное состояние с телефона папы: только оно по-настоящему
   // упражняет новые правила. Расхождение здесь — находка про прогресс настоящих людей, а не повод править тест.
+  // Единственное новое поле после v27 — settings.chantSet (набор напевов, morse-v29): у v27 его нет,
+  // а вкл/выкл он видит в showChants, поэтому сверяем без него и отдельно — что они согласованы.
   const raws = [PAPA_OLD_STATE, v25State('2026-10-17'), maxState(), defaultState(), V27.defaultState()];
   for (const raw of raws) {
     const text = JSON.stringify(raw);
-    assert.deepEqual(migrate(JSON.parse(text)), V27.migrate(JSON.parse(text)));
+    const got = migrate(JSON.parse(text));
+    assert.equal(got.settings.chantSet, got.settings.showChants ? 'classic' : 'off');
+    delete got.settings.chantSet;
+    assert.deepEqual(got, V27.migrate(JSON.parse(text)));
   }
 });
 

@@ -42,6 +42,10 @@ export function defaultState() {
       // Длина тире в точках: 3 («как в эфире») / 3,5 / 4. Только для учёбы — радиограмма
       // всегда 3 (звук получает её через dahUnits от withDah в app.js, ТЗ-длина-тире.md).
       dahRatio: 3,
+      // Набор напевов: 'classic' («Обычные») | 'alt' («Другие слова») | 'off' («Выключены»).
+      // showChants выше остаётся и всегда равен chantSet !== 'off': его читает старый код
+      // (откат, смешанный кэш), и он же главный во вкл/выкл при миграции (см. migrate).
+      chantSet: 'classic',
     },
     streak: { current: 0, longest: 0, lastActiveDate: null },
     // Личные рекорды. Пока один: самая быстрая ПРИНЯТАЯ контрольная радиограмма —
@@ -137,6 +141,14 @@ export function migrate(raw) {
     s.settings.toneHz = clampNum(r.toneHz, LIMITS.toneHz.min, LIMITS.toneHz.max, 600);
     s.settings.volume = clampNum(r.volume, LIMITS.volume.min, LIMITS.volume.max, 0.5);
     s.settings.showChants = r.showChants !== false;
+    // Наборы напевов (13.11.2026). Вкл/выкл решает showChants: его пишет и старый код
+    // (откат, смешанный кэш со старым app.js, где есть только тумблер), и новый — вместе
+    // с chantSet. Поэтому выключено → 'off'; включено → сохранённый набор, если он из
+    // белого списка, иначе 'classic'. Старое состояние без chantSet: вкл → 'classic',
+    // выкл → 'off'. Список здесь, а не импортом из data.js: при смешанном кэше старый
+    // data.js такого экспорта не знает, и ошибка импорта не дала бы приложению запуститься.
+    s.settings.chantSet = !s.settings.showChants ? 'off'
+      : (['classic', 'alt'].includes(r.chantSet) ? r.chantSet : 'classic');
     s.settings.answerSound = r.answerSound !== false;
     s.settings.vibration = r.vibration !== false;
     s.settings.keyMode = r.keyMode === 'free' ? 'free' : 'train';

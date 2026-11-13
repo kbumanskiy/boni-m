@@ -73,10 +73,11 @@ ok(document.documentElement.dataset.theme === 'dark', 'тема тёмная, к
   want.settings.radiogramLong = false;
   want.settings.radiogramGroups = LIMITS.radiogramGroups.def;
   want.settings.dahRatio = 3; // длина тире (ТЗ-длина-тире.md): у старого пользователя — «как в эфире»
+  want.settings.chantSet = 'off'; // наборы напевов (v29): напевы в снимке выключены — «Выключены»
   // Старт записывает знак начала занятия только при входе в «Учиться» — здесь его не было.
   assert.deepEqual(now, want);
   ok(now.settings.dahRatio === 3, 'длина тире после загрузки снимка v25 — 3 («как в эфире»)');
-  ok(true, 'состояние v25 перенесено без потерь: все поля прежние + три новых (radiogramLong=false, radiogramGroups=30, dahRatio=3)');
+  ok(true, 'состояние v25 перенесено без потерь: все поля прежние + новые (radiogramLong=false, radiogramGroups=30, dahRatio=3, chantSet=off)');
 }
 
 click('#radiogram'); await sleep(10);
@@ -106,6 +107,9 @@ ok(/Лучшая радиограмма\s*100 зн\/мин/.test(text()), 'Жу�
 
 // Латинский трек на месте.
 click('#gear'); await sleep(10);
+ok($('#chants-off')?.classList.contains('active') && !$('#chants-classic').classList.contains('active'),
+  'настройки: напевы были выключены — выбрано «Выключены»');
+ok(saved().settings.showChants === false && saved().settings.chantSet === 'off', 'напевы: showChants=false и chantSet=off');
 click('#lang-en'); await sleep(10);
 ok(saved().settings.alphabet === 'en' && saved().progress.en.learnedCount === 6, 'латинский трек: освоено 6');
 ok(saved().progress.ru.learnedCount === 27 && saved().progress.ru.parked.length === 1

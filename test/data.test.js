@@ -173,3 +173,47 @@ test('chantOf: латиница — напев двойника, русские 
   assert.equal(chantOf('Q').twin, 'Щ', 'Щ-коды: Q = Щ');
   for (const p of PUNCTUATION) assert.equal(chantOf(p.char), null, `знак «${p.char}»`);
 });
+
+// ——— Наборы напевов: «Обычные» / «Другие слова» / «Выключены» (РЕШЕНИЯ.md, 13.11.2026) ———
+// Второй набор (CHANT_ALT) проходит ту же проверку ритма, что и обычный: слог с удвоенной
+// гласной — тире, остальные — точка. Ключи — только русские буквы и цифры курса: латинская C
+// вместо русской С здесь тихо не сработала бы.
+test('второй набор напевов читается ровно как коды', async () => {
+  const { CHANT_ALT } = await import('../app/js/data.js');
+  const LONG = /(аа|оо|уу|ыы|ии|ээ|юю|яя|ее|ёё)/;
+  const all = [...RU_LETTERS, ...DIGITS];
+  for (const [char, chant] of Object.entries(CHANT_ALT)) {
+    const own = all.find((x) => x.char === char);
+    assert.ok(own, `«${char}»: такого знака в курсе нет (латиница вместо кириллицы?)`);
+    const fromChant = chant.split('-').map((s) => (LONG.test(s) ? '-' : '.')).join('');
+    assert.equal(fromChant, own.code, `«${char}»: напев «${chant}» читается как ${fromChant}, а код ${own.code}`);
+    assert.notEqual(chant, own.chant, `«${char}»: во втором наборе то же, что в обычном`);
+  }
+  assert.deepEqual(Object.keys(CHANT_ALT).sort(), ['2', '3', '4', '5', '7', 'Г', 'Й', 'К', 'С', 'У', 'Ц', 'Ш'].sort(),
+    '12 знаков: 7 букв и 5 цифр');
+});
+
+test('Й — «йес-наа-паа-раа» (журнал «Радио», 1977, № 12), не «йас»', () => {
+  assert.equal(RU_LETTERS.find((r) => r.char === 'Й').chant, 'йес-наа-паа-раа');
+});
+
+test('chantOf с набором: обычные, другие слова (и у латиницы), выключены', async () => {
+  const { chantOf, CHANT_ALT, CHANT_SETS } = await import('../app/js/data.js');
+  assert.deepEqual(CHANT_SETS, ['classic', 'alt', 'off']);
+  for (const r of RU_LETTERS) {
+    assert.deepEqual(chantOf(r.char, 'classic'), chantOf(r.char), `${r.char}: classic = по умолчанию`);
+    assert.deepEqual(chantOf(r.char, 'alt'), { chant: CHANT_ALT[r.char] || r.chant, twin: null }, `${r.char}: alt`);
+    assert.equal(chantOf(r.char, 'off'), null, `${r.char}: off`);
+  }
+  for (const d of DIGITS) assert.deepEqual(chantOf(d.char, 'alt'), { chant: CHANT_ALT[d.char] || d.chant, twin: null }, d.char);
+  for (const { char } of EN_LETTERS) {
+    const twin = RU_LETTERS.find((r) => r.latin === char);
+    assert.deepEqual(chantOf(char, 'alt'), { chant: CHANT_ALT[twin.char] || twin.chant, twin: twin.char }, char);
+    assert.equal(chantOf(char, 'off'), null, char);
+  }
+  assert.deepEqual(chantOf('C', 'alt'), { chant: 'цаа-пли-цаа-пли', twin: 'Ц' });
+  assert.deepEqual(chantOf('J', 'alt'), { chant: 'и-краат-коо-ее', twin: 'Й' });
+  assert.deepEqual(chantOf('Ъ', 'alt'), chantOf('Ъ'), 'Ъ во втором наборе нет — обычный');
+  assert.deepEqual(chantOf('К', 'чепуха'), chantOf('К'), 'неизвестный набор — как обычный');
+  for (const p of PUNCTUATION) for (const set of CHANT_SETS) assert.equal(chantOf(p.char, set), null, `знак «${p.char}», ${set}`);
+});

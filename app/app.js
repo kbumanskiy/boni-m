@@ -60,12 +60,22 @@ const tabsEl = $('#tabs');
 const overlayRoot = $('#overlay-root');
 
 const codeOf = (ch) => DATA.CODE_BY_CHAR[state.settings.alphabet]?.get(ch) || DATA.charInfo(ch)?.code || '';
+// Набор напевов из настройки «Напевы букв»: 'classic' | 'alt' | 'off' (РЕШЕНИЯ.md, 13.11.2026).
+// Вкл/выкл решает showChants (его пишет и старый код); chantSet — только какой набор.
+// При смешанном кэше со старым state.js поля chantSet нет — тогда обычные или выключены.
+function chantSetOf(s = state.settings) {
+  if (s.showChants === false) return 'off';
+  return s.chantSet === 'alt' ? 'alt' : 'classic';
+}
 // Напев знака с учётом настройки «Напевы букв» (ТЗ-латинские-напевы.md). У латинской буквы —
-// напев русского двойника { chant, twin }. Через пространство имён и с запасным путём v25:
-// при смешанном кэше старый data.js chantOf не знает — тогда напевы только у русской азбуки.
+// напев русского двойника { chant, twin } из того же набора. Через пространство имён и с
+// запасным путём v25: при смешанном кэше старый data.js chantOf не знает — тогда напевы только
+// у русской азбуки; старый chantOf набор не принимает — тогда обычные. «Выключены» проверяем
+// здесь, до вызова: старый chantOf второй аргумент не понял бы и напев показал.
 function chantFor(ch, alphabet = state.settings.alphabet) {
-  if (!state.settings.showChants) return null;
-  if (typeof DATA.chantOf === 'function') return DATA.chantOf(ch);
+  const set = chantSetOf();
+  if (set === 'off') return null;
+  if (typeof DATA.chantOf === 'function') return DATA.chantOf(ch, set);
   const info = DATA.charInfo(ch);
   return alphabet === 'ru' && info?.chant ? { chant: info.chant, twin: null } : null;
 }
@@ -2170,6 +2180,24 @@ function toggleRow(id, label, on) {
   </div>`;
 }
 
+// «Напевы букв» — три положения столбиком (ДОРАБОТКИ.md, D4; РЕШЕНИЯ.md, 13.11.2026).
+// Под каждым — пример на букве К: так разница между наборами видна сразу, без объяснений
+// и без источников (их в интерфейсе не показываем). Столбиком, а не в ряд: «Другие слова»
+// с примером в треть ширины телефона не помещаются. Пишутся оба поля: chantSet и showChants
+// (его читает старый код при откате). При смешанном кэше старый data.js второго набора
+// не знает — тогда кнопки «Другие слова» нет.
+function chantsChoice(s) {
+  const cur = chantSetOf(s);
+  const ex = (set) => DATA.chantOf?.('К', set)?.chant;
+  const opts = [['classic', 'Обычные', `К — ${ex('classic') || 'каак-же-таак'}`]];
+  if (DATA.CHANT_ALT) opts.push(['alt', 'Другие слова', `К — ${ex('alt')}`]);
+  opts.push(['off', 'Выключены', 'только точки и тире']);
+  return `<div id="chants-label" class="setlabel">Напевы букв</div>
+      <div class="seg stack" id="chants" role="group" aria-labelledby="chants-label">${opts.map(([id, label, sub]) =>
+        `<button id="chants-${id}" data-chants="${id}" class="${cur === id ? 'active' : ''}" aria-pressed="${cur === id}">
+          <span>${label}</span><small>${esc(sub)}</small></button>`).join('')}</div>`;
+}
+
 // ——————————————————————————— Настройки ———————————————————————————
 // Отдельный экран, а не раздел «Журнала»: с форума написали, что выбор языка искали
 // и не нашли — он лежал в журнале успехов. Не всплывающее окно (его нужно закрывать)
@@ -2219,7 +2247,7 @@ function renderSettings() {
     ${recCard(s)}
     <div class="card">
       <div class="eyebrow">Помощь при обучении</div>
-      ${toggleRow('chants', 'Напевы букв', s.showChants)}
+      ${chantsChoice(s)}
       ${toggleRow('vib', 'Вибрация при нажатии', s.vibration)}
       ${toggleRow('ansnd', 'Звук после ответа', s.answerSound !== false)}
     </div>
@@ -2270,7 +2298,9 @@ function renderSettings() {
   ['#lchar', '#lspeed', '#ldah', '#tone'].forEach((id) => { const el = $(id); if (el) el.addEventListener('input', () => refreshRec(s)); });
   $('#tone').addEventListener('change', sample);
   $('#vol').addEventListener('change', sample);
-  $('#chants').addEventListener('click', () => { s.showChants = !s.showChants; persist(); renderSettings(); });
+  screenEl.querySelectorAll('[data-chants]').forEach((b) => b.addEventListener('click', () => {
+    s.chantSet = b.dataset.chants; s.showChants = s.chantSet !== 'off'; persist(); renderSettings();
+  }));
   $('#vib').addEventListener('click', () => { s.vibration = !s.vibration; persist(); renderSettings(); });
   $('#ansnd').addEventListener('click', () => { s.answerSound = s.answerSound === false; persist(); renderSettings(); });
   $('#stats').addEventListener('click', () => { s.metrics = s.metrics === false; if (!s.metrics) statsOff(); persist(); renderSettings(); });

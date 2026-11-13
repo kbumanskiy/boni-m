@@ -329,6 +329,13 @@ nav#tabs button.active::before{
   background:none; color:var(--text-dim); font-weight:650;
 }
 .seg button.active{background:var(--surface); color:var(--text); border-color:var(--line-strong); box-shadow:var(--shadow);}
+/* «Напевы букв» в настройках: три положения столбиком, под названием — пример напева
+   приглушённой строкой. Столбиком влезает на любой ширине и крупном шрифте. */
+.setlabel{margin-top:4px;}
+.seg.stack{flex-direction:column; margin-bottom:16px;}
+.seg.stack button{display:flex; flex-direction:column; align-items:flex-start; justify-content:center;
+  gap:2px; padding:8px 14px; text-align:left;}
+.seg.stack button small{font-size:17px; font-weight:500; color:var(--text-dim);}
 
 /* ——— Ключ ——— */
 .keypad{

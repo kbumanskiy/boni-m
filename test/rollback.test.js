@@ -70,10 +70,11 @@ function fullV26() {
 const withoutNew = (s) => {
   const c = structuredClone(s);
   delete c.settings.radiogramLong; delete c.settings.radiogramGroups; delete c.settings.dahRatio;
+  delete c.settings.chantSet; // набор напевов (morse-v29); вкл/выкл старый код видит в showChants
   return c;
 };
 
-test('откат: v25 читает состояние v26 без потерь — пропадают только три новых поля', () => {
+test('откат: v25 читает состояние v26 без потерь — пропадают только новые поля настроек', () => {
   const s26 = fullV26();
   assert.equal(s26.settings.dahRatio, 4, 'вход действительно содержит длинное тире');
   assert.equal(s26.settings.radiogramLong, true, 'вход действительно содержит выбор «Длинная»');
@@ -200,11 +201,13 @@ test('откат на v27: состояние, принятое переносо
   const code = await M.encodeTransfer(V26.exportText(s), { date: '20261018' });
   const rd = V26.readIncoming((await M.decodeTransfer(code)).json);
   assert.equal(rd.ok, true);
-  assert.deepEqual(V27.migrate(JSON.parse(JSON.stringify(rd.state))), rd.state, 'v27 читает принятое без потерь');
+  // Кроме набора напевов (morse-v29): v27 его не знает, вкл/выкл видит в showChants.
+  const noSet = (x) => { const c = structuredClone(x); delete c.settings.chantSet; return c; };
+  assert.deepEqual(V27.migrate(JSON.parse(JSON.stringify(rd.state))), noSet(rd.state), 'v27 читает принятое без потерь');
   assert.deepEqual(rd.state, s, 'перенос не меняет настоящее состояние');
 });
 
-test('откат на v25: принятое переносом — без трёх новых полей, остальное цело', async () => {
+test('откат на v25: принятое переносом — без новых полей настроек, остальное цело', async () => {
   const s = fullV26();
   const code = await M.encodeTransfer(V26.exportText(s), { date: '20261018' });
   const rd = V26.readIncoming((await M.decodeTransfer(code)).json);

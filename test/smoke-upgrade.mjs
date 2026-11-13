@@ -78,6 +78,9 @@ ok(afterStart.milestones.first4 === true, 'веха «первые 4 знака�
 ok(afterStart.milestones.half === true, 'веха «половина алфавита» доначислена при запуске');
 ok(afterStart.settings.theme === 'auto', 'тема получила значение «как в телефоне»');
 ok(afterStart.settings.metrics === true, 'статистика: у старого состояния настройка появилась и включена');
+// Наборы напевов (v29): у папы напевы были включены — значит, «Обычные»; тумблер для старого кода цел.
+ok(afterStart.settings.chantSet === 'classic' && afterStart.settings.showChants === true,
+  'напевы: у старого состояния с включёнными напевами — «Обычные» (chantSet=classic, showChants=true)');
 // Радиоигра: прежняя сборка поля puzzle не знала — это старый пользователь, плитке
 // положена пометка «Новое». Колоды пусты, буквы и вехи не тронуты.
 ok(afterStart.puzzle && afterStart.puzzle.isNew === true, 'Радиоигра: у старого состояния пометка «Новое» (isNew)');
@@ -191,6 +194,8 @@ ok(saved().milestones.radiogram === true, 'радиограмма: веха за
   document.querySelector('#gear').click(); await sleep(20);
   ok(document.querySelector('#knows') && !text().includes('Включено: радиограмма'),
     'знаю азбуку: в настройках кнопка, а не «Включено»');
+  ok(document.querySelector('#chants-classic')?.classList.contains('active')
+    && document.querySelectorAll('[data-chants].active').length === 1, 'напевы: в настройках выбрано «Обычные»');
   ok(!document.querySelector('#move-card') && document.querySelector('#m-new-card'),
     'переезд: на адресе example.com (роль «другое») карточек старого адреса нет, приём есть');
 }

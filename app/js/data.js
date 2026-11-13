@@ -16,7 +16,7 @@ export const RU_LETTERS = [
   { char: 'Ж', code: '...-',  latin: 'V', chant: 'же-ле-зис-тоо' },
   { char: 'З', code: '--..',  latin: 'Z', chant: 'заа-каа-ти-ки' },
   { char: 'И', code: '..',    latin: 'I', chant: 'и-ди' },
-  { char: 'Й', code: '.---',  latin: 'J', chant: 'йас-наа-паа-раа' },
+  { char: 'Й', code: '.---',  latin: 'J', chant: 'йес-наа-паа-раа' }, // «йес», не «йас» — журнал «Радио», 1977, № 12
   { char: 'К', code: '-.-',   latin: 'K', chant: 'каак-же-таак' },
   { char: 'Л', code: '.-..',  latin: 'L', chant: 'лу-наа-ти-ки' },
   { char: 'М', code: '--',    latin: 'M', chant: 'маа-маа' },
@@ -130,9 +130,37 @@ export function charInfo(ch) {
 // не сочиняем: пара берётся из явного поля latin у RU_LETTERS (тест сверяет коды пары),
 // напевы не копируются. Знаки препинания и неизвестное — null: напевов у них нет.
 const TWIN_OF_LATIN = new Map(RU_LETTERS.filter((r) => r.latin).map((r) => [r.latin, r]));
-export function chantOf(ch) {
+
+// ——— Наборы напевов (ДОРАБОТКИ.md, D4; РЕШЕНИЯ.md, 13.11.2026) ———
+// 'classic' — «Обычные»: поле chant выше (классика, журнал «Радио», 1977, № 12).
+// 'alt' — «Другие слова»: методичка В. Ш. Набиева (Ульяновское лётное училище ГА, 2010).
+//   Здесь только знаки, где у Набиева своё слово; у остальных (и у Ъ — его у Набиева нет)
+//   берётся обычный напев. Х («хи-ми-чи-ти») не взят: то же слово с опечаткой, а не другое.
+//   Ритм каждого напева сверяет тест «напевки читаются ровно как коды» (test/data.test.js).
+// 'off' — «Выключены». Источники — только здесь и в ИССЛЕДОВАНИЕ-напевы.md, не на экране.
+export const CHANT_SETS = ['classic', 'alt', 'off'];
+export const CHANT_ALT = {
+  'Г': 'гаа-гаа-рин',
+  'Й': 'и-краат-коо-ее',
+  'К': 'каак-де-лаа',
+  'С': 'са-мо-лёт',
+  'У': 'у-нес-лаа',
+  'Ц': 'цаа-пли-цаа-пли',
+  'Ш': 'шаа-роо-ваа-раа',
+  '2': 'я-на-гоор-куу-шлаа',
+  '3': 'ша-хе-ре-заа-даа',
+  '4': 'ко-ман-дир-пол-каа',
+  '5': 'пе-тя-пе-ту-шок',
+  '7': 'даай-даай-за-ку-рить',
+};
+
+// set — набор: 'classic' (по умолчанию, так зовёт старый app.js), 'alt' или 'off'.
+// Неизвестный набор — как 'classic'.
+export function chantOf(ch, set = 'classic') {
+  if (set === 'off') return null;
+  const pick = (r) => (set === 'alt' && CHANT_ALT[r.char]) || r.chant;
   const own = RU_LETTERS.find((x) => x.char === ch) || DIGITS.find((x) => x.char === ch);
-  if (own) return own.chant ? { chant: own.chant, twin: null } : null;
+  if (own) return own.chant ? { chant: pick(own), twin: null } : null;
   const twin = TWIN_OF_LATIN.get(ch);
-  return twin && twin.chant ? { chant: twin.chant, twin: twin.char } : null;
+  return twin && twin.chant ? { chant: pick(twin), twin: twin.char } : null;
 }

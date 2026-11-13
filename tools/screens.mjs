@@ -141,6 +141,10 @@ const SEED_PATCH = {
   settingsdah390: (s) => SEED_PATCH.settingsdah(s),
   // Самая быстрая скорость знака (самое длинное значение «NNN зн/мин» + WPM) — в крупном шрифте.
   settingsfast: (s) => { s.settings.charWpm = LIMITS.charWpm.max; return s; },
+  // «Напевы букв» — три положения (v29): выбрано «Другие слова», карточка на виду.
+  settingschants: (s) => { s.settings.chantSet = 'alt'; s.settings.showChants = true; return s; },
+  // Карточка знака Й во втором наборе — самый длинный напев этого набора у буквы.
+  refcardalt: (s) => SEED_PATCH.settingschants(s),
   radiogramall: (s) => SEED_PATCH.radiogram(s),
   radiogramlongwork: (s) => { SEED_PATCH.radiogram(s); s.settings.radiogramLong = true; s.settings.radiogramGroups = 50; return s; },
   radiogramlongresult: (s) => SEED_PATCH.radiogramlongwork(s),
@@ -248,6 +252,8 @@ const VIEWPORT = Object.fromEntries([...FOLD, ...NO_AUDIO, 'onboardstart',
   'learnwrongen', 'learnhelpen', 'learnhelpru', 'refcarden', 'refcardendigit', 'learnnewen', 'learnnewendigit',
   // «Длина тире»: карточка «Скорость» на самом тесном телефоне.
   'settingsdah',
+  // Наборы напевов (v29): выбор в настройках и карточка знака во втором наборе.
+  'settingschants', 'refcardalt',
 ].map((n) => [n, SMALL]));
 // Первый экран с полем имени: Android 360 и самый тесный 320 (здесь поле заезжало на подпись).
 VIEWPORT.onboarding320 = { width: 320, height: 640 };
@@ -289,6 +295,10 @@ const SCREENS = {
   settingsdah: async (page) => { await page.click('#gear'); await page.waitForTimeout(300);
                                  await page.evaluate(() => document.querySelector('#ldah').scrollIntoView({ block: 'center' })); await page.waitForTimeout(150); },
   settingsdah390: async (page) => SCREENS.settingsdah(page),
+  settingschants: async (page) => { await page.click('#gear'); await page.waitForTimeout(300);
+                                    await page.evaluate(() => document.querySelector('#chants').scrollIntoView({ block: 'center' })); await page.waitForTimeout(150); },
+  refcardalt: async (page) => { await page.click('[data-tab="ref"]'); await page.waitForTimeout(200);
+                                await page.click('.cell[data-c="Й"]'); await page.waitForTimeout(250); },
   settingsfast: async (page) => { await page.click('#gear'); await page.waitForTimeout(300);
                                   await page.evaluate(() => document.querySelector('#lchar').scrollIntoView({ block: 'center' })); await page.waitForTimeout(150); },
   settingsknows: async (page) => { await page.click('#gear'); await page.waitForTimeout(300);
@@ -583,7 +593,7 @@ FAST_AUDIO.add('learnright');
 // на 360, 320 и с крупным шрифтом. Посев, звук и подставленные адреса — как у основного кадра.
 // Экраны, которые и так снимаются на 360 (Радиоигра), получают только 320 и big.
 for (const base of ['home', 'homecall', 'key', 'keyfree', 'keyverdict', 'ref', 'refdigits', 'refpunct', 'refen', 'refcard',
-  'cabinet', 'settings', 'settingsfast', 'settingsknows', 'settingsrecask', 'callsign', 'radiogram', 'radiogramall', 'radiogramresult', 'radiogramlongresult',
+  'cabinet', 'settings', 'settingsfast', 'settingsknows', 'settingsrecask', 'settingschants', 'refcardalt', 'callsign', 'radiogram', 'radiogramall', 'radiogramresult', 'radiogramlongresult',
   'puzzlecats', 'puzzleq', 'puzzleqwrong', 'puzzlecode', 'puzzlereveal',
   // Подсказка «Учиться» со всем алфавитом: самые длинные напевы (русские и латинские).
   'learnhelpru', 'learnhelpen']) {

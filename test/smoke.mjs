@@ -396,7 +396,23 @@ ok(JSON.parse(localStorage.getItem('boni_m_state')).settings.alphabet === 'en', 
 click('#lang-ru');
 await sleep(10);
 click('#vib'); // тумблер вибрации не падает
-click('#chants');
+// «Напевы букв» — три положения (наборы напевов, v29): по умолчанию «Обычные».
+{
+  const st = () => JSON.parse(localStorage.getItem('boni_m_state')).settings;
+  const act = () => [...document.querySelectorAll('[data-chants]')].filter((b) => b.classList.contains('active')).map((b) => b.dataset.chants);
+  ok(['classic', 'alt', 'off'].every((k) => document.querySelector(`#chants-${k}`)), 'настройки: напевы — три положения');
+  ok(text().includes('Напевы букв') && text().includes('Обычные') && text().includes('Другие слова') && text().includes('Выключены'),
+    'настройки: подписи «Обычные», «Другие слова», «Выключены»');
+  ok(text().includes('К — каак-же-таак') && text().includes('К — каак-де-лаа'), 'настройки: у наборов пример на букве К');
+  ok(act().join() === 'classic' && document.querySelector('#chants-classic').getAttribute('aria-pressed') === 'true',
+    'настройки: по умолчанию «Обычные»');
+  click('#chants-alt'); await sleep(10);
+  ok(st().chantSet === 'alt' && st().showChants === true && act().join() === 'alt', 'настройки: «Другие слова» выбираются и запоминаются');
+  click('#chants-off'); await sleep(10);
+  ok(st().chantSet === 'off' && st().showChants === false && act().join() === 'off', 'настройки: «Выключены» — и showChants=false для старого кода');
+  click('#chants-classic'); await sleep(10);
+  ok(st().chantSet === 'classic' && st().showChants === true, 'настройки: «Обычные» возвращаются');
+}
 ok(true, 'настройки: тумблеры работают');
 // Анонимная статистика: тумблер есть, по умолчанию включён, выключается и это запоминается.
 const statsBtn = document.querySelector('#stats');
@@ -1315,7 +1331,7 @@ Object.defineProperty(document, 'hidden', { configurable: true, get: () => false
     env.cw('#x'); await sleep(5);
     return t;
   };
-  const chantsToggle = async (env) => { env.cw('#gear'); await sleep(5); env.cw('#chants'); await sleep(5); env.cw('#back'); await sleep(5); };
+  const chantsPick = async (env, set) => { env.cw('#gear'); await sleep(5); env.cw(`#chants-${set}`); await sleep(5); env.cw('#back'); await sleep(5); };
 
   // а) Латиница: открытие буквы X — «напев «тоо-мяг-кий-знаак» (как Ь)».
   {
@@ -1341,13 +1357,13 @@ Object.defineProperty(document, 'hidden', { configurable: true, get: () => false
     ok((await refCardText(env, 'en', 'letters', 'X')).includes('напев русской Ь: тоо-мяг-кий-знаак'), 'Азбука → English → X: «напев русской Ь: тоо-мяг-кий-знаак»');
     const r8 = await refCardText(env, 'en', 'digits', '8');
     ok(r8.includes(`напев: ${chantOfDigit('8')}`) && !r8.includes('русской'), 'Азбука → English → Цифры → 8: напев цифры');
-    await chantsToggle(env);
+    await chantsPick(env, 'off');
     ok(await wrongOn(env, 'V') === null, 'напевы выключены: в разборе ошибки напева нет');
     const h2 = await helpText(env);
     ok(h2.row('V') === null && !h2.legend, 'напевы выключены: в кодах знаков ни напевов, ни легенды');
     const rx = await refCardText(env, 'en', 'letters', 'X');
     ok(!rx.includes('напев'), 'напевы выключены: в карточке «Азбуки» напева нет');
-    await chantsToggle(env);
+    await chantsPick(env, 'classic');
     ok((await refCardText(env, 'en', 'letters', 'X')).includes('напев русской Ь'), 'напевы включены обратно — пометка вернулась');
     ok(env.errs.length === 0, 'латиница: без ошибок — ' + env.errs.map(String).join(' | '));
   }
@@ -1373,12 +1389,37 @@ Object.defineProperty(document, 'hidden', { configurable: true, get: () => false
     ok(!h.legend && !h.text.includes(' · ') && h.row('Ж') === 'же-ле-зис-тоо', 'русская, коды знаков: без «·» и легенды');
     const rz = await refCardText(env, 'ru', 'letters', 'Ж');
     ok(rz.includes('напев: же-ле-зис-тоо') && !rz.includes('русской'), 'русская, «Азбука» → Ж: «напев: же-ле-зис-тоо»');
-    await chantsToggle(env);
+    await chantsPick(env, 'off');
     ok(await wrongOn(env, ruT) === null, 'русская, напевы выключены: в разборе напева нет');
     const h2 = await helpText(env);
     ok(h2.row('Ж') === null, 'русская, напевы выключены: в кодах знаков напевов нет');
     ok(!(await refCardText(env, 'ru', 'letters', 'Ж')).includes('напев'), 'русская, напевы выключены: в «Азбуке» напева нет');
+    await chantsPick(env, 'classic');
+    ok((await refCardText(env, 'ru', 'letters', 'Й')).includes('напев: йес-наа-паа-раа'), 'русская, «Азбука» → Й: «йес-наа-паа-раа» (не «йас»)');
     ok(env.errs.length === 0, 'русская: без ошибок — ' + env.errs.map(String).join(' | '));
+  }
+  // д) «Другие слова» — второй набор везде, где показывается напев: новый знак, разбор ошибки,
+  // «Показать коды знаков», карточка «Азбуки»; у латиницы — напев двойника из того же набора;
+  // где своего слова во втором наборе нет — обычный напев.
+  {
+    const seed = ready('ru', 25, 5, '4'); seed.settings.chantSet = 'alt';
+    const env = await bootLearn(seed);
+    const hero = await openNew(env);
+    const D = await import('../app/js/data.js');
+    const opened = (hero.match(/Открыт новый знак: (\S)/) || [])[1];
+    ok(D.CHANT_ALT[opened] && hero.includes(`напев «${D.CHANT_ALT[opened]}»`),
+      `другие слова, новый знак ${opened}: напев второго набора (${hero.slice(0, 80)})`);
+    ok(await wrongOn(env, 'К') === 'напев: каак-де-лаа', 'другие слова, ошибка на К: «каак-де-лаа»');
+    const h = await helpText(env);
+    ok(h.row('Г') === 'гаа-гаа-рин' && h.row('Ж') === 'же-ле-зис-тоо', 'другие слова, коды знаков: Г — свой, Ж — обычный');
+    ok((await refCardText(env, 'ru', 'letters', 'Й')).includes('напев: и-краат-коо-ее'), 'другие слова, «Азбука» → Й: «и-краат-коо-ее»');
+    ok((await refCardText(env, 'ru', 'letters', 'Ъ')).includes('напев: твёёр-дыый-не-мяяг-киий'), 'другие слова, «Азбука» → Ъ: обычный напев');
+    ok((await refCardText(env, 'ru', 'digits', '7')).includes('напев: даай-даай-за-ку-рить'), 'другие слова, «Азбука» → 7: «даай-даай-за-ку-рить»');
+    ok((await refCardText(env, 'en', 'letters', 'C')).includes('напев русской Ц: цаа-пли-цаа-пли'), 'другие слова, «Азбука» → English → C: напев русской Ц из второго набора');
+    ok((await refCardText(env, 'en', 'letters', 'V')).includes('напев русской Ж: же-ле-зис-тоо'), 'другие слова, English → V: обычный напев Ж');
+    await chantsPick(env, 'classic');
+    ok((await refCardText(env, 'ru', 'digits', '7')).includes(`напев: ${chantOfDigit('7')}`), 'обратно «Обычные»: 7 — обычный напев');
+    ok(env.errs.length === 0, 'другие слова: без ошибок — ' + env.errs.map(String).join(' | '));
   }
   global.setTimeout = realSetTimeout;
 }
